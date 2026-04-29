@@ -1,0 +1,23 @@
+// Configura variáveis de ambiente antes de qualquer import de módulo
+// Necessário porque env.ts lê process.env no momento do import
+
+process.env.NODE_ENV = 'test'
+process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/drosa_test'
+process.env.NUVEMSHOP_STORE_ID = 'test_store_id'
+process.env.NUVEMSHOP_ACCESS_TOKEN = 'test_nuvemshop_token'
+process.env.NUVEMSHOP_USER_AGENT = 'DrosaRecovery (test@test.com)'
+process.env.META_ACCESS_TOKEN = 'test_meta_token'
+process.env.META_PHONE_NUMBER_ID = 'test_phone_id'
+process.env.META_VERIFY_TOKEN = 'test_verify_token'
+process.env.META_APP_SECRET = 'test_meta_app_secret'
+process.env.ADMIN_SECRET = 'test_admin_secret'
+process.env.JOBS_SECRET = 'test_jobs_secret'
+process.env.WEBHOOK_SECRET = 'test_webhook_secret'
+process.env.CHECKOUT_BASE_URL = 'https://www.drosamoda.com.br/checkout/'
+process.env.MESSAGE_SEND_DELAY_MS = '0'
+process.env.MESSAGES_BATCH_SIZE = '10'
+process.env.MAX_RETRY_ATTEMPTS = '3'
+process.env.RETRY_BASE_DELAY_MS = '1000'
+process.env.ABANDONED_CART_LOOKBACK_HOURS = '2'
+process.env.SENTRY_DSN = ''
+process.env.WHATSAPP_DRY_RUN = 'false'

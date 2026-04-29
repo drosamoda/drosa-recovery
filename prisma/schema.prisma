@@ -1,0 +1,261 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =====================================================================
+// CUSTOMERS
+// =====================================================================
+
+model Customer {
+  id                        String    @id @default(cuid())
+  name                      String
+  email                     String?
+  phone                     String?
+  normalizedPhone           String
+  normalizedPhoneValidated  String?
+  phoneNote                 String?
+  optOut                    Boolean   @default(false)
+  source                    String?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  orders             Order[]
+  abandonedCheckouts AbandonedCheckout[]
+  messageLogs        MessageLog[]        @relation("CustomerMessages")
+
+  @@index([normalizedPhone])
+  @@index([email])
+  @@index([optOut])
+  @@map("customers")
+}
+
+// =====================================================================
+// ORDERS
+// =====================================================================
+
+model Order {
+  id                 String   @id @default(cuid())
+  nuvemshopOrderId   String   @unique
+  orderNumber        String
+  customerId         String?
+  customerName       String
+  customerEmail      String?
+  customerPhone      String?
+  normalizedPhone    String
+  total              Decimal  @db.Decimal(12, 2)
+  currency           String   @default("BRL")
+  paymentStatus      String
+  paymentMethod      String?
+  status             String
+  orderUrl           String?
+  webhookTopic       String?
+  rawPayload         Json
+  source             String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  customer    Customer?    @relation(fields: [customerId], references: [id])
+
+  @@index([nuvemshopOrderId])
+  @@index([normalizedPhone])
+  @@index([customerEmail])
+  @@index([paymentStatus])
+  @@index([status])
+  @@index([webhookTopic])
+  @@map("orders")
+}
+
+// =====================================================================
+// ABANDONED CHECKOUTS
+// =====================================================================
+
+model AbandonedCheckout {
+  id                    String    @id @default(cuid())
+  nuvemshopCheckoutId   String    @unique
+  token                 String?
+  customerId            String?
+  customerName          String
+  customerEmail         String?
+  customerPhone         String?
+  normalizedPhone       String
+  total                 Decimal?  @db.Decimal(12, 2)
+  currency              String    @default("BRL")
+  productsSummary       String?
+  abandonedCheckoutUrl  String
+  status                AbandonedCheckoutStatus @default(abandoned)
+  rawPayload            Json
+  firstSeenAt           DateTime
+  lastSeenAt            DateTime
+  convertedAt           DateTime?
+  source                String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  customer    Customer?    @relation(fields: [customerId], references: [id])
+
+  @@index([nuvemshopCheckoutId])
+  @@index([normalizedPhone])
+  @@index([customerEmail])
+  @@index([status])
+  @@index([convertedAt])
+  @@map("abandoned_checkouts")
+}
+
+enum AbandonedCheckoutStatus {
+  abandoned
+  converted
+  skipped
+}
+
+// =====================================================================
+// WHATSAPP TEMPLATES
+// =====================================================================
+
+model WhatsappTemplate {
+  id               String           @id @default(cuid())
+  name             String
+  eventType        String
+  metaTemplateName String
+  languageCode     String           @default("pt_BR")
+  category         TemplateCategory
+  messagePreview   String
+  variables        Json
+  active           Boolean          @default(true)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@index([eventType])
+  @@index([metaTemplateName])
+  @@index([active])
+  @@index([category])
+  @@map("whatsapp_templates")
+}
+
+enum TemplateCategory {
+  utility
+  marketing
+  authentication
+}
+
+// =====================================================================
+// AUTOMATION RULES
+// =====================================================================
+
+model AutomationRule {
+  id                String    @id @default(cuid())
+  name              String
+  eventType         EventType
+  templateName      String
+  delayMinutes      Int       @default(0)
+  active            Boolean   @default(true)
+  maxSendsPerEntity Int       @default(1)
+  stopIfOrderExists Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([eventType])
+  @@index([active])
+  @@index([templateName])
+  @@map("automation_rules")
+}
+
+enum EventType {
+  order_created
+  abandoned_checkout
+  order_created_boleto
+  boleto_expiring
+  order_created_pix
+  payment_confirmed
+  payment_rejected
+  pix_cancelled
+}
+
+// =====================================================================
+// MESSAGE LOGS
+// =====================================================================
+
+model MessageLog {
+  id              String           @id @default(cuid())
+  idempotencyKey  String
+  entityType      EntityType
+  entityId        String
+  customerId      String?
+  normalizedPhone String
+  templateName    String
+  status          MessageStatus    @default(pending)
+  reason          String?
+  errorCode       String?
+  metaMessageId   String?
+  payload         Json?
+  response        Json?
+  retryCount      Int              @default(0)
+  lastRetryAt     DateTime?
+  nextRetryAt     DateTime?
+  scheduledAt     DateTime
+  sentAt          DateTime?
+  source          String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  customer          Customer?          @relation("CustomerMessages", fields: [customerId], references: [id])
+
+  @@unique([idempotencyKey])
+  @@index([normalizedPhone])
+  @@index([status])
+  @@index([scheduledAt])
+  @@index([metaMessageId])
+  @@index([entityType, entityId, templateName])
+  @@map("message_logs")
+}
+
+enum EntityType {
+  order
+  abandoned_checkout
+}
+
+enum MessageStatus {
+  pending
+  processing
+  sent
+  delivered
+  read
+  failed
+  skipped
+}
+
+// =====================================================================
+// WEBHOOK EVENTS
+// =====================================================================
+
+model WebhookEvent {
+  id          String          @id @default(cuid())
+  provider    WebhookProvider
+  topic       String?
+  externalId  String?
+  hmacValid   Boolean?
+  rawPayload  Json
+  headers     Json
+  processed   Boolean         @default(false)
+  processedAt DateTime?
+  error       String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([provider])
+  @@index([topic])
+  @@index([externalId])
+  @@index([processed])
+  @@index([createdAt])
+  @@map("webhook_events")
+}
+
+enum WebhookProvider {
+  nuvemshop
+  meta
+  mercado_pago_future
+}

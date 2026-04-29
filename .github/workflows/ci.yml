@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    name: Typecheck · Lint · Tests · Build
+    runs-on: ubuntu-latest
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://test:test@localhost:5432/drosa_test
+      NUVEMSHOP_STORE_ID: ci_store
+      NUVEMSHOP_ACCESS_TOKEN: ci_token
+      META_ACCESS_TOKEN: ci_meta_token
+      META_PHONE_NUMBER_ID: ci_phone_id
+      META_VERIFY_TOKEN: ci_verify_token
+      META_APP_SECRET: ci_app_secret
+      ADMIN_SECRET: ci_admin_secret
+      JOBS_SECRET: ci_jobs_secret
+      WEBHOOK_SECRET: ci_webhook_secret
+      CHECKOUT_BASE_URL: https://www.drosamoda.com.br/checkout/
+      SENTRY_DSN: ""
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Gerar Prisma Client
+        run: npx prisma generate
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Testes unitários
+        run: npm run test:unit
+
+      - name: Testes de integração
+        run: npm run test:integration
+
+      - name: Build
+        run: npm run build
