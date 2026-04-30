@@ -1,10 +1,13 @@
 import 'express-async-errors'
 import express from 'express'
+import cron from 'node-cron'
 import { env } from './config/env'
 import { initSentry } from './config/sentry'
 import { logger } from './config/logger'
 import { captureRawBody } from './middlewares/rawBody'
 import { requestId } from './middlewares/requestId'
+import { runProcessMessages } from './jobs/processMessages'
+import { runSyncAbandonedCheckouts } from './jobs/syncAbandonedCheckouts'
 
 import healthRoutes from './routes/health.routes'
 import docsRoutes from './routes/docs.routes'
@@ -48,6 +51,36 @@ if (env.NODE_ENV !== 'test') {
     logger.info(`D'Rosa Recovery iniciado`, {
       port: env.PORT,
       environment: env.NODE_ENV,
+    })
+
+    // ── Cron jobs internos ────────────────────────────────────────────
+    // process-messages: a cada 1 minuto
+    cron.schedule(`*/${env.CRON_PROCESS_MESSAGES_INTERVAL} * * * *`, async () => {
+      try {
+        const result = await runProcessMessages()
+        if (result.found > 0) {
+          logger.info('[cron] process-messages', result)
+        }
+      } catch (err) {
+        logger.error('[cron] process-messages erro', { error: String(err) })
+      }
+    })
+
+    // sync-abandoned-checkouts: a cada 15 minutos
+    cron.schedule(`*/${env.CRON_ABANDONED_CART_INTERVAL} * * * *`, async () => {
+      try {
+        const result = await runSyncAbandonedCheckouts()
+        if (result.found > 0) {
+          logger.info('[cron] sync-abandoned-checkouts', result)
+        }
+      } catch (err) {
+        logger.error('[cron] sync-abandoned-checkouts erro', { error: String(err) })
+      }
+    })
+
+    logger.info('[cron] jobs agendados', {
+      processMessages: `a cada ${env.CRON_PROCESS_MESSAGES_INTERVAL} min`,
+      syncAbandonedCheckouts: `a cada ${env.CRON_ABANDONED_CART_INTERVAL} min`,
     })
   })
 }
