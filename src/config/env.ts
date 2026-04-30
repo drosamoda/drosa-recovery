@@ -10,6 +10,8 @@ const envSchema = z.object({
 
   NUVEMSHOP_STORE_ID: z.string().min(1, 'NUVEMSHOP_STORE_ID é obrigatório'),
   NUVEMSHOP_ACCESS_TOKEN: z.string().default(''),
+  NUVEMSHOP_CLIENT_ID: z.string().default(''),
+  NUVEMSHOP_CLIENT_SECRET: z.string().default(''),
   NUVEMSHOP_USER_AGENT: z.string().default('DrosaRecovery (contato@drosamoda.com.br)'),
   NUVEMSHOP_API_VERSION: z.string().default('v1'),
   WEBHOOK_SECRET: z.string().default(''),
