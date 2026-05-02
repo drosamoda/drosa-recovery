@@ -147,8 +147,7 @@ async function revalidate(msg: MessageLog): Promise<ValidationResult> {
         to: msg.normalizedPhone,
         templateName: msg.templateName,
         languageCode: template.languageCode,
-        bodyParams: [customerName.trim().split(' ')[0]],
-        buttonUrlParam: suffix,
+        bodyParams: [customerName.trim().split(' ')[0], checkout.abandonedCheckoutUrl],
       },
     }
   }
