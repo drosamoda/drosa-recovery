@@ -1,5 +1,6 @@
 import 'express-async-errors'
 import express from 'express'
+import cors from 'cors'
 import cron from 'node-cron'
 import { env } from './config/env'
 import { initSentry } from './config/sentry'
@@ -24,6 +25,17 @@ import { jobsAuth } from './middlewares/jobsAuth'
 initSentry()
 
 const app = express()
+
+// CORS — permite requests do dashboard Lovable e desenvolvimento local
+app.use(cors({
+  origin: [
+    'https://drosa-insight-hub.lovable.app',
+    'http://localhost:3000',
+    'http://localhost:5173',
+  ],
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'x-admin-secret', 'x-jobs-secret'],
+}))
 
 app.use(requestId)
 app.use(express.json({ verify: captureRawBody }))
