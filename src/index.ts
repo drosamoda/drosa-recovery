@@ -27,17 +27,23 @@ initSentry()
 
 const app = express()
 
-const corsOptions = {
-  origin: [
-    'https://drosa-insight-hub.lovable.app',
-    'http://localhost:3000',
-    'http://localhost:5173',
-  ],
+const ALLOWED_ORIGINS = [
+  /^https:\/\/[\w-]+\.lovable\.app$/,
+  /^http:\/\/localhost:\d+$/,
+]
+
+const corsOptions: cors.CorsOptions = {
+  origin: (origin, callback) => {
+    // Permite requisições sem origin (ex: curl, Postman, Railway health check)
+    if (!origin) return callback(null, true)
+    const allowed = ALLOWED_ORIGINS.some((pattern) => pattern.test(origin))
+    callback(allowed ? null : new Error('CORS bloqueado'), allowed)
+  },
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'x-admin-secret', 'x-jobs-secret'],
 }
 
-// CORS — permite requests do dashboard Lovable e desenvolvimento local
+// CORS — aceita qualquer subdomínio *.lovable.app e localhost
 // Explicit OPTIONS handler must come before all other routes
 app.options('*', cors(corsOptions))
 app.use(cors(corsOptions))
