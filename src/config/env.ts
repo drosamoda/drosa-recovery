@@ -28,6 +28,7 @@ const envSchema = z.object({
 
   ORDER_CONFIRMATION_TEMPLATE: z.string().default('confirmacao_pedido_drosa'),
   ABANDONED_CART_TEMPLATE: z.string().default('carrinho_abandonado_drosa_01'),
+  GRUPO_VIP_LINK: z.string().default('https://chat.whatsapp.com/GTb6T94rZciFXY94C0mGug'),
 
   CHECKOUT_BASE_URL: z.string().default('https://www.drosamoda.com.br/checkout/'),
 
