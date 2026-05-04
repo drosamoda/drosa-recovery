@@ -15,14 +15,14 @@ export async function runSyncBoletoExpiring(): Promise<BoletoExpiringResult> {
   const result: BoletoExpiringResult = { found: 0, scheduled: 0 }
 
   const now = new Date()
-  const expiryMs = env.BOLETO_EXPIRY_HOURS * 60 * 60 * 1000
-  const warnMs = env.BOLETO_WARN_BEFORE_EXPIRY_HOURS * 60 * 60 * 1000
+  const notifyMs = env.BOLETO_NOTIFY_HOURS * 60 * 60 * 1000
+  const cronWindowMs = env.CRON_BOLETO_EXPIRING_INTERVAL * 60 * 1000
 
-  // Busca pedidos criados na janela onde o boleto ainda não venceu mas está próximo:
-  // createdAt entre (now - EXPIRY_HOURS) e (now - (EXPIRY_HOURS - WARN_HOURS))
-  // Ex: EXPIRY=48h, WARN=24h → pedidos criados entre 48h e 24h atrás
-  const createdFrom = new Date(now.getTime() - expiryMs)
-  const createdTo = new Date(now.getTime() - (expiryMs - warnMs))
+  // Busca pedidos criados na janela [now - NOTIFY_HOURS - CRON_INTERVAL, now - NOTIFY_HOURS]
+  // Ex: NOTIFY=48h, cron=60min → pedidos criados entre 49h e 48h atrás
+  // A chave de idempotência garante que cada pedido só recebe uma mensagem
+  const createdTo = new Date(now.getTime() - notifyMs)
+  const createdFrom = new Date(createdTo.getTime() - cronWindowMs)
 
   const orders = await prisma.order.findMany({
     where: {

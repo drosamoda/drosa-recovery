@@ -42,8 +42,8 @@ const envSchema = z.object({
   CRON_PROCESS_MESSAGES_INTERVAL: z.coerce.number().default(1),
   CRON_BOLETO_EXPIRING_INTERVAL: z.coerce.number().default(60),
   ABANDONED_CART_LOOKBACK_HOURS: z.coerce.number().default(2),
-  BOLETO_EXPIRY_HOURS: z.coerce.number().default(48),
-  BOLETO_WARN_BEFORE_EXPIRY_HOURS: z.coerce.number().default(24),
+  // Horas após o pedido para disparar mensagem de boleto vencendo (padrão: 48h = 2 dias)
+  BOLETO_NOTIFY_HOURS: z.coerce.number().default(48),
 
   SENTRY_DSN: z.string().default(''),
   SENTRY_ENVIRONMENT: z.string().default('development'),
