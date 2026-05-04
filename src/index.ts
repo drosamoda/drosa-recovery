@@ -60,9 +60,9 @@ app.use('/webhooks/nuvemshop', nuvemshopWebhookRoutes)
 app.use('/webhooks/meta', metaWebhookRoutes)
 
 // ── Rotas protegidas ───────────────────────────────────────────────────
-app.use('/admin', adminAuth, adminRoutes)
+app.use('/admin', adminRoutes)
 app.use('/jobs', jobsAuth, jobsRoutes)
-app.use('/customers', adminAuth, customersRoutes)
+app.use('/customers', customersRoutes)
 
 // ── 404 ────────────────────────────────────────────────────────────────
 app.use((_req, res) => {
