@@ -4,7 +4,7 @@ import { addMinutes } from '../helpers/dateService'
 import { customerService } from './customerService'
 import { messageService } from './messageService'
 import { webhookEventService } from './webhookEventService'
-import { AbandonedCheckoutStatus } from '@prisma/client'
+import { AbandonedCheckoutStatus, EventType } from '@prisma/client'
 import { logger } from '../config/logger'
 
 // Formato esperado do payload de pedido da Nuvemshop
@@ -29,6 +29,51 @@ type HandleWebhookParams = {
   webhookEventId: string
 }
 
+// Detecta tipo de pagamento a partir do campo payment_details.method
+export function detectPaymentType(method: string | null | undefined): 'boleto' | 'pix' | 'other' {
+  if (!method) return 'other'
+  const m = method.toLowerCase()
+  if (m.includes('boleto') || m.includes('ticket')) return 'boleto'
+  if (m.includes('pix')) return 'pix'
+  return 'other'
+}
+
+// Agenda mensagem para um pedido dado um EventType — idempotente via chave única
+async function scheduleOrderMessage(
+  orderId: string,
+  customerId: string,
+  customerOptOut: boolean,
+  normalizedPhone: string,
+  eventType: EventType
+): Promise<void> {
+  if (customerOptOut) return
+
+  const rule = await prisma.automationRule.findFirst({
+    where: { eventType, active: true },
+  })
+  if (!rule) return
+
+  const template = await prisma.whatsappTemplate.findFirst({
+    where: { metaTemplateName: rule.templateName, active: true },
+  })
+  if (!template) return
+
+  const alreadyBlocked = await messageService.existsBlockingLog('order', orderId, rule.templateName)
+  if (alreadyBlocked) return
+
+  await messageService.createPendingMessageIfNotExists({
+    entityType: 'order',
+    entityId: orderId,
+    customerId,
+    normalizedPhone,
+    templateName: rule.templateName,
+    scheduledAt: addMinutes(new Date(), rule.delayMinutes),
+    source: 'nuvemshop_webhook',
+  })
+
+  logger.info('[orderService] mensagem agendada', { orderId, eventType, templateName: rule.templateName })
+}
+
 export const orderService = {
   async handleNuvemshopOrderWebhook(params: HandleWebhookParams): Promise<void> {
     const { payload, webhookEventId } = params
@@ -47,6 +92,8 @@ export const orderService = {
     const orderUrl = payload.checkout_url ?? null
     const webhookTopic = (params.headers['x-linkedstore-topic'] as string) ?? null
 
+    const paymentType = detectPaymentType(paymentMethod)
+
     try {
       // Upsert do customer fora da transação (não aceita tx como parâmetro)
       const customer = await customerService.upsertCustomer({
@@ -58,17 +105,18 @@ export const orderService = {
       })
 
       // ----------------------------------------------------------------
-      // Transação: order → converter carrinhos → agendar msg
+      // Transação: order → converter carrinhos
       // ----------------------------------------------------------------
-      await prisma.$transaction(async (tx) => {
-        // 2. Upsert order (idempotência por nuvemshop_order_id)
+      const { savedOrderId, isNew } = await prisma.$transaction(async (tx) => {
         const existingOrder = await tx.order.findUnique({
           where: { nuvemshopOrderId },
         })
 
-        let order
+        let savedOrder: { id: string }
+        let isNew = false
+
         if (existingOrder) {
-          order = await tx.order.update({
+          savedOrder = await tx.order.update({
             where: { id: existingOrder.id },
             data: {
               status,
@@ -81,7 +129,8 @@ export const orderService = {
             },
           })
         } else {
-          order = await tx.order.create({
+          isNew = true
+          savedOrder = await tx.order.create({
             data: {
               nuvemshopOrderId,
               orderNumber,
@@ -103,7 +152,7 @@ export const orderService = {
           })
         }
 
-        // 3. Marcar carrinhos abandonados como convertidos
+        // Marcar carrinhos abandonados como convertidos
         const matchConditions = []
         if (normalizedPhone) matchConditions.push({ normalizedPhone })
         if (customerEmail) matchConditions.push({ customerEmail })
@@ -125,7 +174,6 @@ export const orderService = {
               },
             })
 
-            // Cancela message_logs pending desse carrinho
             await messageService.skipPendingCheckoutLogs(
               checkout.id,
               'converted_before_send'
@@ -133,40 +181,34 @@ export const orderService = {
           }
         }
 
-        // 4. Agendar mensagem de confirmação de pedido
-        // Só agenda se for um pedido novo (não atualização)
-        if (!existingOrder && normalizedPhone) {
-          const rule = await tx.automationRule.findFirst({
-            where: { eventType: 'order_created', active: true },
-          })
+        return { savedOrderId: savedOrder.id, isNew }
+      })
 
-          const template = rule
-            ? await tx.whatsappTemplate.findFirst({
-                where: { metaTemplateName: rule.templateName, active: true },
-              })
-            : null
-
-          if (rule && template && !customer.optOut) {
-            const alreadyBlocked = await messageService.existsBlockingLog(
-              'order',
-              order.id,
-              rule.templateName
-            )
-
-            if (!alreadyBlocked) {
-              await messageService.createPendingMessageIfNotExists({
-                entityType: 'order',
-                entityId: order.id,
-                customerId: customer.id,
-                normalizedPhone,
-                templateName: rule.templateName,
-                scheduledAt: addMinutes(new Date(), rule.delayMinutes),
-                source: 'nuvemshop_webhook',
-              })
-            }
+      // ----------------------------------------------------------------
+      // Agendar mensagens — fora da transação, protegido por idempotencyKey
+      // ----------------------------------------------------------------
+      if (normalizedPhone) {
+        if (isNew) {
+          // Pedido novo — escolhe evento pelo método de pagamento
+          let newOrderEvent: EventType
+          if (paymentType === 'boleto') {
+            newOrderEvent = EventType.order_created_boleto
+          } else if (paymentType === 'pix') {
+            newOrderEvent = EventType.order_created_pix
+          } else {
+            newOrderEvent = EventType.order_created
+          }
+          await scheduleOrderMessage(savedOrderId, customer.id, customer.optOut, normalizedPhone, newOrderEvent)
+        } else {
+          // Pedido atualizado — verifica transições de status
+          if (paymentStatus === 'rejected') {
+            await scheduleOrderMessage(savedOrderId, customer.id, customer.optOut, normalizedPhone, EventType.payment_rejected)
+          }
+          if (status === 'cancelled' && paymentType === 'pix') {
+            await scheduleOrderMessage(savedOrderId, customer.id, customer.optOut, normalizedPhone, EventType.pix_cancelled)
           }
         }
-      })
+      }
 
       await webhookEventService.markProcessed(webhookEventId)
     } catch (err) {

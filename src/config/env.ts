@@ -40,7 +40,10 @@ const envSchema = z.object({
 
   CRON_ABANDONED_CART_INTERVAL: z.coerce.number().default(15),
   CRON_PROCESS_MESSAGES_INTERVAL: z.coerce.number().default(1),
+  CRON_BOLETO_EXPIRING_INTERVAL: z.coerce.number().default(60),
   ABANDONED_CART_LOOKBACK_HOURS: z.coerce.number().default(2),
+  BOLETO_EXPIRY_HOURS: z.coerce.number().default(48),
+  BOLETO_WARN_BEFORE_EXPIRY_HOURS: z.coerce.number().default(24),
 
   SENTRY_DSN: z.string().default(''),
   SENTRY_ENVIRONMENT: z.string().default('development'),

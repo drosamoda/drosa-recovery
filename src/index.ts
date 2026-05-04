@@ -9,6 +9,7 @@ import { captureRawBody } from './middlewares/rawBody'
 import { requestId } from './middlewares/requestId'
 import { runProcessMessages } from './jobs/processMessages'
 import { runSyncAbandonedCheckouts } from './jobs/syncAbandonedCheckouts'
+import { runSyncBoletoExpiring } from './jobs/syncBoletoExpiring'
 
 import healthRoutes from './routes/health.routes'
 import docsRoutes from './routes/docs.routes'
@@ -94,9 +95,22 @@ if (env.NODE_ENV !== 'test') {
       }
     })
 
+    // sync-boleto-expiring: a cada CRON_BOLETO_EXPIRING_INTERVAL minutos (padrão 60)
+    cron.schedule(`*/${env.CRON_BOLETO_EXPIRING_INTERVAL} * * * *`, async () => {
+      try {
+        const result = await runSyncBoletoExpiring()
+        if (result.found > 0) {
+          logger.info('[cron] sync-boleto-expiring', result)
+        }
+      } catch (err) {
+        logger.error('[cron] sync-boleto-expiring erro', { error: String(err) })
+      }
+    })
+
     logger.info('[cron] jobs agendados', {
       processMessages: `a cada ${env.CRON_PROCESS_MESSAGES_INTERVAL} min`,
       syncAbandonedCheckouts: `a cada ${env.CRON_ABANDONED_CART_INTERVAL} min`,
+      syncBoletoExpiring: `a cada ${env.CRON_BOLETO_EXPIRING_INTERVAL} min`,
     })
   })
 }
