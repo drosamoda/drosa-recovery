@@ -167,22 +167,13 @@ async function revalidate(msg: MessageLog): Promise<ValidationResult> {
       return { ok: false, reason: 'missing_template_variable' }
     }
 
-    const templateVars = Array.isArray(template.variables) ? (template.variables as string[]) : []
-    const hasGrupoVip = templateVars.includes('link_grupo_vip')
-
-    const bodyParams = [
-      customerName.trim().split(' ')[0],
-      orderNumber,
-      ...(hasGrupoVip ? [env.GRUPO_VIP_LINK] : []),
-    ]
-
     return {
       ok: true,
       params: {
         to: msg.normalizedPhone,
         templateName: msg.templateName,
         languageCode: template.languageCode,
-        bodyParams,
+        bodyParams: [customerName.trim().split(' ')[0], orderNumber],
       },
     }
   }
