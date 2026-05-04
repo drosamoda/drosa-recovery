@@ -26,8 +26,7 @@ initSentry()
 
 const app = express()
 
-// CORS — permite requests do dashboard Lovable e desenvolvimento local
-app.use(cors({
+const corsOptions = {
   origin: [
     'https://drosa-insight-hub.lovable.app',
     'http://localhost:3000',
@@ -35,7 +34,12 @@ app.use(cors({
   ],
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'x-admin-secret', 'x-jobs-secret'],
-}))
+}
+
+// CORS — permite requests do dashboard Lovable e desenvolvimento local
+// Explicit OPTIONS handler must come before all other routes
+app.options('*', cors(corsOptions))
+app.use(cors(corsOptions))
 
 app.use(requestId)
 app.use(express.json({ verify: captureRawBody }))
