@@ -265,6 +265,32 @@ describe('inboxService.mirrorAutomationMessage', () => {
     }))
   })
 
+  it('prefere preview real do payload quando existir', async () => {
+    const contact = { id: 'contact-1', phone: '5583999999999', name: null }
+    const conversation = { id: 'conversation-1', contactId: contact.id }
+
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.contact.create).mockResolvedValue(contact as never)
+    vi.mocked(prisma.chatMessage.findFirst).mockResolvedValue(null)
+    vi.mocked(prisma.conversation.findFirst).mockResolvedValue(conversation as never)
+    vi.mocked(prisma.chatMessage.create).mockResolvedValue({ id: 'chat-1' } as never)
+    vi.mocked(prisma.conversation.update).mockResolvedValue(conversation as never)
+
+    await inboxService.mirrorAutomationMessage({
+      phone: '5583999999999',
+      metaMessageId: 'wamid.auto.preview',
+      templateName: 'confirmacao_pedido_drosa',
+      status: 'sent',
+      payload: { messagePreview: 'Oi Maria, seu pedido foi confirmado.' },
+    })
+
+    expect(prisma.chatMessage.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        body: 'Oi Maria, seu pedido foi confirmado.',
+      }),
+    }))
+  })
+
   it('usa customerName do pedido no contato ao espelhar automacao de order', async () => {
     const contact = { id: 'contact-1', phone: '5583999999999', name: 'Maria Silva' }
     const conversation = { id: 'conversation-1', contactId: contact.id }

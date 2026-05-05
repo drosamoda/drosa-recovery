@@ -11,6 +11,7 @@ import {
   WHATSAPP_24H_WINDOW_ERROR,
   isWithinWhatsappCustomerCareWindow,
 } from '../helpers/inboxWindow'
+import { extractTemplatePreview, getFriendlyTemplatePreview } from '../helpers/inboxTemplatePreview'
 import { whatsappService } from './whatsappService'
 
 export type InboxMessageType =
@@ -118,17 +119,6 @@ function extractMessageBody(msg: MetaMessage): string | undefined {
 function isPlaceholderName(name?: string | null): boolean {
   const normalized = name?.trim().toLowerCase()
   return !normalized || normalized === 'sem nome' || normalized === 'cliente'
-}
-
-function friendlyTemplateBody(templateName: string): string {
-  const map: Record<string, string> = {
-    confirmacao_pedido_drosa: 'Confirmação de pedido enviada',
-    pix_pendente_drosa_01: 'Lembrete de Pix pendente enviado',
-    pedido_boleto_drosa_01: 'Lembrete de boleto enviado',
-    carrinho_abandonado_drosa_01: 'Mensagem de carrinho abandonado enviada',
-  }
-
-  return map[templateName] ?? templateName
 }
 
 async function getAutomationEntityContext(params: MirrorAutomationMessageParams): Promise<AutomationEntityContext> {
@@ -380,7 +370,10 @@ export const inboxService = {
     }
 
     const timestamp = params.sentAt ?? new Date()
-    const body = params.body?.trim() || friendlyTemplateBody(params.templateName)
+    const body =
+      params.body?.trim() ||
+      extractTemplatePreview(params.payload) ||
+      getFriendlyTemplatePreview(params.templateName)
 
     await prisma.chatMessage.create({
       data: {
