@@ -20,6 +20,13 @@ export type SendTemplateResult = {
   reason?: string
 }
 
+export type SendTextMessageParams = {
+  to: string
+  text: string
+}
+
+export type SendTextMessageResult = SendTemplateResult
+
 // Códigos de erro Meta classificados como temporários (retry faz sentido)
 const TEMPORARY_ERROR_CODES = new Set([131056, 130429])
 
@@ -64,6 +71,82 @@ function buildComponents(
 }
 
 export const whatsappService = {
+  async sendTextMessage(params: SendTextMessageParams): Promise<SendTextMessageResult> {
+    const { to, text } = params
+
+    const url = `https://graph.facebook.com/${env.META_API_VERSION}/${env.META_PHONE_NUMBER_ID}/messages`
+
+    const payload = {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'text',
+      text: {
+        preview_url: false,
+        body: text,
+      },
+    }
+
+    try {
+      const response = await axios.post(url, payload, {
+        headers: {
+          Authorization: `Bearer ${env.META_ACCESS_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: env.META_REQUEST_TIMEOUT_MS,
+      })
+
+      const metaMessageId =
+        response.data?.messages?.[0]?.id ?? undefined
+
+      return {
+        success: true,
+        metaMessageId,
+        response: response.data,
+      }
+    } catch (err) {
+      if (err instanceof AxiosError) {
+        if (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT') {
+          return {
+            success: false,
+            errorType: 'temporary',
+            reason: 'network_timeout',
+            errorCode: err.code,
+          }
+        }
+
+        const status = err.response?.status
+        const errorData = err.response?.data?.error
+        const metaCode: number | undefined = errorData?.code
+        const errorType = metaCode
+          ? classifyMetaErrorCode(metaCode)
+          : status
+            ? classifyHttpStatus(status)
+            : 'temporary'
+
+        logger.error('[whatsapp] erro ao enviar texto manual', undefined, {
+          httpStatus: status ?? 'N/A',
+          metaCode: metaCode ?? 'N/A',
+          message: errorData?.message ?? err.message,
+        })
+
+        return {
+          success: false,
+          errorType,
+          errorCode: metaCode ? String(metaCode) : String(status ?? 'unknown'),
+          reason: errorData?.message ?? err.message,
+          response: err.response?.data,
+        }
+      }
+
+      return {
+        success: false,
+        errorType: 'temporary',
+        reason: 'unexpected_error',
+        errorCode: 'unknown',
+      }
+    }
+  },
+
   async sendTemplateMessage(params: SendTemplateParams): Promise<SendTemplateResult> {
     const { to, templateName, languageCode = 'pt_BR', bodyParams, buttonUrlParam } = params
 

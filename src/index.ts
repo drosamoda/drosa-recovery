@@ -2,6 +2,7 @@ import 'express-async-errors'
 import express from 'express'
 import cors from 'cors'
 import cron from 'node-cron'
+import path from 'path'
 import { env } from './config/env'
 import { initSentry } from './config/sentry'
 import { logger } from './config/logger'
@@ -16,11 +17,13 @@ import docsRoutes from './routes/docs.routes'
 import adminRoutes from './routes/admin.routes'
 import jobsRoutes from './routes/jobs.routes'
 import customersRoutes from './routes/customers.routes'
+import inboxRoutes from './routes/inbox.routes'
 import nuvemshopWebhookRoutes from './routes/webhooks.nuvemshop.routes'
 import metaWebhookRoutes from './routes/webhooks.meta.routes'
 
 import { adminAuth } from './middlewares/adminAuth'
 import { jobsAuth } from './middlewares/jobsAuth'
+import { inboxAuth } from './middlewares/inboxAuth'
 
 // Inicializa Sentry antes de qualquer rota (opcional — sem DSN não faz nada)
 initSentry()
@@ -40,7 +43,7 @@ const corsOptions: cors.CorsOptions = {
     callback(allowed ? null : new Error('CORS bloqueado'), allowed)
   },
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'x-admin-secret', 'x-jobs-secret'],
+  allowedHeaders: ['Content-Type', 'x-admin-secret', 'x-jobs-secret', 'x-inbox-admin-secret'],
 }
 
 // CORS — aceita qualquer subdomínio *.lovable.app e localhost
@@ -50,6 +53,7 @@ app.use(cors(corsOptions))
 
 app.use(requestId)
 app.use(express.json({ verify: captureRawBody }))
+app.use('/inbox-assets', express.static(path.join(process.cwd(), 'public', 'inbox')))
 
 // ── Rotas públicas ─────────────────────────────────────────────────────
 app.use('/health', healthRoutes)
@@ -59,10 +63,15 @@ app.use('/docs', docsRoutes)
 app.use('/webhooks/nuvemshop', nuvemshopWebhookRoutes)
 app.use('/webhooks/meta', metaWebhookRoutes)
 
+app.get('/inbox', (_req, res) => {
+  res.sendFile(path.join(process.cwd(), 'public', 'inbox', 'index.html'))
+})
+
 // ── Rotas protegidas ───────────────────────────────────────────────────
 app.use('/admin', adminRoutes)
 app.use('/jobs', jobsAuth, jobsRoutes)
 app.use('/customers', customersRoutes)
+app.use('/inbox', inboxAuth, inboxRoutes)
 
 // ── 404 ────────────────────────────────────────────────────────────────
 app.use((_req, res) => {

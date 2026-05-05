@@ -23,6 +23,12 @@ vi.mock('../../services/customerService', () => ({
   },
 }))
 
+vi.mock('../../services/inboxService', () => ({
+  inboxService: {
+    saveInboundMessagesFromMetaPayload: vi.fn().mockResolvedValue({ saved: 1, skipped: 0 }),
+  },
+}))
+
 const META_APP_SECRET = process.env.META_APP_SECRET!
 const META_VERIFY_TOKEN = process.env.META_VERIFY_TOKEN!
 

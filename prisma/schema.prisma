@@ -230,6 +230,88 @@ enum MessageStatus {
 }
 
 // =====================================================================
+// MANUAL INBOX
+// =====================================================================
+
+model Contact {
+  id        String   @id @default(cuid())
+  phone     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  conversations Conversation[]
+
+  @@index([phone])
+  @@map("contacts")
+}
+
+model Conversation {
+  id            String             @id @default(cuid())
+  contactId     String
+  status        ConversationStatus @default(open)
+  assignedTo    String?
+  lastMessageAt DateTime?
+  lastInboundAt DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  contact  Contact       @relation(fields: [contactId], references: [id])
+  messages ChatMessage[]
+
+  @@index([contactId])
+  @@index([status])
+  @@index([lastMessageAt])
+  @@index([lastInboundAt])
+  @@map("conversations")
+}
+
+model ChatMessage {
+  id             String           @id @default(cuid())
+  conversationId String
+  waMessageId    String?          @unique
+  direction      MessageDirection
+  type           ChatMessageType
+  body           String?
+  rawPayload     Json?
+  status         String?
+  timestamp      DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+
+  @@index([conversationId])
+  @@index([direction])
+  @@index([type])
+  @@index([timestamp])
+  @@index([createdAt])
+  @@map("chat_messages")
+}
+
+enum ConversationStatus {
+  open
+  pending
+  closed
+}
+
+enum MessageDirection {
+  inbound
+  outbound
+}
+
+enum ChatMessageType {
+  text
+  image
+  audio
+  document
+  sticker
+  interactive
+  template
+  other
+}
+
+// =====================================================================
 // WEBHOOK EVENTS
 // =====================================================================
 

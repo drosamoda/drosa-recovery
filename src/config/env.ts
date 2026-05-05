@@ -25,6 +25,8 @@ const envSchema = z.object({
 
   ADMIN_SECRET: z.string().min(1, 'ADMIN_SECRET é obrigatório'),
   JOBS_SECRET: z.string().min(1, 'JOBS_SECRET é obrigatório'),
+  INBOX_ADMIN_SECRET: z.string().default(''),
+  INBOX_SEND_DRY_RUN: z.string().default('false').transform((v) => v === 'true'),
 
   ORDER_CONFIRMATION_TEMPLATE: z.string().default('confirmacao_pedido_drosa'),
   ABANDONED_CART_TEMPLATE: z.string().default('carrinho_abandonado_drosa_01'),
@@ -52,6 +54,8 @@ const envSchema = z.object({
   // Quando true, processMessages monta o payload mas NÃO chama a Meta Cloud API.
   // Marca a mensagem como sent com reason=dry_run. Útil para homologação local.
   WHATSAPP_DRY_RUN: z.string().default('false').transform((v) => v === 'true'),
+  WHATSAPP_API_NUMBER: z.string().default(''),
+  META_WABA_ID: z.string().default(''),
 })
 
 const parsed = envSchema.safeParse(process.env)

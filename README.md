@@ -60,6 +60,7 @@ Preencha as variáveis obrigatórias:
 | `META_APP_SECRET` | App Secret do app Meta (para validar assinatura) |
 | `ADMIN_SECRET` | Secret para rotas `/admin` (`x-admin-secret`) |
 | `JOBS_SECRET` | Secret para rotas `/jobs` (`x-jobs-secret`) |
+| `INBOX_ADMIN_SECRET` | Secret para acessar a inbox manual (`x-inbox-admin-secret`) |
 | `WEBHOOK_SECRET` | Secret HMAC configurado na Nuvemshop |
 
 > **Nunca versione o arquivo `.env`.** Ele já está no `.gitignore`.
@@ -176,6 +177,54 @@ O sistema valida `x-hub-signature-256` com HMAC-SHA256.
 ---
 
 ## Testando os fluxos
+
+### Inbox WhatsApp manual
+
+A tela simples de atendimento fica em:
+
+```
+http://localhost:3000/inbox
+```
+
+Na primeira abertura, informe o valor de `INBOX_ADMIN_SECRET` no campo da tela e clique em **Salvar**. O segredo fica salvo apenas no `localStorage` do navegador e é enviado como header `x-inbox-admin-secret` nas requisições da inbox. Tokens da Meta não são usados no frontend.
+
+Para testar respostas pela tela sem disparar mensagem real na WhatsApp Cloud API, use em ambiente local:
+
+```env
+INBOX_SEND_DRY_RUN=true
+```
+
+Com `NODE_ENV !== "production"` e `INBOX_SEND_DRY_RUN=true`, o envio manual salva a mensagem outbound com status `dry_run`, atualiza a conversa e retorna sucesso sem chamar a API da Meta. Em produção, esse modo não altera o envio real.
+
+Para simular uma mensagem inbound localmente:
+
+```powershell
+curl.exe -X POST "http://localhost:3000/inbox/dev/simulate-inbound" `
+  -H "Content-Type: application/json" `
+  -H "x-inbox-admin-secret: SEU_INBOX_ADMIN_SECRET" `
+  -d "{\"phone\":\"5583999999999\",\"name\":\"Cliente Teste\",\"text\":\"Oi, quero atendimento\"}"
+```
+
+Depois:
+
+1. Acesse `http://localhost:3000/inbox`.
+2. Informe o `INBOX_ADMIN_SECRET`.
+3. Clique em **Atualizar**.
+4. Abra a conversa na lateral.
+5. Digite a resposta e clique em **Enviar**.
+
+Se a conversa estiver fora da janela de 24h da WhatsApp Cloud API, a tela mostra:
+
+```
+Fora da janela de 24h. Use um template aprovado para retomar a conversa.
+```
+
+Também é possível validar a lista pela API:
+
+```powershell
+curl.exe "http://localhost:3000/inbox/conversations" `
+  -H "x-inbox-admin-secret: SEU_INBOX_ADMIN_SECRET"
+```
 
 ### Confirmação de pedido
 

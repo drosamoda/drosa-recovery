@@ -3,6 +3,7 @@ import { metaWebhookValidator } from '../middlewares/metaWebhookValidator'
 import { webhookEventService } from '../services/webhookEventService'
 import { messageService } from '../services/messageService'
 import { customerService } from '../services/customerService'
+import { inboxService } from '../services/inboxService'
 import { normalizePhoneBrazil } from '../helpers/phoneService'
 import { MessageStatus } from '@prisma/client'
 import { env } from '../config/env'
@@ -68,6 +69,15 @@ router.post('/', metaWebhookValidator, async (req: Request, res: Response) => {
 })
 
 async function processMetaWebhook(payload: unknown, eventId: string): Promise<void> {
+  try {
+    const result = await inboxService.saveInboundMessagesFromMetaPayload(payload)
+    if (result.saved > 0) {
+      logger.info('[webhook/meta] mensagens inbound salvas na inbox', result)
+    }
+  } catch (err) {
+    logger.error('[webhook/meta] falha ao salvar mensagens na inbox', err)
+  }
+
   const body = payload as Record<string, unknown>
   const entries = (body?.entry as unknown[]) ?? []
 

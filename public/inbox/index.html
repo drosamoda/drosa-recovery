@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Inbox WhatsApp D'Rosa</title>
+    <link rel="stylesheet" href="/inbox-assets/app.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>Inbox WhatsApp D'Rosa</h1>
+          <p id="connectionStatus">Configure o segredo da inbox para carregar as conversas.</p>
+        </div>
+        <div class="secret-box">
+          <label for="secretInput">INBOX_ADMIN_SECRET</label>
+          <div class="secret-row">
+            <input id="secretInput" type="password" autocomplete="off" placeholder="Digite o segredo">
+            <button id="saveSecretButton" type="button">Salvar</button>
+          </div>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="conversation-panel">
+          <div class="panel-head">
+            <h2>Conversas</h2>
+            <button id="refreshButton" type="button">Atualizar</button>
+          </div>
+          <div id="conversationList" class="conversation-list" aria-live="polite"></div>
+        </aside>
+
+        <section class="chat-panel">
+          <div id="emptyState" class="empty-state">
+            <h2>Selecione uma conversa</h2>
+            <p>As mensagens recebidas pela WhatsApp Cloud API aparecem aqui.</p>
+          </div>
+
+          <div id="chatView" class="chat-view hidden">
+            <div class="chat-head">
+              <div>
+                <h2 id="chatContactName"></h2>
+                <p id="chatContactPhone"></p>
+              </div>
+              <div class="status-actions">
+                <select id="statusSelect" aria-label="Status da conversa">
+                  <option value="open">Aberta</option>
+                  <option value="pending">Pendente</option>
+                  <option value="closed">Fechada</option>
+                </select>
+                <button id="saveStatusButton" type="button">Salvar status</button>
+              </div>
+            </div>
+
+            <div id="messageList" class="message-list" aria-live="polite"></div>
+
+            <form id="replyForm" class="reply-box">
+              <textarea id="replyText" rows="3" placeholder="Digite a resposta"></textarea>
+              <button id="sendButton" type="submit">Enviar</button>
+            </form>
+          </div>
+        </section>
+      </main>
+
+      <div id="toast" class="toast hidden" role="status"></div>
+    </div>
+
+    <script src="/inbox-assets/app.js"></script>
+  </body>
+</html>
