@@ -242,6 +242,8 @@ async function markSent(
     status: MessageStatus.sent,
     sentAt,
     messageLogId: msg.id,
+    entityType: msg.entityType,
+    entityId: msg.entityId,
     payload: sentPayload,
   })
 }
