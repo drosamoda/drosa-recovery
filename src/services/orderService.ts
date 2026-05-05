@@ -56,8 +56,10 @@ function asOrderPayload(value: unknown): NuvemshopOrderPayload {
   return value as NuvemshopOrderPayload
 }
 
-async function resolveOrderPayload(payload: NuvemshopOrderPayload): Promise<NuvemshopOrderPayload> {
-  if (!needsFullOrderFetch(payload)) return payload
+async function resolveOrderPayload(
+  payload: NuvemshopOrderPayload
+): Promise<{ payload: NuvemshopOrderPayload; fetched: boolean }> {
+  if (!needsFullOrderFetch(payload)) return { payload, fetched: false }
 
   const nuvemshopOrderId = String(payload.id)
   logger.info('[orderService] buscando detalhes do pedido Nuvemshop', {
@@ -65,7 +67,10 @@ async function resolveOrderPayload(payload: NuvemshopOrderPayload): Promise<Nuve
     reason: 'payload_resumido',
   })
 
-  return asOrderPayload(await nuvemshopService.fetchOrderById(nuvemshopOrderId))
+  return {
+    payload: asOrderPayload(await nuvemshopService.fetchOrderById(nuvemshopOrderId)),
+    fetched: true,
+  }
 }
 
 // Agenda mensagem para um pedido dado um EventType — idempotente via chave única
@@ -111,7 +116,14 @@ export const orderService = {
     const nuvemshopOrderId = String(initialPayload.id)
 
     try {
-      const payload = await resolveOrderPayload(initialPayload)
+      const resolved = await resolveOrderPayload(initialPayload)
+      const payload = resolved.payload
+      const rawPayloadForOrder = resolved.fetched
+        ? {
+            originalWebhookPayload: initialPayload,
+            fetchedOrderPayload: payload,
+          }
+        : payload
       const orderNumber = String(payload.number ?? payload.id)
       const customerName = payload.contact_name ?? 'Cliente'
       const customerEmail = payload.contact_email ?? null
@@ -156,7 +168,7 @@ export const orderService = {
               total,
               orderUrl,
               webhookTopic,
-              rawPayload: payload as object,
+              rawPayload: rawPayloadForOrder as object,
             },
           })
         } else {
@@ -177,7 +189,7 @@ export const orderService = {
               status,
               orderUrl,
               webhookTopic,
-              rawPayload: payload as object,
+              rawPayload: rawPayloadForOrder as object,
               source: 'nuvemshop_webhook',
             },
           })
@@ -250,7 +262,11 @@ export const orderService = {
       await webhookEventService.markProcessed(webhookEventId)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      logger.error('[orderService] erro ao processar pedido', err, { nuvemshopOrderId })
+      const statusHttp = isRecord(err) && isRecord(err.response) ? err.response.status : undefined
+      logger.error('[orderService] erro ao processar pedido', err, {
+        nuvemshopOrderId,
+        ...(statusHttp ? { statusHttp } : {}),
+      })
       await webhookEventService.markError(webhookEventId, msg)
     }
   },

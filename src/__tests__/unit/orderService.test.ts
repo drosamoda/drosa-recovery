@@ -129,7 +129,10 @@ describe('orderService.handleNuvemshopOrderWebhook', () => {
         normalizedPhone: '5583999999999',
         paymentStatus: 'pending',
         webhookTopic: 'order/created',
-        rawPayload: fullOrderPayload,
+        rawPayload: {
+          originalWebhookPayload: { id: 1944167967, store_id: 123, event: 'order/created' },
+          fetchedOrderPayload: fullOrderPayload,
+        },
       }),
     }))
   })
@@ -176,7 +179,10 @@ describe('orderService.handleNuvemshopOrderWebhook', () => {
     expect(mocks.tx.order.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         normalizedPhone: '',
-        rawPayload: orderWithoutPhone,
+        rawPayload: {
+          originalWebhookPayload: { id: 1944167967, store_id: 123, event: 'order/created' },
+          fetchedOrderPayload: orderWithoutPhone,
+        },
       }),
     }))
     expect(mocks.createPendingMessageIfNotExists).not.toHaveBeenCalled()
