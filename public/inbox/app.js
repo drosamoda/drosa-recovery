@@ -54,24 +54,56 @@ function getSecretHeaders() {
   }
 }
 
+function buildApiUrl(path) {
+  return new URL(path, window.location.origin).toString()
+}
+
+function formatApiError(status, payload, fallbackMessage) {
+  const apiMessage = payload?.error || payload?.message || payload?.detail
+  const details = [
+    status ? `HTTP ${status}` : null,
+    apiMessage || fallbackMessage || 'Falha na requisicao.',
+  ].filter(Boolean)
+
+  return details.join(' - ')
+}
+
 async function api(path, options = {}) {
   if (!state.secret) {
     throw new Error('Informe o INBOX_ADMIN_SECRET para acessar a inbox.')
   }
 
-  const response = await fetch(path, {
-    ...options,
-    headers: {
-      ...getSecretHeaders(),
-      ...(options.headers || {}),
-    },
-  })
+  let response
+  try {
+    response = await fetch(buildApiUrl(path), {
+      ...options,
+      headers: {
+        ...getSecretHeaders(),
+        ...(options.headers || {}),
+      },
+    })
+  } catch (err) {
+    throw new Error(
+      'Nao foi possivel conectar na API da inbox. Confirme que o servidor esta rodando e que a tela foi aberta por http://localhost:3000/inbox.'
+    )
+  }
 
   const contentType = response.headers.get('content-type') || ''
-  const payload = contentType.includes('application/json') ? await response.json() : {}
+  let payload = {}
+
+  if (contentType.includes('application/json')) {
+    try {
+      payload = await response.json()
+    } catch {
+      payload = {}
+    }
+  } else {
+    const text = await response.text()
+    payload = text ? { message: text } : {}
+  }
 
   if (!response.ok) {
-    throw new Error(payload.error || 'Falha na requisicao.')
+    throw new Error(formatApiError(response.status, payload, 'Falha na requisicao da inbox.'))
   }
 
   return payload
@@ -202,14 +234,19 @@ async function sendReply(event) {
 
   try {
     els.sendButton.disabled = true
-    await api(`/inbox/conversations/${state.selectedConversation.id}/messages`, {
+    const payload = await api(`/inbox/conversations/${state.selectedConversation.id}/messages`, {
       method: 'POST',
       body: JSON.stringify({ text }),
     })
+
+    if (!payload.success) {
+      throw new Error(payload.error || 'A API respondeu sem confirmar o envio.')
+    }
+
     els.replyText.value = ''
     await openConversation(state.selectedConversation.id)
     await loadConversations()
-    showToast('Mensagem enviada.')
+    showToast(payload.dryRun ? 'Mensagem salva em modo dry-run.' : 'Mensagem enviada.')
   } catch (err) {
     showToast(err.message, 'error')
   } finally {
