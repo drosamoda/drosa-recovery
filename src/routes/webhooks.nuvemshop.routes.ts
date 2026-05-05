@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express'
+import { Router, Request, Response, NextFunction } from 'express'
 import axios from 'axios'
 import { nuvemshopWebhookValidator } from '../middlewares/nuvemshopWebhookValidator'
 import { webhookEventService } from '../services/webhookEventService'
@@ -7,6 +7,24 @@ import { logger } from '../config/logger'
 import { env } from '../config/env'
 
 const router = Router()
+
+function getNuvemshopOrderId(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== 'object') return undefined
+  const id = (payload as { id?: unknown }).id
+  return id === undefined || id === null || id === '' ? undefined : String(id)
+}
+
+function validateNuvemshopOrderPayload(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return 'Body deve ser um objeto JSON'
+  }
+
+  if (!getNuvemshopOrderId(payload)) {
+    return 'Campo id do pedido ausente'
+  }
+
+  return null
+}
 
 // ── OAuth callback — troca code por access_token ───────────────────
 router.get('/oauth', async (req: Request, res: Response) => {
@@ -49,8 +67,18 @@ router.get('/oauth', async (req: Request, res: Response) => {
 router.post('/orders', nuvemshopWebhookValidator, async (req: Request, res: Response) => {
   const payload = req.body
   const headers = req.headers as Record<string, string | string[] | undefined>
-  const topic = (headers['x-linkedstore-topic'] as string) ?? undefined
-  const externalId = payload?.id ? String(payload.id) : undefined
+  const topic = ((headers['x-linkedstore-topic'] as string | undefined) ?? (payload as { event?: string })?.event) ?? undefined
+  const externalId = getNuvemshopOrderId(payload)
+  const payloadError = validateNuvemshopOrderPayload(payload)
+
+  if (payloadError) {
+    logger.warn('[webhook/nuvemshop] payload invalido', {
+      nuvemshopOrderId: externalId,
+      details: payloadError,
+    })
+    res.status(400).json({ error: 'Payload inválido', details: payloadError })
+    return
+  }
 
   // Salva evento imediatamente e responde 200 — processamento é assíncrono
   const eventId = await webhookEventService.save({
@@ -75,6 +103,19 @@ router.post('/orders', nuvemshopWebhookValidator, async (req: Request, res: Resp
         webhookEventService.markError(eventId, String(err)).catch(() => {})
       })
   })
+})
+
+router.use('/orders', (err: Error, req: Request, res: Response, _next: NextFunction) => {
+  const nuvemshopOrderId = getNuvemshopOrderId(req.body)
+  const details = err instanceof Error ? err.message : String(err)
+
+  logger.error('[webhook/nuvemshop] erro ao receber pedido', {
+    nuvemshopOrderId,
+    error: details,
+  })
+
+  if (res.headersSent) return
+  res.status(400).json({ error: 'Payload inválido', details })
 })
 
 export default router

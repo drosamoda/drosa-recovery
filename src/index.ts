@@ -1,5 +1,5 @@
 import 'express-async-errors'
-import express from 'express'
+import express, { NextFunction, Request, Response } from 'express'
 import cors from 'cors'
 import cron from 'node-cron'
 import path from 'path'
@@ -71,6 +71,19 @@ app.use(cors(corsOptions))
 
 app.use(requestId)
 app.use(express.json({ verify: captureRawBody }))
+app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+  if (req.path === '/webhooks/nuvemshop/orders') {
+    logger.warn('[webhook/nuvemshop] payload invalido', {
+      nuvemshopOrderId: undefined,
+      details: err.message,
+      rawBodyLength: req.rawBody?.length ?? 0,
+    })
+    res.status(400).json({ error: 'Payload inválido', details: err.message })
+    return
+  }
+
+  next(err)
+})
 app.use('/inbox-assets', express.static(path.join(process.cwd(), 'public', 'inbox')))
 
 // ── Rotas públicas ─────────────────────────────────────────────────────

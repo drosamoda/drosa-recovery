@@ -4,20 +4,22 @@ import { addMinutes } from '../helpers/dateService'
 import { customerService } from './customerService'
 import { messageService } from './messageService'
 import { webhookEventService } from './webhookEventService'
+import { nuvemshopService } from './nuvemshopService'
 import { AbandonedCheckoutStatus, EventType } from '@prisma/client'
 import { logger } from '../config/logger'
 
 // Formato esperado do payload de pedido da Nuvemshop
 type NuvemshopOrderPayload = {
   id: number | string
-  number: number | string
-  status: string
-  payment_status: string
+  number?: number | string
+  status?: string
+  event?: string
+  payment_status?: string
   payment_details?: { method?: string }
   contact_name?: string
   contact_email?: string
   contact_phone?: string
-  total: string | number
+  total?: string | number
   currency?: string
   checkout_url?: string
   [key: string]: unknown
@@ -36,6 +38,34 @@ export function detectPaymentType(method: string | null | undefined): 'boleto' |
   if (m.includes('boleto') || m.includes('ticket')) return 'boleto'
   if (m.includes('pix')) return 'pix'
   return 'other'
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function needsFullOrderFetch(payload: NuvemshopOrderPayload): boolean {
+  return !payload.contact_phone || !payload.contact_name || !payload.status || !payload.payment_status || !payload.total
+}
+
+function asOrderPayload(value: unknown): NuvemshopOrderPayload {
+  if (!isRecord(value) || value.id === undefined || value.id === null || value.id === '') {
+    throw new Error('Pedido Nuvemshop completo invalido ou sem id')
+  }
+
+  return value as NuvemshopOrderPayload
+}
+
+async function resolveOrderPayload(payload: NuvemshopOrderPayload): Promise<NuvemshopOrderPayload> {
+  if (!needsFullOrderFetch(payload)) return payload
+
+  const nuvemshopOrderId = String(payload.id)
+  logger.info('[orderService] buscando detalhes do pedido Nuvemshop', {
+    nuvemshopOrderId,
+    reason: 'payload_resumido',
+  })
+
+  return asOrderPayload(await nuvemshopService.fetchOrderById(nuvemshopOrderId))
 }
 
 // Agenda mensagem para um pedido dado um EventType — idempotente via chave única
@@ -76,25 +106,26 @@ async function scheduleOrderMessage(
 
 export const orderService = {
   async handleNuvemshopOrderWebhook(params: HandleWebhookParams): Promise<void> {
-    const { payload, webhookEventId } = params
-
-    const nuvemshopOrderId = String(payload.id)
-    const orderNumber = String(payload.number)
-    const customerName = payload.contact_name ?? 'Cliente'
-    const customerEmail = payload.contact_email ?? null
-    const customerPhone = payload.contact_phone ?? null
-    const normalizedPhone = normalizePhoneBrazil(customerPhone) ?? ''
-    const total = Number(payload.total) || 0
-    const currency = payload.currency ?? 'BRL'
-    const paymentStatus = payload.payment_status ?? 'pending'
-    const paymentMethod = payload.payment_details?.method ?? null
-    const status = payload.status ?? 'open'
-    const orderUrl = payload.checkout_url ?? null
-    const webhookTopic = (params.headers['x-linkedstore-topic'] as string) ?? null
-
-    const paymentType = detectPaymentType(paymentMethod)
+    const { webhookEventId } = params
+    const initialPayload = params.payload
+    const nuvemshopOrderId = String(initialPayload.id)
 
     try {
+      const payload = await resolveOrderPayload(initialPayload)
+      const orderNumber = String(payload.number ?? payload.id)
+      const customerName = payload.contact_name ?? 'Cliente'
+      const customerEmail = payload.contact_email ?? null
+      const customerPhone = payload.contact_phone ?? null
+      const normalizedPhone = normalizePhoneBrazil(customerPhone) ?? ''
+      const total = Number(payload.total) || 0
+      const currency = payload.currency ?? 'BRL'
+      const paymentStatus = payload.payment_status ?? 'pending'
+      const paymentMethod = payload.payment_details?.method ?? null
+      const status = payload.status ?? 'open'
+      const orderUrl = payload.checkout_url ?? null
+      const webhookTopic = ((params.headers['x-linkedstore-topic'] as string | undefined) ?? payload.event) ?? null
+      const paymentType = detectPaymentType(paymentMethod)
+
       // Upsert do customer fora da transação (não aceita tx como parâmetro)
       const customer = await customerService.upsertCustomer({
         name: customerName,
@@ -187,7 +218,13 @@ export const orderService = {
       // ----------------------------------------------------------------
       // Agendar mensagens — fora da transação, protegido por idempotencyKey
       // ----------------------------------------------------------------
-      if (normalizedPhone) {
+      if (!normalizedPhone) {
+        logger.warn('[orderService] pedido sem telefone normalizado, mensagem nao agendada', {
+          nuvemshopOrderId,
+          savedOrderId,
+          reason: 'missing_phone',
+        })
+      } else {
         if (isNew) {
           // Pedido novo — escolhe evento pelo método de pagamento
           let newOrderEvent: EventType
@@ -213,7 +250,7 @@ export const orderService = {
       await webhookEventService.markProcessed(webhookEventId)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      logger.error('[orderService] erro ao processar pedido', { nuvemshopOrderId, error: msg })
+      logger.error('[orderService] erro ao processar pedido', err, { nuvemshopOrderId })
       await webhookEventService.markError(webhookEventId, msg)
     }
   },

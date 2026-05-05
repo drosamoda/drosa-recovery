@@ -76,9 +76,13 @@ export const nuvemshopService = {
     return allCheckouts
   },
 
-  async getOrder(orderId: string): Promise<unknown> {
+  async fetchOrderById(orderId: string): Promise<unknown> {
     const client = buildNuvemshopClient()
     const response = await client.get(`/orders/${orderId}`)
     return response.data
+  },
+
+  async getOrder(orderId: string): Promise<unknown> {
+    return nuvemshopService.fetchOrderById(orderId)
   },
 }

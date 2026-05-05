@@ -79,6 +79,42 @@ describe('POST /webhooks/nuvemshop/orders', () => {
     expect(res.body).toMatchObject({ reason: 'signature_missing' })
   })
 
+  it('responde 400 em JSON quando payload do pedido estiver incompleto', async () => {
+    const { webhookEventService } = await import('../../services/webhookEventService')
+    const body = JSON.stringify({ event: 'order/created' })
+    const sig = signBody(body)
+
+    const res = await request(app)
+      .post('/webhooks/nuvemshop/orders')
+      .set('Content-Type', 'application/json')
+      .set('x-linkedstore-hmac-sha256', sig)
+      .send(body)
+
+    expect(res.status).toBe(400)
+    expect(res.type).toContain('json')
+    expect(res.body).toMatchObject({
+      error: 'Payload inválido',
+      details: 'Campo id do pedido ausente',
+    })
+    expect(webhookEventService.save).not.toHaveBeenCalled()
+  })
+
+  it('responde 400 em JSON quando o JSON estiver malformado', async () => {
+    const body = '{"id":12345,'
+    const sig = signBody(body)
+
+    const res = await request(app)
+      .post('/webhooks/nuvemshop/orders')
+      .set('Content-Type', 'application/json')
+      .set('x-linkedstore-hmac-sha256', sig)
+      .send(body)
+
+    expect(res.status).toBe(400)
+    expect(res.type).toContain('json')
+    expect(res.body).toMatchObject({ error: 'Payload inválido' })
+    expect(res.text).not.toContain('<html')
+  })
+
   it('mantem compatibilidade com assinatura base64 configurada anteriormente', async () => {
     const body = JSON.stringify(samplePayload)
     const sig = signBodyBase64(body)
