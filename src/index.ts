@@ -31,18 +31,29 @@ initSentry()
 const app = express()
 
 const ALLOWED_ORIGINS = [
-  /^https:\/\/[\w-]+\.lovable\.app$/,
-  /^http:\/\/localhost:\d+$/,
+  'https://drosa-recovery-production.up.railway.app',
+  'https://drosa-recovery-production-bcfa.up.railway.app',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
 ]
 
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
     // Permite requisições sem origin (ex: curl, Postman, Railway health check)
     if (!origin) return callback(null, true)
-    const allowed = ALLOWED_ORIGINS.some((pattern) => pattern.test(origin))
-    callback(allowed ? null : new Error('CORS bloqueado'), allowed)
+    const allowed = ALLOWED_ORIGINS.includes(origin)
+    if (allowed) {
+      callback(null, true)
+      return
+    }
+
+    const err = Object.assign(new Error('CORS bloqueado'), {
+      code: 'CORS_BLOCKED',
+      status: 403,
+    })
+    callback(err)
   },
-  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'x-admin-secret', 'x-jobs-secret', 'x-inbox-admin-secret'],
 }
 
@@ -72,6 +83,14 @@ app.use('/admin', adminRoutes)
 app.use('/jobs', jobsAuth, jobsRoutes)
 app.use('/customers', customersRoutes)
 app.use('/inbox', inboxAuth, inboxRoutes)
+
+app.use(((err, _req, res, next) => {
+  if (err?.code === 'CORS_BLOCKED') {
+    res.status(403).json({ error: 'CORS bloqueado' })
+    return
+  }
+  next(err)
+}) as express.ErrorRequestHandler)
 
 // ── 404 ────────────────────────────────────────────────────────────────
 app.use((_req, res) => {
