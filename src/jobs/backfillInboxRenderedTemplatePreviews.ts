@@ -1,4 +1,4 @@
-import { ChatMessageType, MessageDirection, MessageStatus } from '@prisma/client'
+import { ChatMessageType, MessageDirection, MessageStatus, Prisma } from '@prisma/client'
 import { prisma } from '../config/prisma'
 import { logger } from '../config/logger'
 import { renderTemplatePreview } from '../helpers/inboxTemplatePreview'
@@ -500,7 +500,7 @@ export async function runBackfillInboxRenderedTemplatePreviews(): Promise<Backfi
             where: { id: chatMessage.id },
             data: {
               body: nextBody,
-              rawPayload: nextChatRawPayload,
+              rawPayload: nextChatRawPayload as unknown as Prisma.InputJsonValue,
               timestamp: chatMessage.timestamp ?? messageLog.sentAt ?? messageLog.createdAt,
             },
           })
@@ -511,7 +511,7 @@ export async function runBackfillInboxRenderedTemplatePreviews(): Promise<Backfi
           await prisma.messageLog.update({
             where: { id: messageLog.id },
             data: {
-              payload: nextMessageLogPayload,
+              payload: nextMessageLogPayload as unknown as Prisma.InputJsonValue,
             },
           })
           updatedMessageLogs++

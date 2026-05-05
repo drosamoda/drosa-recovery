@@ -186,6 +186,7 @@ async function revalidate(msg: MessageLog): Promise<ValidationResult> {
         customerPhone: true,
         normalizedPhone: true,
         abandonedCheckoutUrl: true,
+        firstSeenAt: true,
       },
     })
     if (!checkout) {
