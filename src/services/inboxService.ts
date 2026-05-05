@@ -54,6 +54,12 @@ type MetaMessage = {
   text?: {
     body?: string
   }
+  image?: {
+    id?: string
+    caption?: string
+    mime_type?: string
+    sha256?: string
+  }
 }
 
 function toChatMessageType(type?: string): ChatMessageType {
@@ -80,6 +86,12 @@ function parseMetaTimestamp(timestamp?: string): Date | undefined {
 function extractContactName(contacts: MetaContact[], phone: string): string | undefined {
   const contact = contacts.find((item) => item.wa_id === phone)
   return contact?.profile?.name
+}
+
+function extractMessageBody(msg: MetaMessage): string | undefined {
+  if (msg.type === 'text') return msg.text?.body
+  if (msg.type === 'image') return msg.image?.caption?.trim() || '[imagem]'
+  return undefined
 }
 
 export const inboxService = {
@@ -187,7 +199,7 @@ export const inboxService = {
             name: extractContactName(contacts, rawPhone),
             waMessageId: msg.id,
             type: toChatMessageType(msg.type),
-            body: msg.type === 'text' ? msg.text?.body : undefined,
+            body: extractMessageBody(msg),
             rawPayload: msg,
             timestamp: parseMetaTimestamp(msg.timestamp),
           })

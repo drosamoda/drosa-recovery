@@ -3,6 +3,7 @@ const state = {
   conversations: [],
   selectedConversation: null,
   messages: [],
+  mediaUrls: new Map(),
 }
 
 const els = {
@@ -40,7 +41,7 @@ function formatTime(value) {
 
 function showToast(message, type = 'info') {
   els.toast.textContent = message
-  els.toast.className = `toast ${type === 'error' ? 'error' : ''}`
+  els.toast.className = `toast ${type === 'error' ? 'error' : 'success'}`
   window.clearTimeout(showToast.timeout)
   showToast.timeout = window.setTimeout(() => {
     els.toast.classList.add('hidden')
@@ -163,13 +164,85 @@ function renderMessages() {
   els.messageList.innerHTML = state.messages.map((message) => `
     <div class="message-row ${message.direction}">
       <div class="bubble">
-        <div class="bubble-text">${escapeHtml(message.body || `[${message.type}]`)}</div>
+        ${renderMessageContent(message)}
         <div class="bubble-time">${formatTime(message.timestamp || message.createdAt)}</div>
       </div>
     </div>
   `).join('')
 
   els.messageList.scrollTop = els.messageList.scrollHeight
+  loadImagePreviews()
+}
+
+function renderMessageContent(message) {
+  if (message.type === 'image') {
+    const caption = message.body && message.body !== '[imagem]' ? message.body : ''
+    return `
+      <div class="image-preview" data-message-id="${escapeHtml(message.id)}">
+        <div class="image-loading">Carregando imagem...</div>
+      </div>
+      ${caption ? `<div class="bubble-text image-caption">${escapeHtml(caption)}</div>` : ''}
+    `
+  }
+
+  return `<div class="bubble-text">${escapeHtml(message.body || `[${message.type}]`)}</div>`
+}
+
+async function loadImagePreviews() {
+  const containers = document.querySelectorAll('.image-preview[data-message-id]')
+
+  for (const container of containers) {
+    const messageId = container.dataset.messageId
+    if (!messageId) continue
+
+    if (state.mediaUrls.has(messageId)) {
+      renderImagePreview(container, state.mediaUrls.get(messageId))
+      continue
+    }
+
+    try {
+      const response = await fetch(buildApiUrl(`/inbox/messages/${messageId}/media`), {
+        headers: {
+          'x-inbox-admin-secret': state.secret,
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      state.mediaUrls.set(messageId, url)
+      renderImagePreview(container, url)
+    } catch {
+      renderImageError(container, messageId)
+    }
+  }
+}
+
+function renderImagePreview(container, url) {
+  container.innerHTML = `
+    <a href="${url}" target="_blank" rel="noopener noreferrer" title="Abrir imagem">
+      <img class="message-image" src="${url}" alt="Imagem recebida">
+    </a>
+  `
+}
+
+function renderImageError(container, messageId) {
+  container.innerHTML = `
+    <div class="image-error">
+      <span>[imagem nao carregada]</span>
+      <button type="button" class="retry-image" data-message-id="${escapeHtml(messageId)}">Tentar novamente</button>
+    </div>
+  `
+
+  const button = container.querySelector('.retry-image')
+  button?.addEventListener('click', () => {
+    state.mediaUrls.delete(messageId)
+    container.innerHTML = '<div class="image-loading">Carregando imagem...</div>'
+    loadImagePreviews()
+  })
 }
 
 function labelStatus(status) {
@@ -234,6 +307,7 @@ async function sendReply(event) {
 
   try {
     els.sendButton.disabled = true
+    els.sendButton.textContent = 'Enviando...'
     const payload = await api(`/inbox/conversations/${state.selectedConversation.id}/messages`, {
       method: 'POST',
       body: JSON.stringify({ text }),
@@ -251,6 +325,7 @@ async function sendReply(event) {
     showToast(err.message, 'error')
   } finally {
     els.sendButton.disabled = false
+    els.sendButton.textContent = 'Enviar'
   }
 }
 

@@ -1,7 +1,9 @@
 import { Router, Request, Response } from 'express'
+import axios from 'axios'
 import { ConversationStatus } from '@prisma/client'
 import { inboxService } from '../services/inboxService'
 import { env } from '../config/env'
+import { prisma } from '../config/prisma'
 
 const router = Router()
 
@@ -10,6 +12,12 @@ const VALID_STATUSES = new Set<string>([
   ConversationStatus.pending,
   ConversationStatus.closed,
 ])
+
+function extractImageMediaId(rawPayload: unknown): string | null {
+  const payload = rawPayload as { image?: { id?: unknown }; mediaId?: unknown } | null
+  const mediaId = payload?.image?.id ?? payload?.mediaId
+  return typeof mediaId === 'string' && mediaId.trim() ? mediaId : null
+}
 
 function validateDevSimulationAccess(req: Request, res: Response): boolean {
   if (env.NODE_ENV === 'production') {
@@ -57,6 +65,62 @@ router.get('/conversations', async (_req: Request, res: Response) => {
 router.get('/conversations/:id/messages', async (req: Request, res: Response) => {
   const messages = await inboxService.listMessages(req.params.id)
   res.json({ count: messages.length, data: messages })
+})
+
+router.get('/messages/:messageId/media', async (req: Request, res: Response) => {
+  const message = await prisma.chatMessage.findUnique({
+    where: { id: req.params.messageId },
+    select: {
+      id: true,
+      type: true,
+      rawPayload: true,
+    },
+  })
+
+  if (!message) {
+    res.status(404).json({ error: 'Mensagem nao encontrada' })
+    return
+  }
+
+  if (message.type !== 'image') {
+    res.status(400).json({ error: 'Mensagem nao e uma imagem' })
+    return
+  }
+
+  const mediaId = extractImageMediaId(message.rawPayload)
+  if (!mediaId) {
+    res.status(400).json({ error: 'Media id nao encontrado para esta mensagem' })
+    return
+  }
+
+  const metaHeaders = {
+    Authorization: `Bearer ${env.META_ACCESS_TOKEN}`,
+  }
+
+  const metadataResponse = await axios.get(
+    `https://graph.facebook.com/${env.META_API_VERSION}/${mediaId}`,
+    { headers: metaHeaders, timeout: env.META_REQUEST_TIMEOUT_MS }
+  )
+
+  const mediaUrl = metadataResponse.data?.url
+  if (!mediaUrl) {
+    res.status(502).json({ error: 'Meta nao retornou URL da midia' })
+    return
+  }
+
+  const imageResponse = await axios.get<ArrayBuffer>(mediaUrl, {
+    headers: metaHeaders,
+    responseType: 'arraybuffer',
+    timeout: env.META_REQUEST_TIMEOUT_MS,
+  })
+
+  const contentType =
+    imageResponse.headers['content-type'] ??
+    metadataResponse.data?.mime_type ??
+    'application/octet-stream'
+
+  res.setHeader('Content-Type', contentType)
+  res.send(Buffer.from(imageResponse.data))
 })
 
 router.patch('/conversations/:id', async (req: Request, res: Response) => {

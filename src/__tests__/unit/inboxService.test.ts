@@ -108,6 +108,54 @@ describe('inboxService.saveInboundMessage', () => {
     expect(prisma.contact.upsert).not.toHaveBeenCalled()
     expect(prisma.chatMessage.create).not.toHaveBeenCalled()
   })
+
+  it('salva mensagem image com media id no rawPayload e legenda como body', async () => {
+    const contact = { id: 'contact-1', phone: '5583999999999', name: 'Cliente Foto' }
+    const conversation = { id: 'conversation-1', contactId: contact.id }
+
+    vi.mocked(prisma.contact.upsert).mockResolvedValue(contact as never)
+    vi.mocked(prisma.conversation.findFirst).mockResolvedValue(conversation as never)
+    vi.mocked(prisma.chatMessage.findFirst).mockResolvedValue(null)
+    vi.mocked(prisma.chatMessage.create).mockResolvedValue({ id: 'message-1' } as never)
+    vi.mocked(prisma.conversation.update).mockResolvedValue(conversation as never)
+
+    await inboxService.saveInboundMessagesFromMetaPayload({
+      entry: [{
+        changes: [{
+          value: {
+            contacts: [{ wa_id: '5583999999999', profile: { name: 'Cliente Foto' } }],
+            messages: [{
+              id: 'wamid.image.1',
+              from: '5583999999999',
+              timestamp: '1777989600',
+              type: 'image',
+              image: {
+                id: 'media-123',
+                caption: 'Olha essa peça',
+                mime_type: 'image/jpeg',
+                sha256: 'hash-123',
+              },
+            }],
+          },
+        }],
+      }],
+    })
+
+    expect(prisma.chatMessage.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        waMessageId: 'wamid.image.1',
+        type: 'image',
+        body: 'Olha essa peça',
+        rawPayload: expect.objectContaining({
+          image: expect.objectContaining({
+            id: 'media-123',
+            mime_type: 'image/jpeg',
+            sha256: 'hash-123',
+          }),
+        }),
+      }),
+    }))
+  })
 })
 
 describe('inboxService.sendManualTextMessage dry-run', () => {

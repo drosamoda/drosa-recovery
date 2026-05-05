@@ -7,7 +7,7 @@ describe('GET /inbox', () => {
     const res = await request(app).get('/inbox')
 
     expect(res.status).toBe(200)
-    expect(res.text).toContain("Inbox WhatsApp D'Rosa")
+    expect(res.text).toContain('Inbox WhatsApp DRosa')
     expect(res.text).toContain('/inbox-assets/app.js')
   })
 })
