@@ -21,6 +21,10 @@ vi.mock('../../services/orderService', () => ({
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET!
 
 function signBody(body: string): string {
+  return createHmac('sha256', WEBHOOK_SECRET).update(body, 'utf8').digest('hex')
+}
+
+function signBodyBase64(body: string): string {
   return createHmac('sha256', WEBHOOK_SECRET).update(body, 'utf8').digest('base64')
 }
 
@@ -62,6 +66,7 @@ describe('POST /webhooks/nuvemshop/orders', () => {
       .send(JSON.stringify(samplePayload))
 
     expect(res.status).toBe(401)
+    expect(res.body).toMatchObject({ reason: 'signature_invalid' })
   })
 
   it('responde 401 sem header de assinatura', async () => {
@@ -71,6 +76,20 @@ describe('POST /webhooks/nuvemshop/orders', () => {
       .send(JSON.stringify(samplePayload))
 
     expect(res.status).toBe(401)
+    expect(res.body).toMatchObject({ reason: 'signature_missing' })
+  })
+
+  it('mantem compatibilidade com assinatura base64 configurada anteriormente', async () => {
+    const body = JSON.stringify(samplePayload)
+    const sig = signBodyBase64(body)
+
+    const res = await request(app)
+      .post('/webhooks/nuvemshop/orders')
+      .set('Content-Type', 'application/json')
+      .set('x-linkedstore-hmac-sha256', sig)
+      .send(body)
+
+    expect(res.status).toBe(200)
   })
 
   it('salva webhook_event antes de responder', async () => {
