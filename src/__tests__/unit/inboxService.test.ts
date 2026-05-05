@@ -165,6 +165,100 @@ describe('inboxService.saveInboundMessage', () => {
       }),
     }))
   })
+
+  it('salva mensagem sticker com body amigavel e preserva metadados', async () => {
+    const contact = { id: 'contact-1', phone: '5583999999999', name: 'Cliente Figurinha' }
+    const conversation = { id: 'conversation-1', contactId: contact.id }
+
+    vi.mocked(prisma.contact.upsert).mockResolvedValue(contact as never)
+    vi.mocked(prisma.conversation.findFirst).mockResolvedValue(conversation as never)
+    vi.mocked(prisma.chatMessage.findFirst).mockResolvedValue(null)
+    vi.mocked(prisma.chatMessage.create).mockResolvedValue({ id: 'message-1' } as never)
+    vi.mocked(prisma.conversation.update).mockResolvedValue(conversation as never)
+
+    await inboxService.saveInboundMessagesFromMetaPayload({
+      entry: [{
+        changes: [{
+          value: {
+            contacts: [{ wa_id: '5583999999999', profile: { name: 'Cliente Figurinha' } }],
+            messages: [{
+              id: 'wamid.sticker.1',
+              from: '5583999999999',
+              timestamp: '1777989601',
+              type: 'sticker',
+              sticker: {
+                id: 'media-sticker-1',
+                mime_type: 'image/webp',
+                sha256: 'sticker-hash-1',
+                animated: false,
+              },
+            }],
+          },
+        }],
+      }],
+    })
+
+    expect(prisma.chatMessage.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        waMessageId: 'wamid.sticker.1',
+        type: 'sticker',
+        body: '[figurinha]',
+        rawPayload: expect.objectContaining({
+          sticker: expect.objectContaining({
+            id: 'media-sticker-1',
+            mime_type: 'image/webp',
+            sha256: 'sticker-hash-1',
+            animated: false,
+          }),
+        }),
+      }),
+    }))
+  })
+
+  it('salva reaction como other com body do emoji', async () => {
+    const contact = { id: 'contact-1', phone: '554199176724', name: 'Regina Bonatto' }
+    const conversation = { id: 'conversation-1', contactId: contact.id }
+
+    vi.mocked(prisma.contact.upsert).mockResolvedValue(contact as never)
+    vi.mocked(prisma.conversation.findFirst).mockResolvedValue(conversation as never)
+    vi.mocked(prisma.chatMessage.findFirst).mockResolvedValue(null)
+    vi.mocked(prisma.chatMessage.create).mockResolvedValue({ id: 'message-1' } as never)
+    vi.mocked(prisma.conversation.update).mockResolvedValue(conversation as never)
+
+    await inboxService.saveInboundMessagesFromMetaPayload({
+      entry: [{
+        changes: [{
+          value: {
+            contacts: [{ wa_id: '554199176724', profile: { name: 'Regina Bonatto' } }],
+            messages: [{
+              id: 'wamid.reaction.1',
+              from: '554199176724',
+              timestamp: '1778011058',
+              type: 'reaction',
+              reaction: {
+                emoji: '👍',
+                message_id: 'wamid.target.1',
+              },
+            }],
+          },
+        }],
+      }],
+    })
+
+    expect(prisma.chatMessage.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        waMessageId: 'wamid.reaction.1',
+        type: 'other',
+        body: '👍',
+        rawPayload: expect.objectContaining({
+          reaction: expect.objectContaining({
+            emoji: '👍',
+            message_id: 'wamid.target.1',
+          }),
+        }),
+      }),
+    }))
+  })
 })
 
 describe('inboxService.sendManualTextMessage dry-run', () => {
@@ -287,6 +381,46 @@ describe('inboxService.mirrorAutomationMessage', () => {
     expect(prisma.chatMessage.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         body: 'Oi Maria, seu pedido foi confirmado.',
+      }),
+    }))
+  })
+
+  it('salva renderedPreview completo quando o payload traz o texto renderizado', async () => {
+    const contact = { id: 'contact-1', phone: '5583999999999', name: null }
+    const conversation = { id: 'conversation-1', contactId: contact.id }
+
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.contact.create).mockResolvedValue(contact as never)
+    vi.mocked(prisma.chatMessage.findFirst).mockResolvedValue(null)
+    vi.mocked(prisma.conversation.findFirst).mockResolvedValue(conversation as never)
+    vi.mocked(prisma.chatMessage.create).mockResolvedValue({ id: 'chat-1' } as never)
+    vi.mocked(prisma.conversation.update).mockResolvedValue(conversation as never)
+
+    await inboxService.mirrorAutomationMessage({
+      phone: '5583999999999',
+      metaMessageId: 'wamid.auto.rendered',
+      templateName: 'confirmacao_pedido_drosa',
+      status: 'sent',
+      payload: {
+        renderedPreview: `Oi, Maria!\nRecebemos o pedido 1001 com sucesso.\n👉 Entre aqui: https://chat.whatsapp.com/grupo-vip`,
+        templateParameters: {
+          nome_cliente: 'Maria',
+          numero_pedido: '1001',
+          link_grupo_vip: 'https://chat.whatsapp.com/grupo-vip',
+        },
+      },
+    })
+
+    expect(prisma.chatMessage.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        body: expect.stringContaining('Recebemos o pedido 1001 com sucesso'),
+        rawPayload: expect.objectContaining({
+          renderedPreview: expect.stringContaining('pedido 1001'),
+          templateParameters: expect.objectContaining({
+            nome_cliente: 'Maria',
+            numero_pedido: '1001',
+          }),
+        }),
       }),
     }))
   })

@@ -175,28 +175,85 @@ function renderMessages() {
 }
 
 function renderMessageContent(message) {
-  if (message.type === 'image') {
-    const caption = message.body && message.body !== '[imagem]' ? message.body : ''
+  const mediaKind = getMessageMediaKind(message)
+
+  if (mediaKind) {
+    const caption = getMediaCaption(message, mediaKind)
+    const label = getMediaLabel(message, mediaKind)
+
     return `
-      <div class="image-preview" data-message-id="${escapeHtml(message.id)}">
-        <div class="image-loading">Carregando imagem...</div>
+      <div
+        class="media-preview media-${escapeHtml(mediaKind)}"
+        data-message-id="${escapeHtml(message.id)}"
+        data-kind="${escapeHtml(mediaKind)}"
+        data-label="${escapeHtml(label)}"
+      >
+        <div class="media-loading">Carregando mídia...</div>
       </div>
-      ${caption ? `<div class="bubble-text image-caption">${escapeHtml(caption)}</div>` : ''}
+      ${caption ? `<div class="bubble-text media-caption">${escapeHtml(caption)}</div>` : ''}
     `
   }
 
   return `<div class="bubble-text">${escapeHtml(message.body || `[${message.type}]`)}</div>`
 }
 
+function getMessageMediaKind(message) {
+  const rawPayload = message.rawPayload || {}
+  if (rawPayload.image?.id || message.type === 'image') return 'image'
+  if (rawPayload.sticker?.id || message.type === 'sticker') return 'sticker'
+  if (rawPayload.audio?.id || message.type === 'audio') return 'audio'
+  if (rawPayload.document?.id || message.type === 'document') return 'document'
+  if (rawPayload.video?.id || message.type === 'video') return 'video'
+  return null
+}
+
+function getMediaCaption(message, kind) {
+  const rawPayload = message.rawPayload || {}
+  if (kind === 'document') {
+    return rawPayload.document?.filename || (message.body && message.body !== '[documento]' ? message.body : '')
+  }
+  if (kind === 'image' || kind === 'video') {
+    return message.body && !['[imagem]', '[vídeo]'].includes(message.body) ? message.body : ''
+  }
+  if (kind === 'audio' || kind === 'sticker') {
+    return message.body && !['[áudio]', '[figurinha]'].includes(message.body) ? message.body : ''
+  }
+  return message.body || ''
+}
+
+function getMediaLabel(message, kind) {
+  const rawPayload = message.rawPayload || {}
+  if (kind === 'document') {
+    return rawPayload.document?.filename || message.body || '[documento]'
+  }
+  if (kind === 'image') return message.body || '[imagem]'
+  if (kind === 'sticker') return message.body || '[figurinha]'
+  if (kind === 'audio') return message.body || '[áudio]'
+  if (kind === 'video') return message.body || '[vídeo]'
+  return message.body || `[${kind}]`
+}
+
+function getLoadingLabel(kind) {
+  const labels = {
+    image: 'Carregando imagem...',
+    sticker: 'Carregando figurinha...',
+    audio: 'Carregando áudio...',
+    video: 'Carregando vídeo...',
+    document: 'Carregando documento...',
+  }
+  return labels[kind] || 'Carregando mídia...'
+}
+
 async function loadImagePreviews() {
-  const containers = document.querySelectorAll('.image-preview[data-message-id]')
+  const containers = document.querySelectorAll('.media-preview[data-message-id]')
 
   for (const container of containers) {
     const messageId = container.dataset.messageId
     if (!messageId) continue
+    const kind = container.dataset.kind || 'image'
 
     if (state.mediaUrls.has(messageId)) {
-      renderImagePreview(container, state.mediaUrls.get(messageId))
+      renderMediaPreview(container, state.mediaUrls.get(messageId), kind)
       continue
     }
 
@@ -214,33 +271,64 @@ async function loadImagePreviews() {
       const blob = await response.blob()
       const url = URL.createObjectURL(blob)
       state.mediaUrls.set(messageId, url)
-      renderImagePreview(container, url)
+      renderMediaPreview(container, url, kind)
     } catch {
-      renderImageError(container, messageId)
+      renderMediaError(container, messageId, kind)
     }
   }
 }
 
-function renderImagePreview(container, url) {
+function renderMediaPreview(container, url, kind) {
+  if (kind === 'document') {
+    const label = container.dataset.label || 'Documento'
+    container.innerHTML = `
+      <div class="document-preview">
+        <a class="document-link" href="${url}" target="_blank" rel="noopener noreferrer" download="${escapeHtml(label)}">
+          Baixar documento
+        </a>
+        <span class="document-name">${escapeHtml(label)}</span>
+      </div>
+    `
+    return
+  }
+
+  if (kind === 'audio') {
+    container.innerHTML = `<audio class="media-audio" controls src="${url}"></audio>`
+    return
+  }
+
+  if (kind === 'video') {
+    container.innerHTML = `<video class="media-video" controls playsinline src="${url}"></video>`
+    return
+  }
+
+  const alt = kind === 'sticker' ? 'Figurinha recebida' : 'Imagem recebida'
   container.innerHTML = `
-    <a href="${url}" target="_blank" rel="noopener noreferrer" title="Abrir imagem">
-      <img class="message-image" src="${url}" alt="Imagem recebida">
+    <a href="${url}" target="_blank" rel="noopener noreferrer" title="Abrir ${escapeHtml(kind)}">
+      <img class="message-image media-image" src="${url}" alt="${alt}">
     </a>
   `
 }
 
-function renderImageError(container, messageId) {
+function renderMediaError(container, messageId, kind) {
+  const fallbackLabels = {
+    image: '[imagem nao carregada]',
+    sticker: '[figurinha nao carregada]',
+    audio: '[áudio nao carregado]',
+    video: '[vídeo nao carregado]',
+    document: '[documento nao carregado]',
+  }
   container.innerHTML = `
-    <div class="image-error">
-      <span>[imagem nao carregada]</span>
-      <button type="button" class="retry-image" data-message-id="${escapeHtml(messageId)}">Tentar novamente</button>
+    <div class="media-error">
+      <span>${escapeHtml(fallbackLabels[kind] || '[mídia nao carregada]')}</span>
+      <button type="button" class="retry-media" data-message-id="${escapeHtml(messageId)}" data-kind="${escapeHtml(kind)}">Tentar novamente</button>
     </div>
   `
 
-  const button = container.querySelector('.retry-image')
+  const button = container.querySelector('.retry-media')
   button?.addEventListener('click', () => {
     state.mediaUrls.delete(messageId)
-    container.innerHTML = '<div class="image-loading">Carregando imagem...</div>'
+    container.innerHTML = `<div class="media-loading">${escapeHtml(getLoadingLabel(kind))}</div>`
     loadImagePreviews()
   })
 }

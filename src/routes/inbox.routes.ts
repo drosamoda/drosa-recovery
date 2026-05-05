@@ -13,9 +13,24 @@ const VALID_STATUSES = new Set<string>([
   ConversationStatus.closed,
 ])
 
-function extractImageMediaId(rawPayload: unknown): string | null {
-  const payload = rawPayload as { image?: { id?: unknown }; mediaId?: unknown } | null
-  const mediaId = payload?.image?.id ?? payload?.mediaId
+function extractMediaId(rawPayload: unknown): string | null {
+  const payload = rawPayload as {
+    image?: { id?: unknown }
+    sticker?: { id?: unknown }
+    audio?: { id?: unknown }
+    video?: { id?: unknown }
+    document?: { id?: unknown }
+    mediaId?: unknown
+  } | null
+
+  const mediaId =
+    payload?.image?.id ??
+    payload?.sticker?.id ??
+    payload?.audio?.id ??
+    payload?.video?.id ??
+    payload?.document?.id ??
+    payload?.mediaId
+
   return typeof mediaId === 'string' && mediaId.trim() ? mediaId : null
 }
 
@@ -82,12 +97,7 @@ router.get('/messages/:messageId/media', async (req: Request, res: Response) => 
     return
   }
 
-  if (message.type !== 'image') {
-    res.status(400).json({ error: 'Mensagem nao e uma imagem' })
-    return
-  }
-
-  const mediaId = extractImageMediaId(message.rawPayload)
+  const mediaId = extractMediaId(message.rawPayload)
   if (!mediaId) {
     res.status(400).json({ error: 'Media id nao encontrado para esta mensagem' })
     return

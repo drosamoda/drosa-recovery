@@ -43,6 +43,7 @@ vi.mock('../../config/prisma', () => ({
         active: true,
         languageCode: 'pt_BR',
         eventType: 'order_created',
+        messagePreview: `Oi, [nome_cliente]! 😊\nSou a Dani da D'Rosa Moda.\n\nRecebemos o seu pedido *[numero_pedido]* com sucesso.\n\nAgora estamos aguardando a confirmação do pagamento para separar suas peças com todo carinho.\n\n👉 *Entre aqui:* [link_grupo_vip]`,
       }),
     },
     automationRule: {
@@ -58,6 +59,8 @@ vi.mock('../../config/prisma', () => ({
         id: 'order-001',
         customerName: 'Maria Silva',
         orderNumber: '1001',
+        total: '149.90',
+        orderUrl: 'https://example.com',
       }),
       findFirst: vi.fn().mockResolvedValue(null),
     },
@@ -107,13 +110,14 @@ describe('POST /jobs/process-messages', () => {
     vi.mocked(prisma.whatsappTemplate.findFirst).mockResolvedValue({
       id: 'tpl-001', metaTemplateName: 'confirmacao_pedido_drosa',
       active: true, languageCode: 'pt_BR', eventType: 'order_created',
+      messagePreview: `Oi, [nome_cliente]! 😊\nSou a Dani da D'Rosa Moda.\n\nRecebemos o seu pedido *[numero_pedido]* com sucesso.\n\nAgora estamos aguardando a confirmação do pagamento para separar suas peças com todo carinho.\n\n👉 *Entre aqui:* [link_grupo_vip]`,
     } as never)
     vi.mocked(prisma.automationRule.findFirst).mockResolvedValue({
       id: 'rule-001', templateName: 'confirmacao_pedido_drosa',
       active: true, eventType: 'order_created',
     } as never)
     vi.mocked(prisma.order.findUnique).mockResolvedValue({
-      id: 'order-001', customerName: 'Maria Silva', orderNumber: '1001',
+      id: 'order-001', customerName: 'Maria Silva', orderNumber: '1001', total: '149.90', orderUrl: 'https://example.com',
     } as never)
     vi.mocked(prisma.order.findFirst).mockResolvedValue(null)
     vi.mocked(prisma.$transaction).mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn({
@@ -152,6 +156,13 @@ describe('POST /jobs/process-messages', () => {
       templateName: 'confirmacao_pedido_drosa',
       status: 'sent',
       messageLogId: 'msg-001',
+      payload: expect.objectContaining({
+        renderedPreview: expect.stringContaining('Recebemos o seu pedido'),
+        templateParameters: expect.objectContaining({
+          nome_cliente: 'Maria',
+          numero_pedido: '1001',
+        }),
+      }),
     }))
   })
 

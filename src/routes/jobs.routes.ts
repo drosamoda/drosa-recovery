@@ -4,6 +4,9 @@ import { runProcessMessages } from '../jobs/processMessages'
 import { runBackfillInboxContacts } from '../jobs/backfillInboxContacts'
 import { runBackfillInboxTemplatePreviews } from '../jobs/backfillInboxTemplatePreviews'
 import { runBackfillInboxSentMessages } from '../jobs/backfillInboxSentMessages'
+import { runBackfillImportedApiSends } from '../jobs/backfillImportedApiSends'
+import { runBackfillImportedWhatsAppSends } from '../jobs/backfillImportedWhatsAppSends'
+import { runBackfillInboxRenderedTemplatePreviews } from '../jobs/backfillInboxRenderedTemplatePreviews'
 
 const router = Router()
 
@@ -42,6 +45,24 @@ router.post('/backfill-inbox-template-previews', async (_req: Request, res: Resp
 // POST /jobs/backfill-inbox-sent-messages
 router.post('/backfill-inbox-sent-messages', async (_req: Request, res: Response) => {
   const result = await runBackfillInboxSentMessages()
+  res.json(result)
+})
+
+// POST /jobs/backfill-imported-api-sends
+router.post('/backfill-imported-api-sends', async (_req: Request, res: Response) => {
+  const result = await runBackfillImportedApiSends()
+  res.json(result)
+})
+
+// POST /jobs/backfill-imported-whatsapp-sends
+router.post('/backfill-imported-whatsapp-sends', async (_req: Request, res: Response) => {
+  const result = await runBackfillImportedWhatsAppSends()
+  res.json(result)
+})
+
+// POST /jobs/backfill-inbox-rendered-template-previews
+router.post('/backfill-inbox-rendered-template-previews', async (_req: Request, res: Response) => {
+  const result = await runBackfillInboxRenderedTemplatePreviews()
   res.json(result)
 })
 

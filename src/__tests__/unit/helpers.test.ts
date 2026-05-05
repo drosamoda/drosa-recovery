@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { normalizePhoneBrazil } from '../../helpers/phoneService'
 import { extractUrlSuffix, buildOrderConfirmationVars, buildAbandonedCartVars } from '../../helpers/templateMapper'
 import { messageService } from '../../services/messageService'
+import { renderTemplatePreview } from '../../helpers/inboxTemplatePreview'
 
 // -----------------------------------------------------------------------
 // normalizePhoneBrazil
@@ -119,5 +120,56 @@ describe('generateIdempotencyKey', () => {
       'carrinho_abandonado_drosa_01'
     )
     expect(key).toBe('abandoned_checkout:xyz789:carrinho_abandonado_drosa_01')
+  })
+})
+
+// -----------------------------------------------------------------------
+// renderTemplatePreview
+// -----------------------------------------------------------------------
+describe('renderTemplatePreview', () => {
+  it('renderiza o preview completo de confirmacao de pedido', () => {
+    const result = renderTemplatePreview('confirmacao_pedido_drosa', {
+      templatePreview: `Oi, [nome_cliente]! 😊\nSou a Dani da D'Rosa Moda.\n\nRecebemos o seu pedido *[numero_pedido]* com sucesso.\n\nAgora estamos aguardando a confirmação do pagamento para separar suas peças com todo carinho.\n\n👉 *Entre aqui:* [link_grupo_vip]`,
+      templateVariables: {
+        nome_cliente: 'Maria',
+        numero_pedido: '1001',
+        link_grupo_vip: 'https://chat.whatsapp.com/grupo-vip',
+      },
+    })
+
+    expect(result.complete).toBe(true)
+    expect(result.renderedPreview).toContain('Maria')
+    expect(result.renderedPreview).toContain('1001')
+    expect(result.renderedPreview).toContain('grupo-vip')
+  })
+
+  it('renderiza preview de pix pendente com valor', () => {
+    const result = renderTemplatePreview('pix_pendente_drosa_01', {
+      templatePreview: `Oi, [nome_cliente]! 😊\n\nVi que o pedido nº *[numero_pedido]*, no valor de *[valor_total]*, ainda está aguardando o pagamento.`,
+      templateVariables: {
+        nome_cliente: 'Ana',
+        numero_pedido: '2002',
+        valor_total: 'R$ 149,90',
+      },
+    })
+
+    expect(result.complete).toBe(true)
+    expect(result.renderedPreview).toContain('Ana')
+    expect(result.renderedPreview).toContain('2002')
+    expect(result.renderedPreview).toContain('R$ 149,90')
+  })
+
+  it('usa fallback auditavel quando nao consegue renderizar completo', () => {
+    const result = renderTemplatePreview('carrinho_abandonado_drosa_01', {
+      templatePreview: 'Oi, [nome_cliente]! Continue pelo link: [link_checkout]',
+      templateVariables: {
+        nome_cliente: 'Regina',
+      },
+    })
+
+    expect(result.complete).toBe(false)
+    expect(result.renderedPreview).toContain('Template enviado: carrinho_abandonado_drosa_01')
+    expect(result.renderedPreview).toContain('preview completo indisponível')
+    expect(result.renderedPreview).toContain('"nome_cliente":"Regina"')
   })
 })

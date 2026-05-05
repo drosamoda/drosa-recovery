@@ -82,6 +82,33 @@ type MetaMessage = {
     mime_type?: string
     sha256?: string
   }
+  sticker?: {
+    id?: string
+    mime_type?: string
+    sha256?: string
+    animated?: boolean
+  }
+  audio?: {
+    id?: string
+    mime_type?: string
+  }
+  document?: {
+    id?: string
+    filename?: string
+    mime_type?: string
+    sha256?: string
+  }
+  video?: {
+    id?: string
+    caption?: string
+    mime_type?: string
+    sha256?: string
+  }
+  reaction?: {
+    emoji?: string
+    action?: string
+    message_id?: string
+  }
 }
 
 function toChatMessageType(type?: string): ChatMessageType {
@@ -111,9 +138,35 @@ function extractContactName(contacts: MetaContact[], phone: string): string | un
 }
 
 function extractMessageBody(msg: MetaMessage): string | undefined {
-  if (msg.type === 'text') return msg.text?.body
+  const text = msg.text?.body?.trim()
+  if (msg.type === 'text') return text
   if (msg.type === 'image') return msg.image?.caption?.trim() || '[imagem]'
-  return undefined
+  if (msg.type === 'sticker') return '[figurinha]'
+  if (msg.type === 'audio') return '[áudio]'
+  if (msg.type === 'document') return msg.document?.filename?.trim() || '[documento]'
+  if (msg.type === 'video') return msg.video?.caption?.trim() || '[vídeo]'
+  if (msg.type === 'reaction') return msg.reaction?.emoji?.trim() || '[reação]'
+  if (msg.type === 'interactive') return undefined
+  return text
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function extractTemplateParameters(payload: unknown): Record<string, string> | null {
+  if (!isRecord(payload)) return null
+  const candidate = payload.templateParameters ?? payload.template_parameters ?? payload.parameters
+  if (!isRecord(candidate)) return null
+
+  const result: Record<string, string> = {}
+  for (const [key, value] of Object.entries(candidate)) {
+    if (typeof value === 'string' && value.trim()) {
+      result[key] = value.trim()
+    }
+  }
+
+  return Object.keys(result).length > 0 ? result : null
 }
 
 function isPlaceholderName(name?: string | null): boolean {
@@ -385,6 +438,8 @@ export const inboxService = {
         rawPayload: {
           source: 'automation_mirror',
           templateName: params.templateName,
+          renderedPreview: extractTemplatePreview(params.payload) ?? null,
+          templateParameters: extractTemplateParameters(params.payload),
           entityType: params.entityType ?? null,
           entityId: params.entityId ?? null,
           orderId: entityContext.orderId ?? null,
@@ -473,17 +528,18 @@ export const inboxService = {
         { timestamp: 'asc' },
         { createdAt: 'asc' },
       ],
-      select: {
-        id: true,
-        waMessageId: true,
-        direction: true,
-        type: true,
-        body: true,
-        status: true,
-        timestamp: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+        select: {
+          id: true,
+          waMessageId: true,
+          direction: true,
+          type: true,
+          body: true,
+          rawPayload: true,
+          status: true,
+          timestamp: true,
+          createdAt: true,
+          updatedAt: true,
+        },
     })
   },
 

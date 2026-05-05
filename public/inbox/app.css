@@ -378,12 +378,13 @@ textarea {
   text-align: right;
 }
 
-.image-preview {
+.media-preview {
   min-width: 180px;
   min-height: 120px;
 }
 
-.message-image {
+.message-image,
+.media-video {
   display: block;
   width: auto;
   max-width: 260px;
@@ -392,12 +393,13 @@ textarea {
   object-fit: cover;
 }
 
-.image-caption {
+.media-caption {
   margin-top: 8px;
 }
 
-.image-loading,
-.image-error {
+.media-loading,
+.media-error,
+.document-preview {
   width: 220px;
   min-height: 120px;
   border: 1px dashed var(--line-strong);
@@ -410,19 +412,58 @@ textarea {
   text-align: center;
 }
 
-.image-error {
+.media-error {
   background: var(--danger-bg);
   color: var(--danger);
 }
 
-.retry-image {
+.retry-media {
   min-height: 32px;
   background: #fff;
   color: var(--danger);
 }
 
-.retry-image:hover {
+.retry-media:hover {
   background: #ffe0da;
+}
+
+.media-audio {
+  width: min(340px, 100%);
+}
+
+.document-preview {
+  background: #fff;
+  place-items: center;
+  text-align: left;
+}
+
+.document-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  border-radius: 7px;
+  background: var(--brand);
+  color: #fff;
+  font-weight: 800;
+  text-decoration: none;
+  padding: 0 14px;
+}
+
+.document-link:hover {
+  background: var(--brand-dark);
+}
+
+.document-name {
+  color: var(--muted-strong);
+  font-size: 12px;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.reaction-text {
+  font-size: 20px;
+  line-height: 1.2;
 }
 
 .reply-box {

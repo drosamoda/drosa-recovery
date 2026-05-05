@@ -6,6 +6,7 @@ import { sleep } from '../helpers/sleep'
 import { extractUrlSuffix } from '../helpers/templateMapper'
 import { env } from '../config/env'
 import { logger } from '../config/logger'
+import { renderTemplatePreview } from '../helpers/inboxTemplatePreview'
 
 export type ProcessResult = {
   found: number
@@ -50,6 +51,58 @@ type SendParams = {
   languageCode: string
   bodyParams: string[]
   buttonUrlParam?: string
+  templatePreview?: string | null
+  templateVariables?: Record<string, string>
+  renderedPreview?: string
+}
+
+function firstName(fullName?: string | null): string {
+  const normalized = fullName?.trim()
+  if (!normalized) return 'Cliente'
+  return normalized.split(/\s+/)[0] ?? normalized
+}
+
+function formatCurrencyBRL(value?: unknown): string | null {
+  if (value === null || value === undefined || value === '') return null
+  const numeric =
+    typeof value === 'number'
+      ? value
+      : Number(String(typeof value === 'object' ? value.toString?.() ?? value : value).replace(',', '.'))
+  if (!Number.isFinite(numeric)) return null
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  }).format(numeric)
+}
+
+function buildTemplateVariables(params: {
+  templateName: string
+  customerName?: string | null
+  orderNumber?: string | null
+  orderTotal?: unknown
+  checkoutUrl?: string | null
+}): Record<string, string> {
+  const variables: Record<string, string> = {
+    nome_cliente: firstName(params.customerName),
+  }
+
+  if (params.orderNumber) variables.numero_pedido = params.orderNumber
+
+  const formattedTotal = formatCurrencyBRL(params.orderTotal)
+  if (formattedTotal) variables.valor_total = formattedTotal
+
+  if (params.checkoutUrl) {
+    variables.link_checkout = params.checkoutUrl
+    variables.link_boleto_pix = params.checkoutUrl
+  }
+
+  if (params.templateName === 'confirmacao_pedido_drosa' ||
+      params.templateName === 'pagamento_confirmado_drosa_01' ||
+      params.templateName === 'pix_cancelado_drosa_01') {
+    variables.link_grupo_vip = env.GRUPO_VIP_LINK
+  }
+
+  return variables
 }
 
 async function revalidate(msg: MessageLog): Promise<ValidationResult> {
@@ -70,6 +123,13 @@ async function revalidate(msg: MessageLog): Promise<ValidationResult> {
   // 3. Template ativo
   const template = await prisma.whatsappTemplate.findFirst({
     where: { metaTemplateName: msg.templateName, active: true },
+    select: {
+      id: true,
+      languageCode: true,
+      messagePreview: true,
+      variables: true,
+      metaTemplateName: true,
+    },
   })
   if (!template) {
     return { ok: false, reason: 'inactive_template' }
@@ -112,6 +172,13 @@ async function revalidate(msg: MessageLog): Promise<ValidationResult> {
   if (msg.entityType === EntityType.abandoned_checkout) {
     const checkout = await prisma.abandonedCheckout.findUnique({
       where: { id: msg.entityId },
+      select: {
+        customerName: true,
+        customerEmail: true,
+        customerPhone: true,
+        normalizedPhone: true,
+        abandonedCheckoutUrl: true,
+      },
     })
     if (!checkout) {
       return { ok: false, reason: 'invalid_phone' }
@@ -142,6 +209,16 @@ async function revalidate(msg: MessageLog): Promise<ValidationResult> {
       return { ok: false, reason: 'missing_template_variable' }
     }
 
+    const templateVariables = buildTemplateVariables({
+      templateName: msg.templateName,
+      customerName: checkout.customerName,
+      checkoutUrl: checkout.abandonedCheckoutUrl,
+    })
+    const renderedPreview = renderTemplatePreview(msg.templateName, {
+      templatePreview: template.messagePreview,
+      templateVariables,
+    }).renderedPreview
+
     return {
       ok: true,
       params: {
@@ -149,6 +226,9 @@ async function revalidate(msg: MessageLog): Promise<ValidationResult> {
         templateName: msg.templateName,
         languageCode: template.languageCode,
         bodyParams: [customerName.trim().split(' ')[0], checkout.abandonedCheckoutUrl],
+        templatePreview: template.messagePreview,
+        templateVariables,
+        renderedPreview,
       },
     }
   }
@@ -157,7 +237,15 @@ async function revalidate(msg: MessageLog): Promise<ValidationResult> {
   // Pedido — revalidações específicas
   // ----------------------------------------------------------------
   if (msg.entityType === EntityType.order) {
-    const order = await prisma.order.findUnique({ where: { id: msg.entityId } })
+    const order = await prisma.order.findUnique({
+      where: { id: msg.entityId },
+      select: {
+        customerName: true,
+        orderNumber: true,
+        total: true,
+        orderUrl: true,
+      },
+    })
     if (!order) {
       return { ok: false, reason: 'invalid_phone' }
     }
@@ -168,6 +256,18 @@ async function revalidate(msg: MessageLog): Promise<ValidationResult> {
       return { ok: false, reason: 'missing_template_variable' }
     }
 
+    const templateVariables = buildTemplateVariables({
+      templateName: msg.templateName,
+      customerName: order.customerName,
+      orderNumber,
+      orderTotal: order.total,
+      checkoutUrl: order.orderUrl,
+    })
+    const renderedPreview = renderTemplatePreview(msg.templateName, {
+      templatePreview: template.messagePreview,
+      templateVariables,
+    }).renderedPreview
+
     return {
       ok: true,
       params: {
@@ -175,6 +275,9 @@ async function revalidate(msg: MessageLog): Promise<ValidationResult> {
         templateName: msg.templateName,
         languageCode: template.languageCode,
         bodyParams: [customerName.trim().split(' ')[0], orderNumber],
+        templatePreview: template.messagePreview,
+        templateVariables,
+        renderedPreview,
       },
     }
   }
@@ -406,6 +509,9 @@ export async function runProcessMessages(): Promise<ProcessResult> {
           template: sendParams.templateName,
           languageCode: sendParams.languageCode,
           bodyParams: sendParams.bodyParams,
+          renderedPreview: sendParams.renderedPreview ?? null,
+          templatePreview: sendParams.templatePreview ?? null,
+          templateParameters: sendParams.templateVariables ?? {},
           ...(sendParams.buttonUrlParam ? { buttonUrlParam: sendParams.buttonUrlParam } : {}),
           dry_run: true,
         }
@@ -426,7 +532,14 @@ export async function runProcessMessages(): Promise<ProcessResult> {
         await markSent(
           msg,
           sendResult.metaMessageId,
-          { to: sendResult.usedPhone, template: sendParams.templateName },
+          {
+            to: sendResult.usedPhone,
+            template: sendParams.templateName,
+            renderedPreview: sendParams.renderedPreview ?? null,
+            templatePreview: sendParams.templatePreview ?? null,
+            templateParameters: sendParams.templateVariables ?? {},
+            bodyParams: sendParams.bodyParams,
+          },
           {}
         )
         result.sent++
