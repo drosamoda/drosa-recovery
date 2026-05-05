@@ -76,6 +76,12 @@ vi.mock('../../services/whatsappService', () => ({
   },
 }))
 
+vi.mock('../../services/inboxService', () => ({
+  inboxService: {
+    mirrorAutomationMessage: vi.fn().mockResolvedValue({ created: true }),
+  },
+}))
+
 const JOBS_SECRET = process.env.JOBS_SECRET!
 
 // Repopula a fila do findMany antes de cada teste, pois mockResolvedValueOnce é consumida
@@ -127,6 +133,8 @@ describe('POST /jobs/process-messages', () => {
   })
 
   it('retorna resumo com campos corretos', async () => {
+    const { inboxService } = await import('../../services/inboxService')
+
     const res = await request(app)
       .post('/jobs/process-messages')
       .set('x-jobs-secret', JOBS_SECRET)
@@ -138,6 +146,13 @@ describe('POST /jobs/process-messages', () => {
     expect(res.body).toHaveProperty('skipped')
     expect(res.body).toHaveProperty('failed')
     expect(res.body).toHaveProperty('retryScheduled')
+    expect(inboxService.mirrorAutomationMessage).toHaveBeenCalledWith(expect.objectContaining({
+      phone: '5531998021418',
+      metaMessageId: 'wamid-test-123',
+      templateName: 'confirmacao_pedido_drosa',
+      status: 'sent',
+      messageLogId: 'msg-001',
+    }))
   })
 
   it('agenda retry com next_retry_at para erro temporário', async () => {

@@ -205,3 +205,51 @@ describe('inboxService.sendManualTextMessage dry-run', () => {
     }))
   })
 })
+
+describe('inboxService.mirrorAutomationMessage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('cria ChatMessage outbound template para automacao enviada com metaMessageId', async () => {
+    const contact = { id: 'contact-1', phone: '5583999999999', name: null }
+    const conversation = { id: 'conversation-1', contactId: contact.id }
+
+    vi.mocked(prisma.chatMessage.findFirst).mockResolvedValue(null)
+    vi.mocked(prisma.contact.upsert).mockResolvedValue(contact as never)
+    vi.mocked(prisma.conversation.findFirst).mockResolvedValue(null)
+    vi.mocked(prisma.conversation.create).mockResolvedValue(conversation as never)
+    vi.mocked(prisma.chatMessage.create).mockResolvedValue({ id: 'chat-1' } as never)
+    vi.mocked(prisma.conversation.update).mockResolvedValue(conversation as never)
+
+    const result = await inboxService.mirrorAutomationMessage({
+      phone: '5583999999999',
+      metaMessageId: 'wamid.auto.123',
+      templateName: 'confirmacao_pedido_drosa',
+      status: 'sent',
+      sentAt: new Date('2026-05-05T12:00:00.000Z'),
+      messageLogId: 'msg-001',
+    })
+
+    expect(result.created).toBe(true)
+    expect(prisma.chatMessage.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        conversationId: 'conversation-1',
+        waMessageId: 'wamid.auto.123',
+        direction: 'outbound',
+        type: 'template',
+        body: 'confirmacao_pedido_drosa',
+        status: 'sent',
+        rawPayload: expect.objectContaining({
+          source: 'automation',
+          templateName: 'confirmacao_pedido_drosa',
+          messageLogId: 'msg-001',
+        }),
+      }),
+    }))
+    expect(prisma.conversation.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'conversation-1' },
+      data: expect.objectContaining({ lastMessageAt: new Date('2026-05-05T12:00:00.000Z') }),
+    }))
+  })
+})

@@ -39,6 +39,17 @@ type SaveSimulatedInboundMessageParams = {
   text: string
 }
 
+type MirrorAutomationMessageParams = {
+  phone: string
+  metaMessageId: string
+  templateName: string
+  status: string
+  body?: string
+  sentAt?: Date
+  messageLogId?: string
+  payload?: unknown
+}
+
 type MetaContact = {
   wa_id?: string
   profile?: {
@@ -249,6 +260,72 @@ export const inboxService = {
     })
 
     return { conversation, message }
+  },
+
+  async mirrorAutomationMessage(params: MirrorAutomationMessageParams): Promise<{ created: boolean; conversationId?: string }> {
+    const existing = await prisma.chatMessage.findFirst({
+      where: { waMessageId: params.metaMessageId },
+      select: { conversationId: true },
+    })
+
+    if (existing) {
+      return { created: false, conversationId: existing.conversationId }
+    }
+
+    const phone = normalizePhoneBrazil(params.phone) ?? params.phone
+    const contact = await prisma.contact.upsert({
+      where: { phone },
+      update: {},
+      create: {
+        phone,
+        name: null,
+      },
+    })
+
+    let conversation = await prisma.conversation.findFirst({
+      where: {
+        contactId: contact.id,
+        status: ConversationStatus.open,
+      },
+      orderBy: { updatedAt: 'desc' },
+    })
+
+    if (!conversation) {
+      conversation = await prisma.conversation.create({
+        data: {
+          contactId: contact.id,
+          status: ConversationStatus.open,
+        },
+      })
+    }
+
+    const timestamp = params.sentAt ?? new Date()
+    const body = params.body?.trim() || params.templateName
+
+    await prisma.chatMessage.create({
+      data: {
+        conversationId: conversation.id,
+        waMessageId: params.metaMessageId,
+        direction: MessageDirection.outbound,
+        type: ChatMessageType.template,
+        body,
+        rawPayload: {
+          source: 'automation',
+          templateName: params.templateName,
+          messageLogId: params.messageLogId ?? null,
+          payload: params.payload ?? null,
+        },
+        status: params.status,
+        timestamp,
+      },
+    })
+
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { lastMessageAt: timestamp },
+    })
+
+    return { created: true, conversationId: conversation.id }
   },
 
   async listConversations() {

@@ -1,6 +1,7 @@
 import { prisma } from '../config/prisma'
 import { MessageLog, MessageStatus, EntityType } from '@prisma/client'
 import { whatsappService } from '../services/whatsappService'
+import { inboxService } from '../services/inboxService'
 import { sleep } from '../helpers/sleep'
 import { extractUrlSuffix } from '../helpers/templateMapper'
 import { env } from '../config/env'
@@ -216,21 +217,32 @@ async function markSkipped(id: string, reason: string): Promise<void> {
 // -----------------------------------------------------------------------
 
 async function markSent(
-  id: string,
+  msg: MessageLog,
   metaMessageId: string,
   sentPayload: object,
   response: object
 ): Promise<void> {
+  const sentAt = new Date()
   await prisma.messageLog.update({
-    where: { id },
+    where: { id: msg.id },
     data: {
       status: MessageStatus.sent,
       metaMessageId,
-      sentAt: new Date(),
+      sentAt,
       payload: sentPayload,
       response,
       nextRetryAt: null,
     },
+  })
+
+  await inboxService.mirrorAutomationMessage({
+    phone: msg.normalizedPhone,
+    metaMessageId,
+    templateName: msg.templateName,
+    status: MessageStatus.sent,
+    sentAt,
+    messageLogId: msg.id,
+    payload: sentPayload,
   })
 }
 
@@ -410,7 +422,7 @@ export async function runProcessMessages(): Promise<ProcessResult> {
 
       if (sendResult.success) {
         await markSent(
-          msg.id,
+          msg,
           sendResult.metaMessageId,
           { to: sendResult.usedPhone, template: sendParams.templateName },
           {}
