@@ -6,7 +6,7 @@ import { sleep } from '../helpers/sleep'
 import { extractUrlSuffix } from '../helpers/templateMapper'
 import { env } from '../config/env'
 import { logger } from '../config/logger'
-import { renderTemplatePreview } from '../helpers/inboxTemplatePreview'
+import { getFriendlyTemplatePreview, renderTemplatePreview } from '../helpers/inboxTemplatePreview'
 
 export type ProcessResult = {
   found: number
@@ -103,6 +103,14 @@ function buildTemplateVariables(params: {
   }
 
   return variables
+}
+
+function buildAutomationMessagePayload(sendParams: SendParams) {
+  return {
+    renderedPreview: sendParams.renderedPreview ?? getFriendlyTemplatePreview(sendParams.templateName),
+    templatePreview: sendParams.templatePreview ?? null,
+    templateParameters: sendParams.templateVariables ?? {},
+  }
 }
 
 async function revalidate(msg: MessageLog): Promise<ValidationResult> {
@@ -509,9 +517,7 @@ export async function runProcessMessages(): Promise<ProcessResult> {
           template: sendParams.templateName,
           languageCode: sendParams.languageCode,
           bodyParams: sendParams.bodyParams,
-          renderedPreview: sendParams.renderedPreview ?? null,
-          templatePreview: sendParams.templatePreview ?? null,
-          templateParameters: sendParams.templateVariables ?? {},
+          ...buildAutomationMessagePayload(sendParams),
           ...(sendParams.buttonUrlParam ? { buttonUrlParam: sendParams.buttonUrlParam } : {}),
           dry_run: true,
         }
@@ -535,9 +541,7 @@ export async function runProcessMessages(): Promise<ProcessResult> {
           {
             to: sendResult.usedPhone,
             template: sendParams.templateName,
-            renderedPreview: sendParams.renderedPreview ?? null,
-            templatePreview: sendParams.templatePreview ?? null,
-            templateParameters: sendParams.templateVariables ?? {},
+            ...buildAutomationMessagePayload(sendParams),
             bodyParams: sendParams.bodyParams,
           },
           {}

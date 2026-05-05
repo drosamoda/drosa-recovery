@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import request from 'supertest'
 import app from '../../index'
+import { prisma } from '../../config/prisma'
 
 // Dados de teste criados antes da factory do vi.mock (vi.hoisted garante a ordem)
 const { pendingMsg, processingMsg } = vi.hoisted(() => {
@@ -150,6 +151,18 @@ describe('POST /jobs/process-messages', () => {
     expect(res.body).toHaveProperty('skipped')
     expect(res.body).toHaveProperty('failed')
     expect(res.body).toHaveProperty('retryScheduled')
+    expect(prisma.messageLog.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'msg-001' },
+      data: expect.objectContaining({
+        payload: expect.objectContaining({
+          renderedPreview: expect.stringContaining('Recebemos o seu pedido'),
+          templateParameters: expect.objectContaining({
+            nome_cliente: 'Maria',
+            numero_pedido: '1001',
+          }),
+        }),
+      }),
+    }))
     expect(inboxService.mirrorAutomationMessage).toHaveBeenCalledWith(expect.objectContaining({
       phone: '5531998021418',
       metaMessageId: 'wamid-test-123',

@@ -424,8 +424,8 @@ export const inboxService = {
 
     const timestamp = params.sentAt ?? new Date()
     const body =
-      params.body?.trim() ||
       extractTemplatePreview(params.payload) ||
+      params.body?.trim() ||
       getFriendlyTemplatePreview(params.templateName)
 
     await prisma.chatMessage.create({

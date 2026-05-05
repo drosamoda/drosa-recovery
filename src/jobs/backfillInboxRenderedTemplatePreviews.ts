@@ -1,23 +1,41 @@
-import { MessageStatus, ConversationStatus } from '@prisma/client'
+import { ChatMessageType, MessageDirection, MessageStatus } from '@prisma/client'
 import { prisma } from '../config/prisma'
 import { logger } from '../config/logger'
-import { getFriendlyTemplatePreview, renderTemplatePreview } from '../helpers/inboxTemplatePreview'
+import { renderTemplatePreview } from '../helpers/inboxTemplatePreview'
 import { normalizePhoneBrazil } from '../helpers/phoneService'
 import { env } from '../config/env'
 
 export type BackfillInboxRenderedTemplatePreviewsResult = {
   found: number
-  created: number
+  updatedChatMessages: number
+  updatedMessageLogs: number
   skipped: number
-  contactsUpdated: number
   errors: number
 }
 
 type RowRecord = Record<string, unknown>
 
+const SUMMARY_BODIES = new Set([
+  'Confirmação de pedido enviada',
+  'Lembrete de Pix pendente enviado',
+  'Lembrete de boleto enviado',
+  'Mensagem de carrinho abandonado enviada',
+])
+
 function isPlaceholderName(name?: string | null): boolean {
   const normalized = name?.trim().toLowerCase()
   return !normalized || normalized === 'sem nome' || normalized === 'cliente'
+}
+
+function isPlaceholderBody(body?: string | null, templateName?: string | null): boolean {
+  const normalized = body?.trim()
+  return (
+    !normalized ||
+    normalized === templateName ||
+    SUMMARY_BODIES.has(normalized) ||
+    normalized.startsWith('Template enviado:') ||
+    normalized === '[mensagem enviada]'
+  )
 }
 
 function normalizeCandidatePhone(phone?: string | null): string | null {
@@ -31,22 +49,6 @@ function asRecord(value: unknown): RowRecord | null {
 
 function extractString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null
-}
-
-function pickTemplateVariables(payload: unknown): Record<string, string> {
-  const record = asRecord(payload)
-  const params = asRecord(record?.templateParameters) ?? asRecord(record?.template_parameters) ?? null
-  const result: Record<string, string> = {}
-
-  if (params) {
-    for (const [key, value] of Object.entries(params)) {
-      if (typeof value === 'string' && value.trim()) {
-        result[key] = value.trim()
-      }
-    }
-  }
-
-  return result
 }
 
 function firstName(fullName?: string | null): string {
@@ -73,16 +75,38 @@ function buildTemplateVariables(params: {
   customerName?: string | null
   orderNumber?: string | null
   orderTotal?: unknown
+  orderStatus?: string | null
+  paymentStatus?: string | null
   checkoutUrl?: string | null
+  productsSummary?: string | null
 }): Record<string, string> {
   const variables: Record<string, string> = {
     nome_cliente: firstName(params.customerName),
   }
 
   if (params.orderNumber) variables.numero_pedido = params.orderNumber
+
   const formattedTotal = formatCurrencyBRL(params.orderTotal)
   if (formattedTotal) variables.valor_total = formattedTotal
-  if (params.checkoutUrl) variables.link_checkout = params.checkoutUrl
+
+  if (params.orderStatus) {
+    variables.status_pedido = params.orderStatus
+  }
+
+  if (params.paymentStatus) {
+    variables.status_pagamento = params.paymentStatus
+    variables.payment_status = params.paymentStatus
+  }
+
+  if (params.checkoutUrl) {
+    variables.link_checkout = params.checkoutUrl
+    variables.link_boleto_pix = params.checkoutUrl
+  }
+
+  if (params.productsSummary) {
+    variables.resumo_produtos = params.productsSummary
+    variables.produtos_resumo = params.productsSummary
+  }
 
   if (
     params.templateName === 'confirmacao_pedido_drosa' ||
@@ -123,38 +147,87 @@ async function upsertContact(phone: string, name?: string | null) {
   return { contact: existing, updated: false }
 }
 
-async function ensureConversation(contactId: string) {
-  let conversation = await prisma.conversation.findFirst({
-    where: {
-      contactId,
-      status: ConversationStatus.open,
-    },
-    orderBy: { updatedAt: 'desc' },
-  })
-
-  if (!conversation) {
-    conversation = await prisma.conversation.create({
-      data: {
-        contactId,
-        status: ConversationStatus.open,
-      },
-    })
+function mergeRawPayload(existingRawPayload: unknown, next: RowRecord): RowRecord {
+  const existing = asRecord(existingRawPayload) ?? {}
+  return {
+    ...existing,
+    ...next,
   }
-
-  return conversation
 }
 
-async function getEntityContext(messageLog: {
+type MessageLogRecord = {
+  id: string
   entityType: string
   entityId: string
   normalizedPhone: string
-}): Promise<{
+  templateName: string
+  metaMessageId: string | null
+  payload: unknown
+  sentAt: Date | null
+  createdAt: Date
+}
+
+type ChatMessageRecord = {
+  id: string
+  conversationId: string
+  waMessageId: string | null
+  body: string | null
+  rawPayload: unknown
+  timestamp: Date | null
+  createdAt: Date
+}
+
+async function resolveMessageLog(chatMessage: ChatMessageRecord): Promise<MessageLogRecord | null> {
+  if (chatMessage.waMessageId) {
+    const byMetaId = await prisma.messageLog.findFirst({
+      where: { metaMessageId: chatMessage.waMessageId },
+      select: {
+        id: true,
+        entityType: true,
+        entityId: true,
+        normalizedPhone: true,
+        templateName: true,
+        metaMessageId: true,
+        payload: true,
+        sentAt: true,
+        createdAt: true,
+      },
+    })
+
+    if (byMetaId) return byMetaId
+  }
+
+  const rawPayload = asRecord(chatMessage.rawPayload)
+  const messageLogId = extractString(rawPayload?.messageLogId)
+  if (!messageLogId) return null
+
+  return prisma.messageLog.findUnique({
+    where: { id: messageLogId },
+    select: {
+      id: true,
+      entityType: true,
+      entityId: true,
+      normalizedPhone: true,
+      templateName: true,
+      metaMessageId: true,
+      payload: true,
+      sentAt: true,
+      createdAt: true,
+    },
+  })
+}
+
+async function resolveEntityContext(messageLog: MessageLogRecord): Promise<{
   customerName?: string | null
   customerEmail?: string | null
   phone?: string | null
   orderNumber?: string | null
   orderTotal?: unknown
+  orderStatus?: string | null
+  paymentStatus?: string | null
   checkoutUrl?: string | null
+  productsSummary?: string | null
+  reason?: 'missing_order' | 'missing_checkout' | 'unsupported_template' | 'missing_context'
 }> {
   if (messageLog.entityType === 'order') {
     const order = await prisma.order.findUnique({
@@ -167,10 +240,14 @@ async function getEntityContext(messageLog: {
         orderNumber: true,
         total: true,
         orderUrl: true,
+        status: true,
+        paymentStatus: true,
       },
     })
 
-    if (!order) return { phone: messageLog.normalizedPhone }
+    if (!order) {
+      return { reason: 'missing_order' }
+    }
 
     return {
       customerName: order.customerName,
@@ -178,6 +255,8 @@ async function getEntityContext(messageLog: {
       phone: order.normalizedPhone || order.customerPhone || messageLog.normalizedPhone,
       orderNumber: order.orderNumber,
       orderTotal: order.total,
+      orderStatus: order.status,
+      paymentStatus: order.paymentStatus,
       checkoutUrl: order.orderUrl,
     }
   }
@@ -191,55 +270,65 @@ async function getEntityContext(messageLog: {
         customerPhone: true,
         normalizedPhone: true,
         abandonedCheckoutUrl: true,
+        total: true,
+        productsSummary: true,
       },
     })
 
-    if (!checkout) return { phone: messageLog.normalizedPhone }
+    if (!checkout) {
+      return { reason: 'missing_checkout' }
+    }
 
     return {
       customerName: checkout.customerName,
       customerEmail: checkout.customerEmail,
       phone: checkout.normalizedPhone || checkout.customerPhone || messageLog.normalizedPhone,
+      orderTotal: checkout.total,
       checkoutUrl: checkout.abandonedCheckoutUrl,
+      productsSummary: checkout.productsSummary,
     }
   }
 
-  return { phone: messageLog.normalizedPhone }
+  return { reason: 'unsupported_template' }
 }
 
-function needsBackfill(body?: string | null, templateName?: string | null): boolean {
-  if (!body) return true
-  const normalized = body.trim()
-  return (
-    normalized === templateName ||
-    normalized === getFriendlyTemplatePreview(templateName ?? '') ||
-    normalized.startsWith('Template enviado:') ||
-    normalized === '[mensagem enviada]'
-  )
-}
+function mergeTemplateParameters(
+  existing: unknown,
+  next: Record<string, string>
+): Record<string, string> {
+  const existingRecord = asRecord(existing)
+  const merged: Record<string, string> = {}
 
-function mergeRawPayload(existingRawPayload: unknown, next: RowRecord): RowRecord {
-  const existing = asRecord(existingRawPayload) ?? {}
-  return {
-    ...existing,
-    ...next,
+  if (existingRecord) {
+    for (const [key, value] of Object.entries(existingRecord)) {
+      if (typeof value === 'string' && value.trim()) merged[key] = value.trim()
+    }
   }
+
+  for (const [key, value] of Object.entries(next)) {
+    if (value.trim()) merged[key] = value.trim()
+  }
+
+  return merged
 }
 
 export async function runBackfillInboxRenderedTemplatePreviews(): Promise<BackfillInboxRenderedTemplatePreviewsResult> {
   let found = 0
-  let created = 0
+  let updatedChatMessages = 0
+  let updatedMessageLogs = 0
   let skipped = 0
-  let contactsUpdated = 0
   let errors = 0
 
   let skip = 0
 
   while (true) {
-    const logs = await prisma.messageLog.findMany({
+    const chatMessages = await prisma.chatMessage.findMany({
       where: {
-        metaMessageId: { not: null },
-        status: { in: [MessageStatus.sent, MessageStatus.delivered, MessageStatus.read] },
+        direction: MessageDirection.outbound,
+        type: ChatMessageType.template,
+        body: {
+          in: Array.from(SUMMARY_BODIES),
+        },
       },
       orderBy: [
         { createdAt: 'asc' },
@@ -249,75 +338,56 @@ export async function runBackfillInboxRenderedTemplatePreviews(): Promise<Backfi
       take: 200,
       select: {
         id: true,
-        entityType: true,
-        entityId: true,
-        normalizedPhone: true,
-        templateName: true,
-        metaMessageId: true,
-        payload: true,
-        response: true,
-        sentAt: true,
+        conversationId: true,
+        waMessageId: true,
+        body: true,
+        rawPayload: true,
+        timestamp: true,
         createdAt: true,
       },
     })
 
-    if (logs.length === 0) break
-    found += logs.length
+    if (chatMessages.length === 0) break
+    found += chatMessages.length
 
-    for (const messageLog of logs) {
+    for (const chatMessage of chatMessages) {
       try {
-        if (!messageLog.metaMessageId) {
+        const messageLog = await resolveMessageLog(chatMessage)
+
+        if (!messageLog) {
           skipped++
+          logger.info('[backfillInboxRenderedTemplatePreviews] ignorado', {
+            reason: 'missing_message_log',
+            chatMessageId: chatMessage.id,
+            waMessageId: chatMessage.waMessageId ?? null,
+          })
           continue
         }
 
-        const chatMessage = await prisma.chatMessage.findFirst({
-          where: { waMessageId: messageLog.metaMessageId },
-          select: {
-            id: true,
-            conversationId: true,
-            body: true,
-            rawPayload: true,
-            timestamp: true,
-          },
-        })
-
-        if (!chatMessage) {
+        const entityContext = await resolveEntityContext(messageLog)
+        if (entityContext.reason) {
           skipped++
+          logger.info('[backfillInboxRenderedTemplatePreviews] ignorado', {
+            reason: entityContext.reason,
+            chatMessageId: chatMessage.id,
+            messageLogId: messageLog.id,
+            entityType: messageLog.entityType,
+            entityId: messageLog.entityId,
+          })
           continue
         }
 
-        const payloadRecord = asRecord(messageLog.payload)
-        const payloadRenderedPreview = extractString(payloadRecord?.renderedPreview)
-        const entityContext = await getEntityContext(messageLog)
         const phone = normalizeCandidatePhone(entityContext.phone || messageLog.normalizedPhone)
-
         if (!phone) {
           skipped++
+          logger.info('[backfillInboxRenderedTemplatePreviews] ignorado', {
+            reason: 'missing_context',
+            chatMessageId: chatMessage.id,
+            messageLogId: messageLog.id,
+            entityType: messageLog.entityType,
+            entityId: messageLog.entityId,
+          })
           continue
-        }
-
-        const { contact, updated } = await upsertContact(phone, entityContext.customerName)
-        if (updated) contactsUpdated++
-
-        const conversation = await ensureConversation(contact.id)
-        const existingRawPayload = asRecord(chatMessage.rawPayload)
-        const templateVariablesFromPayload = pickTemplateVariables(messageLog.payload)
-        const templateVariables = {
-          ...templateVariablesFromPayload,
-          ...(entityContext.customerName ? { nome_cliente: firstName(entityContext.customerName) } : {}),
-          ...(entityContext.orderNumber ? { numero_pedido: entityContext.orderNumber } : {}),
-          ...(entityContext.orderTotal !== undefined ? { valor_total: formatCurrencyBRL(entityContext.orderTotal) ?? '' } : {}),
-          ...(entityContext.checkoutUrl ? { link_checkout: entityContext.checkoutUrl } : {}),
-          ...(entityContext.checkoutUrl ? { link_boleto_pix: entityContext.checkoutUrl } : {}),
-        }
-
-        if (
-          messageLog.templateName === 'confirmacao_pedido_drosa' ||
-          messageLog.templateName === 'pagamento_confirmado_drosa_01' ||
-          messageLog.templateName === 'pix_cancelado_drosa_01'
-        ) {
-          templateVariables.link_grupo_vip = env.GRUPO_VIP_LINK
         }
 
         const templateRecord = await prisma.whatsappTemplate.findFirst({
@@ -327,68 +397,165 @@ export async function runBackfillInboxRenderedTemplatePreviews(): Promise<Backfi
           },
         })
 
-        const fallbackPreview = renderTemplatePreview(messageLog.templateName, {
-          templatePreview: templateRecord?.messagePreview ?? payloadRecord?.templatePreview ?? null,
-          templateVariables,
+        const payloadRecord = asRecord(messageLog.payload)
+        const payloadRenderedPreview = extractString(payloadRecord?.renderedPreview)
+        const payloadTemplateParameters = asRecord(payloadRecord?.templateParameters)
+        const templatePreview = templateRecord?.messagePreview ?? extractString(payloadRecord?.templatePreview)
+
+        if (!templatePreview && !payloadRenderedPreview) {
+          skipped++
+          logger.info('[backfillInboxRenderedTemplatePreviews] ignorado', {
+            reason: 'unsupported_template',
+            chatMessageId: chatMessage.id,
+            messageLogId: messageLog.id,
+            templateName: messageLog.templateName,
+          })
+          continue
+        }
+
+        const templateVariables = buildTemplateVariables({
+          templateName: messageLog.templateName,
+          customerName: entityContext.customerName,
+          orderNumber: entityContext.orderNumber,
+          orderTotal: entityContext.orderTotal,
+          orderStatus: entityContext.orderStatus,
+          paymentStatus: entityContext.paymentStatus,
+          checkoutUrl: entityContext.checkoutUrl,
+          productsSummary: entityContext.productsSummary,
         })
 
-        const renderedPreview =
-          payloadRenderedPreview ??
-          fallbackPreview.renderedPreview ??
-          getFriendlyTemplatePreview(messageLog.templateName)
+        const renderResult = templatePreview
+          ? renderTemplatePreview(messageLog.templateName, {
+              templatePreview,
+              templateVariables,
+            })
+          : null
 
-        const shouldUpdateBody = needsBackfill(chatMessage.body, messageLog.templateName) || chatMessage.body !== renderedPreview
+        const renderedPreview = payloadRenderedPreview && !isPlaceholderBody(payloadRenderedPreview, messageLog.templateName)
+          ? payloadRenderedPreview
+          : renderResult?.complete
+            ? renderResult.renderedPreview
+            : null
 
-        if (!shouldUpdateBody && existingRawPayload?.renderedPreview === renderedPreview) {
+        if (!renderedPreview) {
+          skipped++
+          logger.info('[backfillInboxRenderedTemplatePreviews] ignorado', {
+            reason: 'missing_context',
+            chatMessageId: chatMessage.id,
+            messageLogId: messageLog.id,
+            templateName: messageLog.templateName,
+          })
+          continue
+        }
+
+        const templateParameters = mergeTemplateParameters(payloadTemplateParameters, templateVariables)
+        const nextChatRawPayload = mergeRawPayload(chatMessage.rawPayload, {
+          source: 'automation',
+          templateName: messageLog.templateName,
+          renderedPreview,
+          templateParameters,
+          entityType: messageLog.entityType,
+          entityId: messageLog.entityId,
+          messageLogId: messageLog.id,
+          phone,
+          customerName: entityContext.customerName ?? null,
+          customerEmail: entityContext.customerEmail ?? null,
+        })
+
+        const nextMessageLogPayload = mergeRawPayload(messageLog.payload, {
+          source: 'automation',
+          templateName: messageLog.templateName,
+          renderedPreview,
+          templateParameters,
+          entityType: messageLog.entityType,
+          entityId: messageLog.entityId,
+          phone,
+          customerName: entityContext.customerName ?? null,
+          customerEmail: entityContext.customerEmail ?? null,
+        })
+
+        const nextBody = renderedPreview
+        const currentRendered = extractString(asRecord(chatMessage.rawPayload)?.renderedPreview)
+        const currentLogRendered = extractString(asRecord(messageLog.payload)?.renderedPreview)
+        const currentLogParams = JSON.stringify(asRecord(messageLog.payload)?.templateParameters ?? {})
+        const nextLogParams = JSON.stringify(templateParameters)
+
+        const chatNeedsUpdate =
+          chatMessage.body?.trim() !== nextBody ||
+          currentRendered !== nextBody ||
+          JSON.stringify(chatMessage.rawPayload ?? {}) !== JSON.stringify(nextChatRawPayload)
+
+        const logNeedsUpdate =
+          currentLogRendered !== nextBody ||
+          currentLogParams !== nextLogParams ||
+          JSON.stringify(messageLog.payload ?? {}) !== JSON.stringify(nextMessageLogPayload)
+
+        if (!chatNeedsUpdate && !logNeedsUpdate) {
           skipped++
           continue
         }
 
-        await prisma.chatMessage.update({
-          where: { id: chatMessage.id },
-          data: {
-            body: renderedPreview,
-            rawPayload: mergeRawPayload(chatMessage.rawPayload, {
-              source: 'automation',
-              templateName: messageLog.templateName,
-              renderedPreview,
-              templateParameters: templateVariables,
-              entityType: messageLog.entityType,
-              entityId: messageLog.entityId,
+        if (chatNeedsUpdate) {
+          await prisma.chatMessage.update({
+            where: { id: chatMessage.id },
+            data: {
+              body: nextBody,
+              rawPayload: nextChatRawPayload,
+              timestamp: chatMessage.timestamp ?? messageLog.sentAt ?? messageLog.createdAt,
+            },
+          })
+          updatedChatMessages++
+        }
+
+        if (logNeedsUpdate) {
+          await prisma.messageLog.update({
+            where: { id: messageLog.id },
+            data: {
+              payload: nextMessageLogPayload,
+            },
+          })
+          updatedMessageLogs++
+        }
+
+        if (entityContext.customerName && !isPlaceholderName(entityContext.customerName)) {
+          const contact = await upsertContact(phone, entityContext.customerName)
+          if (contact.updated) {
+            logger.info('[backfillInboxRenderedTemplatePreviews] contato atualizado', {
+              chatMessageId: chatMessage.id,
               messageLogId: messageLog.id,
-            }),
-            timestamp: chatMessage.timestamp ?? messageLog.sentAt ?? messageLog.createdAt,
-          },
-        })
+              phone,
+            })
+          }
+        } else {
+          await upsertContact(phone, entityContext.customerName ?? null)
+        }
 
         await prisma.conversation.update({
-          where: { id: conversation.id },
+          where: { id: chatMessage.conversationId },
           data: {
             lastMessageAt: messageLog.sentAt ?? messageLog.createdAt,
           },
         })
-
-        created++
       } catch (err) {
         errors++
         logger.error('[backfillInboxRenderedTemplatePreviews] erro ao atualizar preview renderizado', err, {
-          messageLogId: messageLog.id,
-          metaMessageId: messageLog.metaMessageId,
+          chatMessageId: chatMessage.id,
+          waMessageId: chatMessage.waMessageId ?? null,
         })
       }
     }
 
-    if (logs.length < 200) break
-    skip += logs.length
+    if (chatMessages.length < 200) break
+    skip += chatMessages.length
   }
 
   logger.info('[backfillInboxRenderedTemplatePreviews] concluido', {
     found,
-    created,
+    updatedChatMessages,
+    updatedMessageLogs,
     skipped,
-    contactsUpdated,
     errors,
   })
 
-  return { found, created, skipped, contactsUpdated, errors }
+  return { found, updatedChatMessages, updatedMessageLogs, skipped, errors }
 }
