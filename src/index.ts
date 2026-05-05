@@ -37,28 +37,35 @@ const ALLOWED_ORIGINS = [
   'http://127.0.0.1:3000',
 ]
 
+function normalizeOrigin(origin: string): string {
+  return origin.replace(/\/$/, '')
+}
+
+function isAllowedOrigin(origin: string | undefined): boolean {
+  if (!origin) return true
+  return ALLOWED_ORIGINS.includes(normalizeOrigin(origin))
+}
+
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
     // Permite requisições sem origin (ex: curl, Postman, Railway health check)
     if (!origin) return callback(null, true)
-    const allowed = ALLOWED_ORIGINS.includes(origin)
-    if (allowed) {
-      callback(null, true)
-      return
-    }
-
-    const err = Object.assign(new Error('CORS bloqueado'), {
-      code: 'CORS_BLOCKED',
-      status: 403,
-    })
-    callback(err)
+    callback(null, isAllowedOrigin(origin))
   },
   methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'x-admin-secret', 'x-jobs-secret', 'x-inbox-admin-secret'],
+  allowedHeaders: ['Content-Type', 'x-inbox-admin-secret'],
 }
 
 // CORS — aceita qualquer subdomínio *.lovable.app e localhost
 // Explicit OPTIONS handler must come before all other routes
+app.use((req, res, next) => {
+  const origin = req.headers.origin
+  if (origin && !isAllowedOrigin(origin)) {
+    res.status(403).json({ error: 'CORS bloqueado' })
+    return
+  }
+  next()
+})
 app.options('*', cors(corsOptions))
 app.use(cors(corsOptions))
 
@@ -83,14 +90,6 @@ app.use('/admin', adminRoutes)
 app.use('/jobs', jobsAuth, jobsRoutes)
 app.use('/customers', customersRoutes)
 app.use('/inbox', inboxAuth, inboxRoutes)
-
-app.use(((err, _req, res, next) => {
-  if (err?.code === 'CORS_BLOCKED') {
-    res.status(403).json({ error: 'CORS bloqueado' })
-    return
-  }
-  next(err)
-}) as express.ErrorRequestHandler)
 
 // ── 404 ────────────────────────────────────────────────────────────────
 app.use((_req, res) => {
