@@ -47,7 +47,17 @@ type MirrorAutomationMessageParams = {
   body?: string
   sentAt?: Date
   messageLogId?: string
+  entityType?: string
+  entityId?: string
   payload?: unknown
+}
+
+type AutomationEntityContext = {
+  customerName?: string | null
+  customerEmail?: string | null
+  phone?: string | null
+  orderId?: string | null
+  checkoutId?: string | null
 }
 
 type MetaContact = {
@@ -103,6 +113,81 @@ function extractMessageBody(msg: MetaMessage): string | undefined {
   if (msg.type === 'text') return msg.text?.body
   if (msg.type === 'image') return msg.image?.caption?.trim() || '[imagem]'
   return undefined
+}
+
+function isPlaceholderName(name?: string | null): boolean {
+  const normalized = name?.trim().toLowerCase()
+  return !normalized || normalized === 'sem nome' || normalized === 'cliente'
+}
+
+function friendlyTemplateBody(templateName: string): string {
+  const map: Record<string, string> = {
+    confirmacao_pedido_drosa: 'Confirmação de pedido enviada',
+    pix_pendente_drosa_01: 'Lembrete de Pix pendente enviado',
+    pedido_boleto_drosa_01: 'Lembrete de boleto enviado',
+    carrinho_abandonado_drosa_01: 'Mensagem de carrinho abandonado enviada',
+  }
+
+  return map[templateName] ?? templateName
+}
+
+async function getAutomationEntityContext(params: MirrorAutomationMessageParams): Promise<AutomationEntityContext> {
+  if (!params.entityType || !params.entityId) return {}
+
+  if (params.entityType === 'order') {
+    const order = await prisma.order.findUnique({
+      where: { id: params.entityId },
+    })
+    if (!order) return {}
+
+    return {
+      customerName: order.customerName,
+      customerEmail: order.customerEmail,
+      phone: order.normalizedPhone || order.customerPhone,
+      orderId: order.nuvemshopOrderId,
+    }
+  }
+
+  if (params.entityType === 'abandoned_checkout') {
+    const checkout = await prisma.abandonedCheckout.findUnique({
+      where: { id: params.entityId },
+    })
+    if (!checkout) return {}
+
+    return {
+      customerName: checkout.customerName,
+      customerEmail: checkout.customerEmail,
+      phone: checkout.normalizedPhone || checkout.customerPhone,
+      checkoutId: checkout.nuvemshopCheckoutId,
+    }
+  }
+
+  return {}
+}
+
+async function upsertAutomationContact(phone: string, name?: string | null) {
+  const existing = await prisma.contact.findUnique({
+    where: { phone },
+  })
+  const shouldUseName = !isPlaceholderName(name)
+
+  if (!existing) {
+    return prisma.contact.create({
+      data: {
+        phone,
+        name: shouldUseName ? name!.trim() : null,
+      },
+    })
+  }
+
+  if (shouldUseName && isPlaceholderName(existing.name)) {
+    return prisma.contact.update({
+      where: { id: existing.id },
+      data: { name: name!.trim() },
+    })
+  }
+
+  return existing
 }
 
 export const inboxService = {
@@ -263,6 +348,11 @@ export const inboxService = {
   },
 
   async mirrorAutomationMessage(params: MirrorAutomationMessageParams): Promise<{ created: boolean; conversationId?: string }> {
+    const entityContext = await getAutomationEntityContext(params)
+    const rawPhone = entityContext.phone || params.phone
+    const phone = normalizePhoneBrazil(rawPhone) ?? rawPhone
+    const contact = await upsertAutomationContact(phone, entityContext.customerName)
+
     const existing = await prisma.chatMessage.findFirst({
       where: { waMessageId: params.metaMessageId },
       select: { conversationId: true },
@@ -271,16 +361,6 @@ export const inboxService = {
     if (existing) {
       return { created: false, conversationId: existing.conversationId }
     }
-
-    const phone = normalizePhoneBrazil(params.phone) ?? params.phone
-    const contact = await prisma.contact.upsert({
-      where: { phone },
-      update: {},
-      create: {
-        phone,
-        name: null,
-      },
-    })
 
     let conversation = await prisma.conversation.findFirst({
       where: {
@@ -300,7 +380,7 @@ export const inboxService = {
     }
 
     const timestamp = params.sentAt ?? new Date()
-    const body = params.body?.trim() || params.templateName
+    const body = params.body?.trim() || friendlyTemplateBody(params.templateName)
 
     await prisma.chatMessage.create({
       data: {
@@ -310,8 +390,14 @@ export const inboxService = {
         type: ChatMessageType.template,
         body,
         rawPayload: {
-          source: 'automation',
+          source: 'automation_mirror',
           templateName: params.templateName,
+          entityType: params.entityType ?? null,
+          entityId: params.entityId ?? null,
+          orderId: entityContext.orderId ?? null,
+          checkoutId: entityContext.checkoutId ?? null,
+          customerName: entityContext.customerName ?? null,
+          customerEmail: entityContext.customerEmail ?? null,
           messageLogId: params.messageLogId ?? null,
           payload: params.payload ?? null,
         },
