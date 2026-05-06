@@ -13,46 +13,7 @@ const state = {
   replyTarget: null,
 }
 
-const els = {
-  connectionStatus: document.getElementById('connectionStatus'),
-  secretInput: document.getElementById('secretInput'),
-  saveSecretButton: document.getElementById('saveSecretButton'),
-  refreshButton: document.getElementById('refreshButton'),
-  conversationSearch: document.getElementById('conversationSearch'),
-  conversationList: document.getElementById('conversationList'),
-  filterButtons: document.querySelectorAll('.filter-chip'),
-  emptyState: document.getElementById('emptyState'),
-  chatView: document.getElementById('chatView'),
-  chatAvatar: document.getElementById('chatAvatar'),
-  chatContactName: document.getElementById('chatContactName'),
-  chatContactPhone: document.getElementById('chatContactPhone'),
-  chatStatusBadge: document.getElementById('chatStatusBadge'),
-  statusSelect: document.getElementById('statusSelect'),
-  saveStatusButton: document.getElementById('saveStatusButton'),
-  messageList: document.getElementById('messageList'),
-  latestMessageButton: document.getElementById('latestMessageButton'),
-  replyForm: document.getElementById('replyForm'),
-  replyTargetBox: document.getElementById('replyTargetBox'),
-  replyTargetTitle: document.getElementById('replyTargetTitle'),
-  replyTargetBody: document.getElementById('replyTargetBody'),
-  clearReplyButton: document.getElementById('clearReplyButton'),
-  imagePreviewBox: document.getElementById('imagePreviewBox'),
-  selectedImagePreview: document.getElementById('selectedImagePreview'),
-  selectedImageName: document.getElementById('selectedImageName'),
-  selectedImageInfo: document.getElementById('selectedImageInfo'),
-  clearImageButton: document.getElementById('clearImageButton'),
-  attachButton: document.getElementById('attachButton'),
-  imageInput: document.getElementById('imageInput'),
-  replyText: document.getElementById('replyText'),
-  sendButton: document.getElementById('sendButton'),
-  toast: document.getElementById('toast'),
-  panelContactName: document.getElementById('panelContactName'),
-  panelContactPhone: document.getElementById('panelContactPhone'),
-  panelConversationStatus: document.getElementById('panelConversationStatus'),
-  panelAssignedTo: document.getElementById('panelAssignedTo'),
-  panelTags: document.getElementById('panelTags'),
-  panelLastOrder: document.getElementById('panelLastOrder'),
-}
+let els = {}
 
 const MAX_MANUAL_IMAGE_BYTES = 5 * 1024 * 1024
 const SUPPORTED_MANUAL_IMAGE_MIME_TYPES = new Set([
@@ -62,7 +23,77 @@ const SUPPORTED_MANUAL_IMAGE_MIME_TYPES = new Set([
   'image/webp',
 ])
 
-els.secretInput.value = state.secret
+function collectElements() {
+  els = {
+    connectionStatus: document.getElementById('connectionStatus'),
+    secretInput: document.getElementById('secretInput'),
+    saveSecretButton: document.getElementById('saveSecretButton'),
+    refreshButton: document.getElementById('refreshButton'),
+    conversationSearch: document.getElementById('conversationSearch'),
+    conversationList: document.getElementById('conversationList'),
+    filterButtons: document.querySelectorAll('.filter-chip'),
+    emptyState: document.getElementById('emptyState'),
+    chatView: document.getElementById('chatView'),
+    chatAvatar: document.getElementById('chatAvatar'),
+    chatContactName: document.getElementById('chatContactName'),
+    chatContactPhone: document.getElementById('chatContactPhone'),
+    chatStatusBadge: document.getElementById('chatStatusBadge'),
+    statusSelect: document.getElementById('statusSelect'),
+    saveStatusButton: document.getElementById('saveStatusButton'),
+    messageList: document.getElementById('messageList'),
+    latestMessageButton: document.getElementById('latestMessageButton'),
+    replyForm: document.getElementById('replyForm'),
+    replyTargetBox: document.getElementById('replyTargetBox'),
+    replyTargetTitle: document.getElementById('replyTargetTitle'),
+    replyTargetBody: document.getElementById('replyTargetBody'),
+    clearReplyButton: document.getElementById('clearReplyButton'),
+    imagePreviewBox: document.getElementById('imagePreviewBox'),
+    selectedImagePreview: document.getElementById('selectedImagePreview'),
+    selectedImageName: document.getElementById('selectedImageName'),
+    selectedImageInfo: document.getElementById('selectedImageInfo'),
+    clearImageButton: document.getElementById('clearImageButton'),
+    attachButton: document.getElementById('attachButton'),
+    imageInput: document.getElementById('imageInput'),
+    replyText: document.getElementById('replyText'),
+    sendButton: document.getElementById('sendButton'),
+    toast: document.getElementById('toast'),
+    panelContactName: document.getElementById('panelContactName'),
+    panelContactPhone: document.getElementById('panelContactPhone'),
+    panelConversationStatus: document.getElementById('panelConversationStatus'),
+    panelAssignedTo: document.getElementById('panelAssignedTo'),
+    panelTags: document.getElementById('panelTags'),
+    panelLastOrder: document.getElementById('panelLastOrder'),
+  }
+}
+
+function validateRequiredElements() {
+  const required = [
+    'connectionStatus',
+    'secretInput',
+    'saveSecretButton',
+    'refreshButton',
+    'conversationList',
+    'emptyState',
+    'chatView',
+    'chatContactName',
+    'chatContactPhone',
+    'statusSelect',
+    'saveStatusButton',
+    'messageList',
+    'replyForm',
+    'replyText',
+    'sendButton',
+    'toast',
+  ]
+  const missing = required.filter((key) => !els[key])
+
+  if (missing.length > 0) {
+    console.error('[inbox dom] Elementos obrigatorios ausentes no index.html:', missing)
+    return false
+  }
+
+  return true
+}
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -118,6 +149,11 @@ function readFileAsDataUrl(file) {
 }
 
 function showToast(message, type = 'info') {
+  if (!els.toast) {
+    console.warn('[inbox dom] Toast ausente:', message)
+    return
+  }
+
   els.toast.textContent = message
   els.toast.className = `toast ${type === 'error' ? 'error' : 'success'}`
   els.toast.classList.remove('hidden')
@@ -467,6 +503,7 @@ function getFilteredConversations() {
 
 function renderConversationList() {
   const conversations = getFilteredConversations()
+  if (!els.conversationList) return
 
   if (conversations.length === 0) {
     els.conversationList.innerHTML = `
@@ -518,38 +555,40 @@ function renderConversationList() {
 
 function renderConversationDetails(conversation) {
   if (!conversation) {
-    els.emptyState.classList.remove('hidden')
-    els.chatView.classList.add('hidden')
-    els.panelContactName.textContent = '-'
-    els.panelContactPhone.textContent = '-'
-    els.panelConversationStatus.textContent = '-'
-    els.panelAssignedTo.textContent = '-'
-    els.panelTags.innerHTML = ''
-    els.panelLastOrder.innerHTML = 'Nenhum pedido encontrado.'
+    els.emptyState?.classList.remove('hidden')
+    els.chatView?.classList.add('hidden')
+    if (els.panelContactName) els.panelContactName.textContent = '-'
+    if (els.panelContactPhone) els.panelContactPhone.textContent = '-'
+    if (els.panelConversationStatus) els.panelConversationStatus.textContent = '-'
+    if (els.panelAssignedTo) els.panelAssignedTo.textContent = '-'
+    if (els.panelTags) els.panelTags.innerHTML = ''
+    if (els.panelLastOrder) els.panelLastOrder.innerHTML = 'Nenhum pedido encontrado.'
     updateLatestMessageButton()
     return
   }
 
-  els.emptyState.classList.add('hidden')
-  els.chatView.classList.remove('hidden')
+  els.emptyState?.classList.add('hidden')
+  els.chatView?.classList.remove('hidden')
 
   const name = conversation.contactName || 'Sem nome'
   const statusLabel = formatStatusLabel(conversation.status)
   const tags = buildConversationTags(conversation)
 
-  els.chatAvatar.textContent = getConversationAvatar(conversation)
-  els.chatContactName.textContent = name
-  els.chatContactPhone.textContent = conversation.phone || ''
-  els.chatStatusBadge.textContent = statusLabel
-  els.statusSelect.value = conversation.status
+  if (els.chatAvatar) els.chatAvatar.textContent = getConversationAvatar(conversation)
+  if (els.chatContactName) els.chatContactName.textContent = name
+  if (els.chatContactPhone) els.chatContactPhone.textContent = conversation.phone || ''
+  if (els.chatStatusBadge) els.chatStatusBadge.textContent = statusLabel
+  if (els.statusSelect) els.statusSelect.value = conversation.status
 
-  els.panelContactName.textContent = name
-  els.panelContactPhone.textContent = conversation.phone || '-'
-  els.panelConversationStatus.textContent = statusLabel
-  els.panelAssignedTo.textContent = conversation.assignedTo || '-'
-  els.panelTags.innerHTML = tags.length
-    ? tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join('')
-    : '<span class="detail-summary">Sem etiquetas.</span>'
+  if (els.panelContactName) els.panelContactName.textContent = name
+  if (els.panelContactPhone) els.panelContactPhone.textContent = conversation.phone || '-'
+  if (els.panelConversationStatus) els.panelConversationStatus.textContent = statusLabel
+  if (els.panelAssignedTo) els.panelAssignedTo.textContent = conversation.assignedTo || '-'
+  if (els.panelTags) {
+    els.panelTags.innerHTML = tags.length
+      ? tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join('')
+      : '<span class="detail-summary">Sem etiquetas.</span>'
+  }
 
   const lastOrder = conversation.lastOrder
   if (lastOrder) {
@@ -562,8 +601,8 @@ function renderConversationDetails(conversation) {
       lastOrder.orderUrl ? `<a class="detail-link" href="${escapeHtml(lastOrder.orderUrl)}" target="_blank" rel="noopener noreferrer">Abrir pedido</a>` : null,
     ].filter(Boolean)
 
-    els.panelLastOrder.innerHTML = orderParts.join('<br>')
-  } else {
+    if (els.panelLastOrder) els.panelLastOrder.innerHTML = orderParts.join('<br>')
+  } else if (els.panelLastOrder) {
     els.panelLastOrder.textContent = 'Nenhum pedido encontrado.'
   }
 }
@@ -669,6 +708,7 @@ function renderMessages({ forceScroll = false } = {}) {
   renderConversationDetails(conversation)
 
   if (!conversation) return
+  if (!els.messageList) return
 
   if (state.loadingConversationId === conversation.id && state.messages.length === 0) {
     els.messageList.innerHTML = `
@@ -728,17 +768,19 @@ function renderMessages({ forceScroll = false } = {}) {
   loadMediaPreviews({ keepBottom: forceScroll, conversationId, renderToken })
 }
 
-async function loadMediaPreviews({ keepBottom = false } = {}) {
+async function loadMediaPreviews({ keepBottom = false, conversationId = null, renderToken = state.mediaRenderToken } = {}) {
   const containers = document.querySelectorAll('.media-preview[data-message-id]')
   const shouldKeepBottom = keepBottom || isNearMessagesBottom()
 
   for (const container of containers) {
+    if (renderToken !== state.mediaRenderToken || conversationId !== state.selectedConversationId) return
     const messageId = container.dataset.messageId
     if (!messageId) continue
 
     const kind = container.dataset.kind || 'image'
 
     if (state.mediaUrls.has(messageId)) {
+      if (renderToken !== state.mediaRenderToken || conversationId !== state.selectedConversationId) return
       renderMediaPreview(container, state.mediaUrls.get(messageId), kind, shouldKeepBottom)
       if (shouldKeepBottom) scrollMessagesToBottom(true)
       continue
@@ -757,10 +799,12 @@ async function loadMediaPreviews({ keepBottom = false } = {}) {
 
       const blob = await response.blob()
       const url = URL.createObjectURL(blob)
+      if (renderToken !== state.mediaRenderToken || conversationId !== state.selectedConversationId) return
       state.mediaUrls.set(messageId, url)
       renderMediaPreview(container, url, kind, shouldKeepBottom)
       if (shouldKeepBottom) scrollMessagesToBottom(true)
     } catch {
+      if (renderToken !== state.mediaRenderToken || conversationId !== state.selectedConversationId) return
       renderMediaError(container, messageId, kind)
       if (shouldKeepBottom) scrollMessagesToBottom(true)
     }
@@ -784,14 +828,14 @@ function renderMediaPreview(container, url, kind, keepBottom = false) {
   if (kind === 'audio') {
     container.innerHTML = `<audio class="media-audio" controls src="${url}"></audio>`
     const audio = container.querySelector('audio')
-    audio?.addEventListener('loadedmetadata', () => scrollMessagesToBottom(true), { once: true })
+    audio?.addEventListener('loadedmetadata', () => scrollMessagesToBottom(keepBottom), { once: true })
     return
   }
 
   if (kind === 'video') {
     container.innerHTML = `<video class="media-video" controls playsinline src="${url}"></video>`
     const video = container.querySelector('video')
-    video?.addEventListener('loadedmetadata', () => scrollMessagesToBottom(true), { once: true })
+    video?.addEventListener('loadedmetadata', () => scrollMessagesToBottom(keepBottom), { once: true })
     return
   }
 
@@ -802,7 +846,7 @@ function renderMediaPreview(container, url, kind, keepBottom = false) {
     </a>
   `
   const image = container.querySelector('img')
-  image?.addEventListener('load', () => scrollMessagesToBottom(true), { once: true })
+  image?.addEventListener('load', () => scrollMessagesToBottom(keepBottom), { once: true })
 }
 
 function renderMediaError(container, messageId, kind) {
@@ -825,13 +869,17 @@ function renderMediaError(container, messageId, kind) {
   button?.addEventListener('click', () => {
     state.mediaUrls.delete(messageId)
     container.innerHTML = `<div class="media-loading">${escapeHtml(getLoadingLabel(kind))}</div>`
-    loadMediaPreviews({ keepBottom: true })
+    loadMediaPreviews({
+      keepBottom: isNearMessagesBottom(),
+      conversationId: state.selectedConversationId,
+      renderToken: state.mediaRenderToken,
+    })
   })
 }
 
 function setActiveFilter(filter) {
   state.filter = filter
-  els.filterButtons.forEach((button) => {
+  els.filterButtons?.forEach((button) => {
     button.classList.toggle('active', button.dataset.filter === filter)
   })
   renderConversationList()
@@ -842,7 +890,7 @@ async function loadConversations({ keepSelection = true } = {}) {
   const shouldKeepBottom = Boolean(selectedBeforeLoad) && isNearMessagesBottom()
 
   try {
-    els.connectionStatus.textContent = 'Carregando conversas...'
+    if (els.connectionStatus) els.connectionStatus.textContent = 'Carregando conversas...'
     const payload = await api('/inbox/conversations')
     state.conversations = payload.data || []
 
@@ -862,9 +910,9 @@ async function loadConversations({ keepSelection = true } = {}) {
     if (keepSelection && state.selectedConversationId && shouldKeepBottom) {
       scrollMessagesToBottom(true)
     }
-    els.connectionStatus.textContent = `${state.conversations.length} conversa(s) carregada(s).`
+    if (els.connectionStatus) els.connectionStatus.textContent = `${state.conversations.length} conversa(s) carregada(s).`
   } catch (err) {
-    els.connectionStatus.textContent = 'Nao foi possivel carregar a inbox.'
+    if (els.connectionStatus) els.connectionStatus.textContent = 'Nao foi possivel carregar a inbox.'
     showToast(err.message, 'error')
   }
 }
@@ -884,6 +932,7 @@ async function openConversation(id) {
   state.messages = []
   renderConversationList()
   renderMessages()
+  resetMessagesViewport()
 
   try {
     const payload = await api(`/inbox/conversations/${id}/messages`)
@@ -1034,6 +1083,7 @@ function handleMessageListClick(event) {
 async function saveStatus() {
   const conversation = getSelectedConversation()
   if (!conversation) return
+  if (!els.statusSelect) return
 
   try {
     await api(`/inbox/conversations/${conversation.id}`, {
@@ -1049,52 +1099,64 @@ async function saveStatus() {
   }
 }
 
-els.secretInput.value = state.secret
-els.secretInput.addEventListener('input', () => {
-  state.secret = els.secretInput.value.trim()
-})
+function bootInbox() {
+  collectElements()
 
-els.saveSecretButton.addEventListener('click', () => {
-  state.secret = els.secretInput.value.trim()
-  localStorage.setItem('drosa_inbox_secret', state.secret)
-  loadConversations({ keepSelection: false })
-})
+  if (!validateRequiredElements()) return
 
-els.refreshButton.addEventListener('click', async () => {
-  const shouldKeepBottom = isNearMessagesBottom()
-  await loadConversations()
-  if (state.selectedConversationId) {
-    await refreshSelectedConversationMessages({ forceScroll: shouldKeepBottom })
+  els.secretInput.value = state.secret
+  els.secretInput.addEventListener('input', () => {
+    state.secret = els.secretInput.value.trim()
+  })
+
+  els.saveSecretButton.addEventListener('click', () => {
+    state.secret = els.secretInput.value.trim()
+    localStorage.setItem('drosa_inbox_secret', state.secret)
+    loadConversations({ keepSelection: false })
+  })
+
+  els.refreshButton.addEventListener('click', async () => {
+    const shouldKeepBottom = isNearMessagesBottom()
+    await loadConversations()
+    if (state.selectedConversationId) {
+      await refreshSelectedConversationMessages({ forceScroll: shouldKeepBottom })
+    }
+  })
+  els.replyForm.addEventListener('submit', submitReply)
+  els.saveStatusButton.addEventListener('click', saveStatus)
+  els.attachButton?.addEventListener('click', () => els.imageInput?.click())
+  els.imageInput?.addEventListener('change', handleImageSelection)
+  els.messageList.addEventListener('click', handleMessageListClick)
+  els.messageList.addEventListener('scroll', updateLatestMessageButton, { passive: true })
+  els.latestMessageButton?.addEventListener('click', () => scrollMessagesToBottom(true))
+
+  els.conversationSearch?.addEventListener('input', () => {
+    state.search = els.conversationSearch.value
+    renderConversationList()
+  })
+
+  els.filterButtons?.forEach((button) => {
+    button.addEventListener('click', () => setActiveFilter(button.dataset.filter || 'all'))
+  })
+
+  els.replyText.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+      event.preventDefault()
+      submitReply(event)
+    }
+  })
+
+  updateComposerPlaceholder()
+  renderReplyTargetBox()
+  renderSelectedImagePreview()
+
+  if (state.secret) {
+    loadConversations({ keepSelection: false })
   }
-})
-els.replyForm.addEventListener('submit', submitReply)
-els.saveStatusButton.addEventListener('click', saveStatus)
-els.attachButton.addEventListener('click', () => els.imageInput.click())
-els.imageInput.addEventListener('change', handleImageSelection)
-els.messageList.addEventListener('click', handleMessageListClick)
-els.messageList.addEventListener('scroll', updateLatestMessageButton, { passive: true })
-els.latestMessageButton?.addEventListener('click', () => scrollMessagesToBottom(true))
+}
 
-els.conversationSearch.addEventListener('input', () => {
-  state.search = els.conversationSearch.value
-  renderConversationList()
-})
-
-els.filterButtons.forEach((button) => {
-  button.addEventListener('click', () => setActiveFilter(button.dataset.filter || 'all'))
-})
-
-els.replyText.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
-    event.preventDefault()
-    submitReply(event)
-  }
-})
-
-updateComposerPlaceholder()
-renderReplyTargetBox()
-renderSelectedImagePreview()
-
-if (state.secret) {
-  loadConversations({ keepSelection: false })
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', bootInbox, { once: true })
+} else {
+  bootInbox()
 }
