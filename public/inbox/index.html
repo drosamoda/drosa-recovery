@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="pt-BR">
   <head>
-    <meta charset="utf-8">
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Inbox WhatsApp DRosa</title>
     <link rel="stylesheet" href="/inbox-assets/app.css">
@@ -9,10 +9,14 @@
   <body>
     <div class="app-shell">
       <header class="topbar">
-        <div>
-          <h1>Inbox WhatsApp DRosa</h1>
-          <p id="connectionStatus">Configure o segredo da inbox para carregar as conversas.</p>
+        <div class="brand-block">
+          <div class="brand-mark">DR</div>
+          <div>
+            <h1>Inbox WhatsApp DRosa</h1>
+            <p id="connectionStatus">Configure o segredo da inbox para carregar as conversas.</p>
+          </div>
         </div>
+
         <div class="secret-box">
           <label for="secretInput">INBOX_ADMIN_SECRET</label>
           <div class="secret-row">
@@ -23,44 +27,134 @@
       </header>
 
       <main class="workspace">
-        <aside class="conversation-panel">
-          <div class="panel-head">
-            <h2>Conversas</h2>
+        <aside class="sidebar">
+          <div class="panel-section sidebar-head">
+            <div>
+              <h2>Conversas</h2>
+              <p>Lista em tempo real da caixa de atendimento.</p>
+            </div>
             <button id="refreshButton" type="button">Atualizar</button>
           </div>
+
+          <div class="panel-section">
+            <label class="search-field" for="conversationSearch">
+              <span>Buscar</span>
+              <input id="conversationSearch" type="search" placeholder="Nome, telefone, pedido ou mensagem">
+            </label>
+
+            <div class="filter-bar" role="tablist" aria-label="Filtros de conversa">
+              <button type="button" class="filter-chip active" data-filter="all">Todas</button>
+              <button type="button" class="filter-chip" data-filter="unread">Não lidas</button>
+              <button type="button" class="filter-chip" data-filter="open">Abertas</button>
+              <button type="button" class="filter-chip" data-filter="closed">Fechadas</button>
+            </div>
+          </div>
+
           <div id="conversationList" class="conversation-list" aria-live="polite"></div>
         </aside>
 
-        <section class="chat-panel">
+        <section class="chat-area">
           <div id="emptyState" class="empty-state">
-            <h2>Selecione uma conversa</h2>
-          <p>As mensagens recebidas pela WhatsApp Cloud API aparecem aqui.</p>
+            <div class="empty-card">
+              <h2>Selecione uma conversa</h2>
+              <p>As mensagens recebidas pela WhatsApp Cloud API aparecem aqui.</p>
+            </div>
           </div>
 
           <div id="chatView" class="chat-view hidden">
-            <div class="chat-head">
-              <div>
-                <h2 id="chatContactName"></h2>
-                <p id="chatContactPhone"></p>
+            <header class="chat-head">
+              <div class="chat-head-main">
+                <div id="chatAvatar" class="avatar">DR</div>
+                <div class="chat-head-text">
+                  <h2 id="chatContactName"></h2>
+                  <p id="chatContactPhone"></p>
+                </div>
               </div>
-              <div class="status-actions">
-                <select id="statusSelect" aria-label="Status da conversa">
-                  <option value="open">Aberta</option>
-                  <option value="pending">Pendente</option>
-                  <option value="closed">Fechada</option>
-                </select>
-                <button id="saveStatusButton" type="button">Salvar status</button>
+
+              <div class="chat-head-actions">
+                <span id="chatStatusBadge" class="status-pill"></span>
+                <div class="status-actions">
+                  <select id="statusSelect" aria-label="Status da conversa">
+                    <option value="open">Aberta</option>
+                    <option value="pending">Pendente</option>
+                    <option value="closed">Fechada</option>
+                  </select>
+                  <button id="saveStatusButton" type="button">Salvar status</button>
+                </div>
               </div>
+            </header>
+
+            <div class="chat-body">
+              <div id="messageList" class="message-list" data-messages-list aria-live="polite"></div>
+              <button id="latestMessageButton" class="jump-latest-button hidden" type="button">Última mensagem</button>
+
+              <form id="replyForm" class="reply-box">
+                <div id="replyTargetBox" class="reply-target hidden">
+                  <div class="reply-target-copy">
+                    <span class="detail-label">Respondendo</span>
+                    <strong id="replyTargetTitle">-</strong>
+                    <span id="replyTargetBody" class="reply-target-body">-</span>
+                  </div>
+                  <button id="clearReplyButton" type="button">Cancelar</button>
+                </div>
+
+                <div id="imagePreviewBox" class="image-preview-box hidden">
+                  <img id="selectedImagePreview" alt="Preview da imagem selecionada">
+                  <div class="image-preview-copy">
+                    <strong id="selectedImageName"></strong>
+                    <span id="selectedImageInfo"></span>
+                  </div>
+                  <button id="clearImageButton" type="button">Cancelar</button>
+                </div>
+
+                <div class="reply-compose">
+                  <button id="attachButton" class="attach-button" type="button" aria-label="Anexar imagem">📎</button>
+                  <textarea id="replyText" rows="2" placeholder="Digite a mensagem"></textarea>
+                  <button id="sendButton" type="submit">Enviar</button>
+                </div>
+                <input id="imageInput" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" hidden>
+              </form>
             </div>
-
-            <div id="messageList" class="message-list" aria-live="polite"></div>
-
-            <form id="replyForm" class="reply-box">
-              <textarea id="replyText" rows="3" placeholder="Digite a resposta"></textarea>
-              <button id="sendButton" type="submit">Enviar</button>
-            </form>
           </div>
         </section>
+
+        <aside class="details-panel">
+          <div class="panel-section details-head">
+            <div>
+              <h2>Detalhes</h2>
+              <p>Resumo rápido da conversa selecionada.</p>
+            </div>
+          </div>
+
+          <div class="detail-card">
+            <div class="detail-row">
+              <span class="detail-label">Cliente</span>
+              <strong id="panelContactName">-</strong>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Telefone</span>
+              <strong id="panelContactPhone">-</strong>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Status</span>
+              <strong id="panelConversationStatus">-</strong>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Atendente</span>
+              <strong id="panelAssignedTo">-</strong>
+            </div>
+          </div>
+
+          <div class="detail-card">
+            <span class="detail-label">Etiquetas</span>
+            <div id="panelTags" class="tag-list"></div>
+          </div>
+
+          <div class="detail-card">
+            <span class="detail-label">Último pedido</span>
+            <div id="panelLastOrder" class="detail-summary">Nenhum pedido encontrado.</div>
+          </div>
+        </aside>
       </main>
 
       <div id="toast" class="toast hidden" role="status"></div>
