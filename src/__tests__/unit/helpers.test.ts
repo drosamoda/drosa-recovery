@@ -4,9 +4,6 @@ import { extractUrlSuffix, buildOrderConfirmationVars, buildAbandonedCartVars } 
 import { messageService } from '../../services/messageService'
 import { renderTemplatePreview } from '../../helpers/inboxTemplatePreview'
 
-// -----------------------------------------------------------------------
-// normalizePhoneBrazil
-// -----------------------------------------------------------------------
 describe('normalizePhoneBrazil', () => {
   it('formata número com DDD e traço', () => {
     expect(normalizePhoneBrazil('(31) 99802-1418')).toBe('5531998021418')
@@ -24,8 +21,7 @@ describe('normalizePhoneBrazil', () => {
     expect(normalizePhoneBrazil('+55 31 99802-1418')).toBe('5531998021418')
   })
 
-  it('formata número de 10 dígitos (fixo)', () => {
-    // fixo: 55 + DDD(2) + número(8) = 12 dígitos
+  it('formata número de 10 dígitos fixo', () => {
     expect(normalizePhoneBrazil('3133001234')).toBe('553133001234')
     expect(normalizePhoneBrazil('3133001234')).toBe('55' + '3133001234')
   })
@@ -45,9 +41,6 @@ describe('normalizePhoneBrazil', () => {
   })
 })
 
-// -----------------------------------------------------------------------
-// extractUrlSuffix
-// -----------------------------------------------------------------------
 describe('extractUrlSuffix', () => {
   const base = 'https://www.drosamoda.com.br/checkout/'
 
@@ -68,9 +61,6 @@ describe('extractUrlSuffix', () => {
   })
 })
 
-// -----------------------------------------------------------------------
-// buildOrderConfirmationVars
-// -----------------------------------------------------------------------
 describe('buildOrderConfirmationVars', () => {
   it('retorna apenas o primeiro nome', () => {
     const vars = buildOrderConfirmationVars({ customerName: 'Maria Silva', orderNumber: '1001' })
@@ -84,9 +74,6 @@ describe('buildOrderConfirmationVars', () => {
   })
 })
 
-// -----------------------------------------------------------------------
-// buildAbandonedCartVars
-// -----------------------------------------------------------------------
 describe('buildAbandonedCartVars', () => {
   const base = process.env.CHECKOUT_BASE_URL!
 
@@ -104,9 +91,6 @@ describe('buildAbandonedCartVars', () => {
   })
 })
 
-// -----------------------------------------------------------------------
-// generateIdempotencyKey
-// -----------------------------------------------------------------------
 describe('generateIdempotencyKey', () => {
   it('gera chave no formato correto para order', () => {
     const key = messageService.generateIdempotencyKey('order', 'abc123', 'confirmacao_pedido_drosa')
@@ -123,13 +107,17 @@ describe('generateIdempotencyKey', () => {
   })
 })
 
-// -----------------------------------------------------------------------
-// renderTemplatePreview
-// -----------------------------------------------------------------------
 describe('renderTemplatePreview', () => {
   it('renderiza o preview completo de confirmacao de pedido', () => {
     const result = renderTemplatePreview('confirmacao_pedido_drosa', {
-      templatePreview: `Oi, [nome_cliente]! 😊\nSou a Dani da D'Rosa Moda.\n\nRecebemos o seu pedido *[numero_pedido]* com sucesso.\n\nAgora estamos aguardando a confirmação do pagamento para separar suas peças com todo carinho.\n\n👉 *Entre aqui:* [link_grupo_vip]`,
+      templatePreview: `Oi, [nome_cliente]!
+Sou a Dani da D'Rosa Moda.
+
+Recebemos o seu pedido *[numero_pedido]* com sucesso.
+
+Agora estamos aguardando a confirmação do pagamento para separar suas peças com todo carinho.
+
+*Entre aqui:* [link_grupo_vip]`,
       templateVariables: {
         nome_cliente: 'Maria',
         numero_pedido: '1001',
@@ -143,9 +131,78 @@ describe('renderTemplatePreview', () => {
     expect(result.renderedPreview).toContain('grupo-vip')
   })
 
+  it('preserva acentos no preview renderizado de confirmacao de pedido', () => {
+    const result = renderTemplatePreview('confirmacao_pedido_drosa', {
+      templatePreview: `Oi, [nome_cliente]!
+Sou a Dani da D'Rosa Moda.
+
+Obrigada pela sua confiança!
+Recebemos o seu pedido *[numero_pedido]* e o pagamento foi confirmado com sucesso.
+
+Seu pedido já está sendo preparado com todo carinho. Assim que ele for postado, você receberá o código de rastreio por e-mail.
+
+Também quero te convidar para o nosso Grupo VIP D'Rosa: por lá, você recebe lançamentos em primeira mão, condições especiais e novidades antes de todo mundo.
+
+Entre aqui:
+[link_grupo_vip]
+
+Qualquer dúvida, estou por aqui para te ajudar.
+Com carinho,
+Dani | D'Rosa Moda`,
+      templateVariables: {
+        nome_cliente: 'Maria',
+        numero_pedido: '1001',
+        link_grupo_vip: 'https://chat.whatsapp.com/grupo-vip',
+      },
+    })
+
+    expect(result.complete).toBe(true)
+    expect(result.renderedPreview).toContain('confiança')
+    expect(result.renderedPreview).toContain('já')
+    expect(result.renderedPreview).toContain('está')
+    expect(result.renderedPreview).toContain('você')
+    expect(result.renderedPreview).toContain('código')
+    expect(result.renderedPreview).toContain('Também')
+    expect(result.renderedPreview).toContain('lá')
+    expect(result.renderedPreview).toContain('lançamentos')
+    expect(result.renderedPreview).toContain('mão')
+    expect(result.renderedPreview).toContain('condições')
+    expect(result.renderedPreview).toContain('dúvida')
+    expect(result.renderedPreview).not.toContain('??')
+    expect(result.renderedPreview).not.toMatch(/Ã|�/)
+  })
+
+  it('substitui preview corrompido conhecido por texto canonico em UTF-8', () => {
+    const result = renderTemplatePreview('confirmacao_pedido_drosa', {
+      templatePreview: `Oi, [nome_cliente]! ??\nObrigada pela sua confiana!\nSeu pedido j est sendo preparado. Voc receber o cdigo.\nTambm tem lanamentos em primeira mo e condies especiais.\nQualquer dvida, estou por aqui.`,
+      templateVariables: {
+        nome_cliente: 'Vilmara',
+        numero_pedido: '83274',
+        link_grupo_vip: 'https://chat.whatsapp.com/grupo-vip',
+      },
+    })
+
+    expect(result.complete).toBe(true)
+    expect(result.renderedPreview).toContain('Vilmara')
+    expect(result.renderedPreview).toContain('83274')
+    expect(result.renderedPreview).toContain('confiança')
+    expect(result.renderedPreview).toContain('já')
+    expect(result.renderedPreview).toContain('está')
+    expect(result.renderedPreview).toContain('você')
+    expect(result.renderedPreview).toContain('código')
+    expect(result.renderedPreview).toContain('Também')
+    expect(result.renderedPreview).toContain('lá')
+    expect(result.renderedPreview).toContain('lançamentos')
+    expect(result.renderedPreview).toContain('mão')
+    expect(result.renderedPreview).toContain('condições')
+    expect(result.renderedPreview).toContain('dúvida')
+    expect(result.renderedPreview).not.toContain('??')
+    expect(result.renderedPreview).not.toMatch(/Ã|�/)
+  })
+
   it('renderiza preview de pix pendente com valor', () => {
     const result = renderTemplatePreview('pix_pendente_drosa_01', {
-      templatePreview: `Oi, [nome_cliente]! 😊\n\nVi que o pedido nº *[numero_pedido]*, no valor de *[valor_total]*, ainda está aguardando o pagamento.`,
+      templatePreview: `Oi, [nome_cliente]!\n\nVi que o pedido nº *[numero_pedido]*, no valor de *[valor_total]*, ainda está aguardando o pagamento.`,
       templateVariables: {
         nome_cliente: 'Ana',
         numero_pedido: '2002',

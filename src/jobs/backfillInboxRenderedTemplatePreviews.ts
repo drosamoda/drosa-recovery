@@ -1,7 +1,7 @@
 import { ChatMessageType, MessageDirection, MessageStatus, Prisma } from '@prisma/client'
 import { prisma } from '../config/prisma'
 import { logger } from '../config/logger'
-import { renderTemplatePreview } from '../helpers/inboxTemplatePreview'
+import { looksLikeCorruptedText, renderTemplatePreview } from '../helpers/inboxTemplatePreview'
 import { normalizePhoneBrazil } from '../helpers/phoneService'
 import { env } from '../config/env'
 
@@ -14,8 +14,10 @@ export type BackfillInboxRenderedTemplatePreviewsResult = {
 }
 
 type RowRecord = Record<string, unknown>
+const ORDER_CONFIRMATION_SUMMARY = 'Confirmação de pedido enviada'
 
 const SUMMARY_BODIES = new Set([
+  ORDER_CONFIRMATION_SUMMARY,
   'Confirmação de pedido enviada',
   'Lembrete de Pix pendente enviado',
   'Lembrete de boleto enviado',
@@ -32,6 +34,7 @@ function isPlaceholderBody(body?: string | null, templateName?: string | null): 
   return (
     !normalized ||
     normalized === templateName ||
+    looksLikeCorruptedText(normalized) ||
     SUMMARY_BODIES.has(normalized) ||
     normalized.startsWith('Template enviado:') ||
     normalized === '[mensagem enviada]'
@@ -326,9 +329,6 @@ export async function runBackfillInboxRenderedTemplatePreviews(): Promise<Backfi
       where: {
         direction: MessageDirection.outbound,
         type: ChatMessageType.template,
-        body: {
-          in: Array.from(SUMMARY_BODIES),
-        },
       },
       orderBy: [
         { createdAt: 'asc' },

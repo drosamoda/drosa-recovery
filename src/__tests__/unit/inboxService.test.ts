@@ -51,10 +51,12 @@ vi.mock('../../config/env', () => ({
 vi.mock('../../services/whatsappService', () => ({
   whatsappService: {
     sendTextMessage: vi.fn(),
+    sendImageMessage: vi.fn(),
   },
 }))
 
 import { prisma } from '../../config/prisma'
+import { env } from '../../config/env'
 import { inboxService } from '../../services/inboxService'
 import { whatsappService } from '../../services/whatsappService'
 
@@ -309,6 +311,160 @@ describe('inboxService.sendManualTextMessage dry-run', () => {
   })
 })
 
+describe('inboxService.sendManualTextMessage reply', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('usa context.message_id quando responder uma mensagem da mesma conversa', async () => {
+    const originalDryRun = env.INBOX_SEND_DRY_RUN
+    env.INBOX_SEND_DRY_RUN = false
+
+    const lastInboundAt = new Date('2026-05-05T12:00:00.000Z')
+    const conversation = {
+      id: 'conversation-1',
+      lastInboundAt,
+      contact: {
+        phone: '5583999999999',
+      },
+    }
+    const replyMessage = {
+      id: 'reply-1',
+      waMessageId: 'wamid.original.1',
+      body: 'Mensagem original',
+      type: 'text',
+    }
+    const savedMessage = {
+      id: 'message-1',
+      conversationId: 'conversation-1',
+      direction: 'outbound',
+      type: 'text',
+      body: 'Resposta vinculada',
+      status: 'sent',
+    }
+
+    vi.mocked(prisma.conversation.findUnique).mockResolvedValue(conversation as never)
+    vi.mocked(prisma.chatMessage.findFirst).mockResolvedValue(replyMessage as never)
+    vi.mocked(whatsappService.sendTextMessage).mockResolvedValue({
+      success: true,
+      metaMessageId: 'wamid.reply.sent.1',
+      response: { messages: [{ id: 'wamid.reply.sent.1' }] },
+    } as never)
+    vi.mocked(prisma.chatMessage.create).mockResolvedValue(savedMessage as never)
+    vi.mocked(prisma.conversation.update).mockResolvedValue(conversation as never)
+
+    const result = await inboxService.sendManualTextMessage('conversation-1', 'Resposta vinculada', 'reply-1')
+
+    env.INBOX_SEND_DRY_RUN = originalDryRun
+
+    expect(result.success).toBe(true)
+    expect(whatsappService.sendTextMessage).toHaveBeenCalledWith(expect.objectContaining({
+      to: '5583999999999',
+      text: 'Resposta vinculada',
+      contextMessageId: 'wamid.original.1',
+    }))
+    expect(prisma.chatMessage.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        body: 'Resposta vinculada',
+        rawPayload: expect.objectContaining({
+          source: 'manual_inbox',
+          mediaType: 'text',
+          replyToMessageId: 'reply-1',
+          replyToWaMessageId: 'wamid.original.1',
+          replyToBody: 'Mensagem original',
+          replyToType: 'text',
+        }),
+      }),
+    }))
+  })
+})
+
+describe('inboxService.sendManualImageMessage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('rejeita mime type invalido sem chamar a API da Meta', async () => {
+    const result = await inboxService.sendManualImageMessage('conversation-1', {
+      fileBuffer: Buffer.from('fake'),
+      mimeType: 'application/pdf',
+      fileName: 'arquivo.pdf',
+      caption: 'Legenda',
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.statusCode).toBe(400)
+    expect(whatsappService.sendImageMessage).not.toHaveBeenCalled()
+  })
+
+  it('salva imagem outbound com legenda e reply vinculado', async () => {
+    const lastInboundAt = new Date('2026-05-05T12:00:00.000Z')
+    const conversation = {
+      id: 'conversation-1',
+      lastInboundAt,
+      contact: {
+        phone: '5583999999999',
+      },
+    }
+    const replyMessage = {
+      id: 'reply-1',
+      waMessageId: 'wamid.reply.1',
+      body: 'Mensagem original',
+    }
+
+    vi.mocked(prisma.conversation.findUnique).mockResolvedValue(conversation as never)
+    vi.mocked(prisma.chatMessage.findFirst).mockResolvedValue(replyMessage as never)
+    vi.mocked(whatsappService.sendImageMessage).mockResolvedValue({
+      success: true,
+      metaMessageId: 'wamid.image.out.1',
+      mediaId: 'media-123',
+      response: { messages: [{ id: 'wamid.image.out.1' }] },
+    } as never)
+    vi.mocked(prisma.chatMessage.create).mockResolvedValue({ id: 'message-1' } as never)
+    vi.mocked(prisma.conversation.update).mockResolvedValue(conversation as never)
+
+    const result = await inboxService.sendManualImageMessage('conversation-1', {
+      fileBuffer: Buffer.from('image-bytes'),
+      mimeType: 'image/png',
+      fileName: 'foto.png',
+      caption: 'Legenda da imagem',
+      replyToMessageId: 'reply-1',
+    })
+
+    expect(result.success).toBe(true)
+    expect(whatsappService.sendImageMessage).toHaveBeenCalledWith(expect.objectContaining({
+      to: '5583999999999',
+      mimeType: 'image/png',
+      caption: 'Legenda da imagem',
+      contextMessageId: 'wamid.reply.1',
+    }))
+    expect(prisma.chatMessage.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        conversationId: 'conversation-1',
+        waMessageId: 'wamid.image.out.1',
+        direction: 'outbound',
+        type: 'image',
+        body: 'Legenda da imagem',
+        rawPayload: expect.objectContaining({
+          source: 'manual_inbox',
+          mediaType: 'image',
+          caption: 'Legenda da imagem',
+          mimeType: 'image/png',
+          fileName: 'foto.png',
+          replyToMessageId: 'reply-1',
+          replyToBody: 'Mensagem original',
+          contextMessageId: 'wamid.reply.1',
+          mediaId: 'media-123',
+        }),
+      }),
+    }))
+    expect(prisma.conversation.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'conversation-1' },
+      data: expect.objectContaining({ lastMessageAt: expect.any(Date) }),
+    }))
+  })
+})
+
 describe('inboxService.mirrorAutomationMessage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -420,6 +576,40 @@ describe('inboxService.mirrorAutomationMessage', () => {
             nome_cliente: 'Maria',
             numero_pedido: '1001',
           }),
+        }),
+      }),
+    }))
+  })
+
+  it('nao salva renderedPreview corrompido como corpo da mensagem espelhada', async () => {
+    const contact = { id: 'contact-1', phone: '5583999999999', name: null }
+    const conversation = { id: 'conversation-1', contactId: contact.id }
+
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.contact.create).mockResolvedValue(contact as never)
+    vi.mocked(prisma.chatMessage.findFirst).mockResolvedValue(null)
+    vi.mocked(prisma.conversation.findFirst).mockResolvedValue(conversation as never)
+    vi.mocked(prisma.chatMessage.create).mockResolvedValue({ id: 'chat-1' } as never)
+    vi.mocked(prisma.conversation.update).mockResolvedValue(conversation as never)
+
+    await inboxService.mirrorAutomationMessage({
+      phone: '5583999999999',
+      metaMessageId: 'wamid.auto.corrupt',
+      templateName: 'confirmacao_pedido_drosa',
+      status: 'sent',
+      payload: {
+        renderedPreview: 'Oi, Vilmara! ?? Obrigada pela sua confiana! Voc receber o cdigo.',
+        templateParameters: {
+          nome_cliente: 'Vilmara',
+        },
+      },
+    })
+
+    expect(prisma.chatMessage.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        body: 'Confirmação de pedido enviada',
+        rawPayload: expect.objectContaining({
+          renderedPreview: null,
         }),
       }),
     }))

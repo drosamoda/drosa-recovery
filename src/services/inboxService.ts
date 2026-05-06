@@ -11,7 +11,11 @@ import {
   WHATSAPP_24H_WINDOW_ERROR,
   isWithinWhatsappCustomerCareWindow,
 } from '../helpers/inboxWindow'
-import { extractTemplatePreview, getFriendlyTemplatePreview } from '../helpers/inboxTemplatePreview'
+import {
+  extractTemplatePreview,
+  getFriendlyTemplatePreview,
+  looksLikeCorruptedText,
+} from '../helpers/inboxTemplatePreview'
 import { whatsappService } from './whatsappService'
 
 export type InboxMessageType =
@@ -38,6 +42,21 @@ type SaveSimulatedInboundMessageParams = {
   phone: string
   name?: string
   text: string
+}
+
+type SendManualImageMessageParams = {
+  fileBuffer: Buffer
+  mimeType: string
+  caption?: string
+  replyToMessageId?: string
+  fileName?: string
+}
+
+type ReplyContext = {
+  id: string
+  body?: string | null
+  type?: InboxMessageType | string | null
+  waMessageId?: string | null
 }
 
 type MirrorAutomationMessageParams = {
@@ -172,6 +191,68 @@ function extractTemplateParameters(payload: unknown): Record<string, string> | n
 function isPlaceholderName(name?: string | null): boolean {
   const normalized = name?.trim().toLowerCase()
   return !normalized || normalized === 'sem nome' || normalized === 'cliente'
+}
+
+const SUPPORTED_IMAGE_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/webp',
+])
+
+const MAX_MANUAL_IMAGE_BYTES = 5 * 1024 * 1024
+
+function normalizeImageMimeType(mimeType: string): string | null {
+  const normalized = mimeType.trim().toLowerCase()
+  if (!SUPPORTED_IMAGE_MIME_TYPES.has(normalized)) return null
+  return normalized === 'image/jpg' ? 'image/jpeg' : normalized
+}
+
+function getReplyContextLabel(type?: string | null): string {
+  switch (type) {
+    case 'image':
+      return 'Respondendo à imagem'
+    case 'audio':
+      return 'Respondendo ao áudio'
+    case 'document':
+      return 'Respondendo ao documento'
+    case 'sticker':
+      return 'Respondendo à figurinha'
+    case 'video':
+      return 'Respondendo ao vídeo'
+    case 'reaction':
+      return 'Respondendo à reação'
+    case 'other':
+      return 'Respondendo à mensagem'
+    default:
+      return 'Respondendo à mensagem'
+  }
+}
+
+async function getReplyContext(conversationId: string, replyToMessageId?: string): Promise<ReplyContext | null> {
+  if (!replyToMessageId) return null
+
+  const replyMessage = await prisma.chatMessage.findFirst({
+    where: {
+      id: replyToMessageId,
+      conversationId,
+    },
+    select: {
+      id: true,
+      body: true,
+      type: true,
+      waMessageId: true,
+    },
+  })
+
+  if (!replyMessage) return null
+
+  return {
+    id: replyMessage.id,
+    body: replyMessage.body,
+    type: replyMessage.type,
+    waMessageId: replyMessage.waMessageId,
+  }
 }
 
 async function getAutomationEntityContext(params: MirrorAutomationMessageParams): Promise<AutomationEntityContext> {
@@ -423,8 +504,10 @@ export const inboxService = {
     }
 
     const timestamp = params.sentAt ?? new Date()
+    const renderedPreview = extractTemplatePreview(params.payload)
+    const safeRenderedPreview = renderedPreview && !looksLikeCorruptedText(renderedPreview) ? renderedPreview : null
     const body =
-      extractTemplatePreview(params.payload) ||
+      safeRenderedPreview ||
       params.body?.trim() ||
       getFriendlyTemplatePreview(params.templateName)
 
@@ -438,7 +521,7 @@ export const inboxService = {
         rawPayload: {
           source: 'automation_mirror',
           templateName: params.templateName,
-          renderedPreview: extractTemplatePreview(params.payload) ?? null,
+          renderedPreview: safeRenderedPreview,
           templateParameters: extractTemplateParameters(params.payload),
           entityType: params.entityType ?? null,
           entityId: params.entityId ?? null,
@@ -496,6 +579,26 @@ export const inboxService = {
         },
       })
 
+      const lastOrder = await prisma.order.findFirst({
+        where: {
+          OR: [
+            { normalizedPhone: conversation.contact.phone },
+            ...(conversation.contact.phone ? [{ customerPhone: conversation.contact.phone }] : []),
+          ],
+        },
+        orderBy: [{ createdAt: 'desc' }],
+        select: {
+          id: true,
+          nuvemshopOrderId: true,
+          orderNumber: true,
+          status: true,
+          paymentStatus: true,
+          total: true,
+          orderUrl: true,
+          createdAt: true,
+        },
+      })
+
       const lastMessage = conversation.messages[0]
 
       return {
@@ -504,6 +607,7 @@ export const inboxService = {
         assignedTo: conversation.assignedTo,
         contactName: conversation.contact.name,
         phone: conversation.contact.phone,
+        lastOrder,
         lastMessage: lastMessage
           ? {
               id: lastMessage.id,
@@ -554,7 +658,7 @@ export const inboxService = {
     })
   },
 
-  async sendManualTextMessage(conversationId: string, text: string) {
+  async sendManualTextMessage(conversationId: string, text: string, replyToMessageId?: string) {
     const conversation = await prisma.conversation.findUnique({
       where: { id: conversationId },
       include: { contact: true },
@@ -566,6 +670,15 @@ export const inboxService = {
 
     if (!isWithinWhatsappCustomerCareWindow(conversation.lastInboundAt)) {
       return { success: false as const, statusCode: 400, error: WHATSAPP_24H_WINDOW_ERROR }
+    }
+
+    const replyContext = await getReplyContext(conversationId, replyToMessageId)
+    if (replyToMessageId && !replyContext) {
+      return {
+        success: false as const,
+        statusCode: 400,
+        error: 'replyToMessageId invalido ou fora da conversa atual',
+      }
     }
 
     if (env.NODE_ENV !== 'production' && env.INBOX_SEND_DRY_RUN) {
@@ -581,6 +694,10 @@ export const inboxService = {
             dry_run: true,
             to: conversation.contact.phone,
             text,
+            replyToMessageId: replyContext?.id || null,
+            replyToWaMessageId: replyContext?.waMessageId || null,
+            replyToBody: replyContext?.body || null,
+            replyToType: replyContext?.type || null,
           },
           status: 'dry_run',
           timestamp: now,
@@ -598,6 +715,7 @@ export const inboxService = {
     const result = await whatsappService.sendTextMessage({
       to: conversation.contact.phone,
       text,
+      contextMessageId: replyContext?.waMessageId || undefined,
     })
 
     if (!result.success) {
@@ -616,7 +734,108 @@ export const inboxService = {
         direction: MessageDirection.outbound,
         type: ChatMessageType.text,
         body: text,
-        rawPayload: result.response as object | undefined,
+        rawPayload: {
+          source: 'manual_inbox',
+          mediaType: 'text',
+          text,
+          replyToMessageId: replyContext?.id || null,
+          replyToWaMessageId: replyContext?.waMessageId || null,
+          replyToBody: replyContext?.body || null,
+          replyToType: replyContext?.type || null,
+          ...(result.response ? { metaResponse: result.response } : {}),
+        },
+        status: 'sent',
+        timestamp: now,
+      },
+    })
+
+    await prisma.conversation.update({
+      where: { id: conversationId },
+      data: { lastMessageAt: now },
+    })
+
+    return { success: true as const, dryRun: false as const, message }
+  },
+
+  async sendManualImageMessage(conversationId: string, params: SendManualImageMessageParams) {
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: { contact: true },
+    })
+
+    if (!conversation) {
+      return { success: false as const, statusCode: 404, error: 'Conversa nao encontrada' }
+    }
+
+    if (!isWithinWhatsappCustomerCareWindow(conversation.lastInboundAt)) {
+      return { success: false as const, statusCode: 400, error: WHATSAPP_24H_WINDOW_ERROR }
+    }
+
+    const normalizedMimeType = normalizeImageMimeType(params.mimeType)
+    if (!normalizedMimeType) {
+      return {
+        success: false as const,
+        statusCode: 400,
+        error: 'Mime type invalido. Use jpg, jpeg, png ou webp.',
+      }
+    }
+
+    if (params.fileBuffer.length > MAX_MANUAL_IMAGE_BYTES) {
+      return {
+        success: false as const,
+        statusCode: 413,
+        error: 'Imagem muito grande. Limite maximo de 5 MB.',
+      }
+    }
+
+    const caption = params.caption?.trim() || ''
+    const replyToMessage = await getReplyContext(conversationId, params.replyToMessageId)
+    if (params.replyToMessageId && !replyToMessage) {
+      return {
+        success: false as const,
+        statusCode: 400,
+        error: 'replyToMessageId invalido ou fora da conversa atual',
+      }
+    }
+
+    const result = await whatsappService.sendImageMessage({
+      to: conversation.contact.phone,
+      fileBuffer: params.fileBuffer,
+      mimeType: normalizedMimeType,
+      caption: caption || undefined,
+      contextMessageId: replyToMessage?.waMessageId || undefined,
+      fileName: params.fileName,
+    })
+
+    if (!result.success) {
+      return {
+        success: false as const,
+        statusCode: 502,
+        error: result.reason ?? 'Falha ao enviar imagem pela WhatsApp Cloud API',
+      }
+    }
+
+    const now = new Date()
+    const message = await prisma.chatMessage.create({
+      data: {
+        conversationId,
+        waMessageId: result.metaMessageId ?? null,
+        direction: MessageDirection.outbound,
+        type: ChatMessageType.image,
+        body: caption || '[imagem]',
+        rawPayload: {
+          source: 'manual_inbox',
+          mediaType: 'image',
+          caption: caption || null,
+          mimeType: normalizedMimeType,
+          fileName: params.fileName || null,
+          mediaId: result.mediaId ?? null,
+          replyToMessageId: replyToMessage?.id || null,
+          replyToWaMessageId: replyToMessage?.waMessageId || null,
+          replyToBody: replyToMessage?.body || null,
+          replyToType: replyToMessage?.type || null,
+          contextMessageId: replyToMessage?.waMessageId || null,
+        },
         status: 'sent',
         timestamp: now,
       },

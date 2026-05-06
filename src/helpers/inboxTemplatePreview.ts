@@ -7,6 +7,28 @@ const TEMPLATE_PREVIEW_MAP: Record<string, string> = {
   carrinho_abandonado_drosa_01: 'Mensagem de carrinho abandonado enviada',
 }
 
+const ORDER_CONFIRMATION_PREVIEW = `Oi, [nome_cliente]!
+Sou a Dani da D'Rosa Moda.
+
+Obrigada pela sua confiança!
+Recebemos o seu pedido [numero_pedido] e o pagamento foi confirmado com sucesso.
+
+Seu pedido já está sendo preparado com todo carinho. Assim que ele for postado, você receberá o código de rastreio por e-mail.
+
+Também quero te convidar para o nosso Grupo VIP D'Rosa: por lá, você recebe lançamentos em primeira mão, condições especiais e novidades antes de todo mundo.
+
+Entre aqui:
+[link_grupo_vip]
+
+Qualquer dúvida, estou por aqui para te ajudar.
+Com carinho,
+Dani | D'Rosa Moda`
+
+const CANONICAL_TEMPLATE_PREVIEW_MAP: Record<string, string> = {
+  confirmacao_pedido_drosa: ORDER_CONFIRMATION_PREVIEW,
+  pagamento_confirmado_drosa_01: ORDER_CONFIRMATION_PREVIEW,
+}
+
 export type TemplateRenderContext = {
   templatePreview?: string | null
   templateVariables?: Record<string, string | number | boolean | null | undefined>
@@ -37,6 +59,23 @@ function normalizeRenderedPreview(rendered: string): string {
   return rendered.trim().replace(/\n{3,}/g, '\n\n')
 }
 
+export function looksLikeCorruptedText(value?: string | null): boolean {
+  if (!value) return false
+  return (
+    /�|ï¿½|Ãƒ|Ã‚|Ã¢|Ã°|Å¸|[?]{2,}/.test(value) ||
+    /\bconfiana\b|\bcdigo\b|\bTambm\b|\blanamentos\b|\bcondies\b|\bdvida\b/i.test(value) ||
+    /\bpedido j est\b|\bVoc receber\b|\bvoce receber\b|\bprimeira mo\b/i.test(value)
+  )
+}
+
+function getTemplatePreview(templateName: string, templatePreview: string | null): string | null {
+  if (!templatePreview) return CANONICAL_TEMPLATE_PREVIEW_MAP[templateName] ?? null
+  if (looksLikeCorruptedText(templatePreview)) {
+    return CANONICAL_TEMPLATE_PREVIEW_MAP[templateName] ?? templatePreview
+  }
+  return templatePreview
+}
+
 function buildFallbackPreview(templateName: string, params: Record<string, string>): string {
   return [
     `Template enviado: ${templateName}`,
@@ -57,7 +96,7 @@ export function renderTemplatePreview(
   templateName: string,
   context: TemplateRenderContext = {}
 ): RenderedTemplatePreview {
-  const templatePreview = extractString(context.templatePreview)
+  const templatePreview = getTemplatePreview(templateName, extractString(context.templatePreview))
   const normalizedParams: Record<string, string> = {}
 
   for (const [key, value] of Object.entries(context.templateVariables ?? {})) {

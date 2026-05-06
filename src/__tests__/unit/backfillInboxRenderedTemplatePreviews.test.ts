@@ -199,6 +199,66 @@ describe('runBackfillInboxRenderedTemplatePreviews', () => {
     }))
   })
 
+  it('recria preview quando message_log.payload.renderedPreview esta corrompido', async () => {
+    vi.mocked(prisma.chatMessage.findMany)
+      .mockResolvedValueOnce([
+        {
+          id: 'chat-corrupt',
+          conversationId: 'conversation-corrupt',
+          waMessageId: 'wamid-corrupt',
+          body: 'Oi, Vilmara! ?? Obrigada pela sua confiana! Seu pedido j est sendo preparado.',
+          rawPayload: { source: 'automation_mirror' },
+          timestamp: new Date('2026-05-05T15:00:00.000Z'),
+          createdAt: new Date('2026-05-05T15:00:00.000Z'),
+        },
+      ] as never)
+      .mockResolvedValueOnce([] as never)
+
+    vi.mocked(prisma.messageLog.findFirst).mockResolvedValue({
+      id: 'log-corrupt',
+      entityType: 'order',
+      entityId: 'order-corrupt',
+      normalizedPhone: '5531999999999',
+      templateName: 'confirmacao_pedido_drosa',
+      metaMessageId: 'wamid-corrupt',
+      payload: {
+        renderedPreview: 'Oi, Vilmara! ?? Obrigada pela sua confiana! Seu pedido j est sendo preparado.',
+      },
+      sentAt: new Date('2026-05-05T15:00:00.000Z'),
+      createdAt: new Date('2026-05-05T15:00:00.000Z'),
+    } as never)
+
+    vi.mocked(prisma.order.findUnique).mockResolvedValue({
+      customerName: 'Vilmara Alves',
+      customerEmail: 'vilmara@example.com',
+      customerPhone: '5531999999999',
+      normalizedPhone: '5531999999999',
+      orderNumber: '83274',
+      total: '199.90',
+      orderUrl: 'https://example.com/pedido/83274',
+      status: 'paid',
+      paymentStatus: 'paid',
+    } as never)
+
+    vi.mocked(prisma.whatsappTemplate.findFirst).mockResolvedValue({
+      messagePreview: `Oi, [nome_cliente]! ??\nObrigada pela sua confiana!\nSeu pedido j est sendo preparado. Voc receber o cdigo.\nTambm tem lanamentos em primeira mo e condies especiais.\nQualquer dvida, estou por aqui.`,
+    } as never)
+
+    const result = await runBackfillInboxRenderedTemplatePreviews()
+
+    expect(result.updatedChatMessages).toBe(1)
+    expect(result.updatedMessageLogs).toBe(1)
+
+    const chatUpdate = vi.mocked(prisma.chatMessage.update).mock.calls[0]?.[0]
+    const logUpdate = vi.mocked(prisma.messageLog.update).mock.calls[0]?.[0]
+    expect(chatUpdate?.data.body).toContain('confiança')
+    expect(chatUpdate?.data.body).toContain('código')
+    expect(chatUpdate?.data.body).not.toContain('??')
+    expect(logUpdate?.data.payload).toEqual(expect.objectContaining({
+      renderedPreview: expect.stringContaining('confiança'),
+    }))
+  })
+
   it('pula com motivo quando nao consegue resolver o contexto', async () => {
     vi.mocked(prisma.chatMessage.findMany)
       .mockResolvedValueOnce([
