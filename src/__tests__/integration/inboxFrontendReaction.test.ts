@@ -17,6 +17,8 @@ function createStubElement() {
       remove: () => undefined,
     },
     addEventListener: () => undefined,
+    removeAttribute: () => undefined,
+    setAttribute: () => undefined,
     querySelector: () => null,
     querySelectorAll: () => [],
   }
