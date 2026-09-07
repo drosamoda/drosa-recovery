@@ -7,6 +7,8 @@ import { extractUrlSuffix } from '../helpers/templateMapper'
 import { env } from '../config/env'
 import { logger } from '../config/logger'
 import { getFriendlyTemplatePreview, renderTemplatePreview } from '../helpers/inboxTemplatePreview'
+import { isValidBrazilianPhone } from '../helpers/phoneService'
+import { messageService } from '../services/messageService'
 
 export type ProcessResult = {
   found: number
@@ -18,6 +20,7 @@ export type ProcessResult = {
   failed: number
   errors: number
   retryScheduled: number
+  unknown: number
 }
 
 // -----------------------------------------------------------------------
@@ -135,13 +138,17 @@ async function revalidate(msg: MessageLog): Promise<ValidationResult> {
   if (!msg.normalizedPhone) {
     return { ok: false, reason: 'invalid_phone' }
   }
+  if (!isValidBrazilianPhone(msg.normalizedPhone)) return { ok: false, reason: 'invalid_phone' }
 
   // 2. Opt-out
-  const customer = msg.customerId
-    ? await prisma.customer.findUnique({ where: { id: msg.customerId } })
-    : await prisma.customer.findFirst({ where: { normalizedPhone: msg.normalizedPhone } })
+  const [customer, suppression] = await Promise.all([
+    msg.customerId
+      ? prisma.customer.findUnique({ where: { id: msg.customerId } })
+      : prisma.customer.findFirst({ where: { normalizedPhone: msg.normalizedPhone } }),
+    prisma.suppression.findUnique({ where: { normalizedPhone: msg.normalizedPhone }, select: { id: true } }),
+  ])
 
-  if (customer?.optOut) {
+  if (customer?.optOut || suppression) {
     return { ok: false, reason: 'opt_out' }
   }
 
@@ -204,6 +211,7 @@ async function revalidate(msg: MessageLog): Promise<ValidationResult> {
         normalizedPhone: true,
         abandonedCheckoutUrl: true,
         firstSeenAt: true,
+        sourceCreatedAt: true,
         status: true,
       },
     })
@@ -213,6 +221,7 @@ async function revalidate(msg: MessageLog): Promise<ValidationResult> {
     if (checkout.status !== 'abandoned') {
       return { ok: false, reason: 'checkout_not_abandoned' }
     }
+    if (!checkout.sourceCreatedAt) return { ok: false, reason: 'order_timing_uncertain' }
 
     // Pedido posterior ao checkout?
     const posteriorOrder = await prisma.order.findFirst({
@@ -221,7 +230,7 @@ async function revalidate(msg: MessageLog): Promise<ValidationResult> {
           { normalizedPhone: msg.normalizedPhone },
           ...(checkout.customerEmail ? [{ customerEmail: checkout.customerEmail }] : []),
         ],
-        createdAt: { gte: checkout.firstSeenAt },
+        sourceCreatedAt: { gte: checkout.sourceCreatedAt },
       },
     })
     if (posteriorOrder) {
@@ -330,6 +339,8 @@ async function markDryRun(id: string, payload: object): Promise<void> {
       response: { dry_run: true },
       reason: 'dry_run',
       nextRetryAt: null,
+      claimOwner: null,
+      claimExpiresAt: null,
     },
   })
 }
@@ -341,7 +352,7 @@ async function markDryRun(id: string, payload: object): Promise<void> {
 async function markSkipped(id: string, reason: string): Promise<void> {
   await prisma.messageLog.update({
     where: { id },
-    data: { status: MessageStatus.skipped, reason },
+    data: { status: MessageStatus.skipped, reason, claimOwner: null, claimExpiresAt: null },
   })
 }
 
@@ -362,23 +373,30 @@ async function markSent(
       status: MessageStatus.sent,
       metaMessageId,
       sentAt,
+      acceptedAt: sentAt,
       payload: sentPayload,
       response,
       nextRetryAt: null,
+      claimOwner: null,
+      claimExpiresAt: null,
+      mirrorStatus: 'processing',
     },
   })
 
-  await inboxService.mirrorAutomationMessage({
-    phone: msg.normalizedPhone,
-    metaMessageId,
-    templateName: msg.templateName,
-    status: MessageStatus.sent,
-    sentAt,
-    messageLogId: msg.id,
-    entityType: msg.entityType,
-    entityId: msg.entityId,
-    payload: sentPayload,
-  })
+  try {
+    await inboxService.mirrorAutomationMessage({
+      phone: msg.normalizedPhone, metaMessageId, templateName: msg.templateName,
+      status: MessageStatus.sent, sentAt, messageLogId: msg.id,
+      entityType: msg.entityType, entityId: msg.entityId, payload: sentPayload,
+    })
+    await prisma.messageLog.update({ where: { id: msg.id }, data: { mirrorStatus: 'mirrored', mirroredAt: new Date(), mirrorLastError: null } })
+  } catch (error) {
+    await prisma.messageLog.update({
+      where: { id: msg.id },
+      data: { mirrorStatus: 'failed', mirrorRetryCount: { increment: 1 }, mirrorLastError: error instanceof Error ? error.message.slice(0, 500) : 'mirror_failed' },
+    })
+    logger.error('[processMessages] Meta aceitou, mas o mirror da Inbox falhou', { msgId: msg.id, result: 'mirror_failed' })
+  }
 }
 
 // -----------------------------------------------------------------------
@@ -405,6 +423,8 @@ async function handleRetryOrFail(
         reason: newRetryCount >= env.MAX_RETRY_ATTEMPTS ? 'max_retries_exceeded' : reason ?? null,
         response: response ?? undefined,
         nextRetryAt: null,
+        claimOwner: null,
+        claimExpiresAt: null,
       },
     })
     return 'failed'
@@ -421,6 +441,8 @@ async function handleRetryOrFail(
       errorCode: errorCode ?? null,
       reason: reason ?? null,
       response: response ?? undefined,
+      claimOwner: null,
+      claimExpiresAt: null,
     },
   })
   return 'retryScheduled'
@@ -483,6 +505,7 @@ export async function runProcessMessages(): Promise<ProcessResult> {
     failed: 0,
     errors: 0,
     retryScheduled: 0,
+    unknown: 0,
   }
 
   const now = new Date()
@@ -522,6 +545,8 @@ export async function runProcessMessages(): Promise<ProcessResult> {
 
   // 3. Processar cada mensagem com delay entre envios
   for (const msg of toProcess) {
+    let dispatchStarted = false
+    let accepted = false
     try {
       const disabledReason = disabledFlowReason(msg)
       if (disabledReason) {
@@ -545,7 +570,7 @@ export async function runProcessMessages(): Promise<ProcessResult> {
       result.eligible++
 
       // Uma das flags de dry-run protege todos os envios automáticos.
-      if (env.WHATSAPP_DRY_RUN || env.INBOX_SEND_DRY_RUN) {
+      if (env.WHATSAPP_DRY_RUN || env.INBOX_SEND_DRY_RUN || !env.AUTOMATION_SEND_ENABLED) {
         const dryPayload = {
           to: sendParams.to,
           template: sendParams.templateName,
@@ -583,10 +608,22 @@ export async function runProcessMessages(): Promise<ProcessResult> {
         remarketingSendAttempts++
       }
 
-      // Envio com fallback de nono dígito
+      if (msg.entityType === EntityType.abandoned_checkout || isRemarketingMessage(msg)) {
+        const hours = Math.max(env.ABANDONED_CART_COOLDOWN_HOURS, env.REMARKETING_GLOBAL_COOLDOWN_HOURS)
+        const acquired = await messageService.acquireFrequencyLock(msg.normalizedPhone, msg.id, new Date(Date.now() + hours * 3600000))
+        if (!acquired) {
+          await markSkipped(msg.id, 'cooldown_active')
+          result.skipped++
+          continue
+        }
+      }
+
+      // Once dispatch starts an unexpected failure must never schedule another send.
+      dispatchStarted = true
       const sendResult = await trySendWithNinthDigitFallback(msg, sendParams)
 
       if (sendResult.success) {
+        accepted = true
         await markSent(
           msg,
           sendResult.metaMessageId,
@@ -602,6 +639,14 @@ export async function runProcessMessages(): Promise<ProcessResult> {
         logger.info('[processMessages] mensagem enviada', { msgId: msg.id, metaMessageId: sendResult.metaMessageId })
       } else {
         const r = sendResult.result
+        if (r.uncertain || (r.success && !r.metaMessageId)) {
+          await prisma.messageLog.update({
+            where: { id: msg.id },
+            data: { status: MessageStatus.unknown, reason: 'delivery_unknown', deliveryUnknownAt: new Date(), nextRetryAt: null },
+          })
+          result.unknown++
+          continue
+        }
         const outcome = await handleRetryOrFail(
           msg,
           r.errorCode,
@@ -622,14 +667,18 @@ export async function runProcessMessages(): Promise<ProcessResult> {
       const msg_ = err instanceof Error ? err.message : String(err)
       logger.error('[processMessages] erro inesperado', { msgId: msg.id, error: msg_ })
       try {
-        await prisma.messageLog.update({
+        if (!accepted) await prisma.messageLog.update({
           where: { id: msg.id },
-          data: { status: MessageStatus.failed, reason: `unexpected_error: ${msg_}` },
+          data: { status: dispatchStarted ? MessageStatus.unknown : MessageStatus.failed,
+            reason: dispatchStarted ? 'delivery_unknown' : 'processing_error',
+            deliveryUnknownAt: dispatchStarted ? new Date() : undefined, nextRetryAt: null },
         })
       } catch {
         // ignore secondary failure
       }
-      result.failed++
+      if (accepted) result.sent++
+      else if (dispatchStarted) result.unknown++
+      else result.failed++
       result.errors++
     }
 

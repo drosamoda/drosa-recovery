@@ -26,6 +26,7 @@ const { pendingMsg, processingMsg } = vi.hoisted(() => {
 // Mock do Prisma e dos serviços de envio
 vi.mock('../../config/prisma', () => ({
   prisma: {
+    suppression: { findUnique: vi.fn().mockResolvedValue(null) },
     messageLog: {
       findMany: vi.fn(),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -98,6 +99,7 @@ async function resetPrismaMock() {
 describe('POST /jobs/process-messages', () => {
   beforeEach(async () => {
     vi.clearAllMocks()
+    env.AUTOMATION_SEND_ENABLED = true
     await resetPrismaMock()
     // Restaura mocks não-findMany que clearAllMocks apaga
     const { prisma } = await import('../../config/prisma')
