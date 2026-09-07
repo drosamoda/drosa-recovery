@@ -8,8 +8,26 @@ import { runBackfillImportedApiSends } from '../jobs/backfillImportedApiSends'
 import { runBackfillImportedWhatsAppSends } from '../jobs/backfillImportedWhatsAppSends'
 import { runBackfillInboxRenderedTemplatePreviews } from '../jobs/backfillInboxRenderedTemplatePreviews'
 import { runAbandonedCheckoutsPreview } from '../jobs/previewAbandonedCheckouts'
+import { automationHealth } from '../jobs/automationHealth'
+import { retryInboxMirrors } from '../jobs/retryInboxMirrors'
+import { remarketingPreview, segmentNames, Segment } from '../services/remarketingService'
 
 const router = Router()
+router.post('/remarketing-preview', async (req: Request, res: Response) => {
+  const segment = req.body?.segment ?? 'all'
+  if (segment !== 'all' && !segmentNames.includes(segment)) {
+    res.status(400).json({ error: 'invalid_segment' })
+    return
+  }
+  res.json(await remarketingPreview(segment as Segment | 'all'))
+})
+router.get('/automation-health', async (_req: Request, res: Response) => {
+  const result = await automationHealth()
+  res.status(result.databaseReachable ? 200 : 503).json(result)
+})
+router.post('/retry-inbox-mirrors', async (_req: Request, res: Response) => {
+  res.json(await retryInboxMirrors())
+})
 
 // Read-only preview. It never schedules, updates or sends messages.
 router.post('/abandoned-checkouts-preview', async (_req: Request, res: Response) => {
