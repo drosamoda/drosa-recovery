@@ -40,23 +40,6 @@ export async function runSyncAbandonedCheckouts(): Promise<SyncResult> {
         continue
       }
 
-      // Verifica pedido posterior antes de agendar
-      const hasPosterior = await abandonedCheckoutService.hasOrderAfterCheckout({
-        normalizedPhone: checkout.normalizedPhone ?? undefined,
-        email: checkout.customerEmail ?? undefined,
-        checkoutCreatedAt: checkout.firstSeenAt,
-      })
-
-      if (hasPosterior) {
-        await abandonedCheckoutService.markConvertedByOrder({
-          normalizedPhone: checkout.normalizedPhone ?? undefined,
-          email: checkout.customerEmail ?? undefined,
-          orderCreatedAt: new Date(),
-        })
-        result.converted++
-        continue
-      }
-
       const scheduled = await abandonedCheckoutService.scheduleAbandonedCheckoutMessage(checkout)
       if (scheduled) result.scheduled++
     } catch (err) {

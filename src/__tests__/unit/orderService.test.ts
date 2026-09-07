@@ -80,7 +80,7 @@ const fullOrderPayload = {
   payment_details: { method: 'pix' },
   contact_name: 'Maria Silva',
   contact_email: 'maria@example.com',
-  contact_phone: '+55 (83) 99999-9999',
+  contact_phone: '+55 (83) 99876-5432',
   total: '199.90',
   currency: 'BRL',
   checkout_url: 'https://www.drosamoda.com.br/checkout/abc',
@@ -126,7 +126,7 @@ describe('orderService.handleNuvemshopOrderWebhook', () => {
       data: expect.objectContaining({
         nuvemshopOrderId: '1944167967',
         customerName: 'Maria Silva',
-        normalizedPhone: '5583999999999',
+        normalizedPhone: '5583998765432',
         paymentStatus: 'pending',
         webhookTopic: 'order/created',
         rawPayload: {
@@ -149,8 +149,8 @@ describe('orderService.handleNuvemshopOrderWebhook', () => {
       data: expect.objectContaining({
         customerName: 'Maria Silva',
         customerEmail: 'maria@example.com',
-        customerPhone: '+55 (83) 99999-9999',
-        normalizedPhone: '5583999999999',
+        customerPhone: '+55 (83) 99876-5432',
+        normalizedPhone: '5583998765432',
         status: 'open',
         paymentStatus: 'pending',
         webhookTopic: 'order/created',
@@ -160,7 +160,7 @@ describe('orderService.handleNuvemshopOrderWebhook', () => {
       entityType: 'order',
       entityId: 'order-db-1',
       customerId: 'customer-1',
-      normalizedPhone: '5583999999999',
+      normalizedPhone: '5583998765432',
       templateName: 'pedido_pix',
       source: 'nuvemshop_webhook',
     }))
