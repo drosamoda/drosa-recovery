@@ -89,6 +89,10 @@ vi.mock('../../services/inboxService', () => ({
 }))
 
 const JOBS_SECRET = process.env.JOBS_SECRET!
+vi.mock('../../services/templateContracts', () => ({
+  verifyDispatchContract: vi.fn().mockResolvedValue(null),
+  renderContract: vi.fn().mockReturnValue('Recebemos o seu pedido'),
+}))
 
 // Repopula a fila antes de cada teste.
 async function resetPrismaMock() {
@@ -136,6 +140,50 @@ describe('POST /jobs/process-messages', () => {
   it('retorna 401 sem jobs secret', async () => {
     const res = await request(app).post('/jobs/process-messages')
     expect(res.status).toBe(401)
+  })
+
+  it('dois workers concorrentes fazem uma unica chamada ao sender', async () => {
+    const { whatsappService } = await import('../../services/whatsappService')
+    const { runProcessMessages } = await import('../../jobs/processMessages')
+    let claimed = false
+    vi.mocked(prisma.messageLog.updateMany).mockImplementation(async () => {
+      if (claimed) return { count: 0 }
+      claimed = true
+      return { count: 1 }
+    })
+    const results = await Promise.all([runProcessMessages(), runProcessMessages()])
+    expect(results.reduce((sum, item) => sum + item.sent, 0)).toBe(1)
+    expect(whatsappService.sendTemplateMessage).toHaveBeenCalledTimes(1)
+  })
+
+  it('automation gate fechado impede a chamada Meta', async () => {
+    const { whatsappService } = await import('../../services/whatsappService')
+    const { runProcessMessages } = await import('../../jobs/processMessages')
+    env.AUTOMATION_SEND_ENABLED = false
+    const result = await runProcessMessages()
+    expect(result.sent).toBe(0)
+    expect(whatsappService.sendTemplateMessage).not.toHaveBeenCalled()
+  })
+
+  it('timeout incerto nao agenda retry nem marca failed comum', async () => {
+    const { whatsappService } = await import('../../services/whatsappService')
+    const { runProcessMessages } = await import('../../jobs/processMessages')
+    vi.mocked(whatsappService.sendTemplateMessage).mockResolvedValue({ success: false, uncertain: true, reason: 'delivery_unknown' })
+    const result = await runProcessMessages()
+    expect(result).toMatchObject({ sent: 0, unknown: 1, failed: 0, retryScheduled: 0 })
+    expect(prisma.messageLog.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'unknown' }) }))
+  })
+
+  it('falha no mirror preserva aceite e nao reenvia WhatsApp', async () => {
+    const { whatsappService } = await import('../../services/whatsappService')
+    const { inboxService } = await import('../../services/inboxService')
+    const { runProcessMessages } = await import('../../jobs/processMessages')
+    vi.mocked(inboxService.mirrorAutomationMessage).mockRejectedValueOnce(new Error('mirror unavailable'))
+    const result = await runProcessMessages()
+    expect(result).toMatchObject({ sent: 1, failed: 0, unknown: 0 })
+    expect(whatsappService.sendTemplateMessage).toHaveBeenCalledTimes(1)
+    expect(prisma.messageLog.update).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'failed' }) }))
+    expect(prisma.messageLog.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ mirrorStatus: 'failed' }) }))
   })
 
   it('retorna resumo com campos corretos', async () => {

@@ -18,6 +18,7 @@ const BLOCKING_STATUSES: MessageStatus[] = [
   MessageStatus.delivered,
   MessageStatus.read,
   MessageStatus.skipped,
+  MessageStatus.unknown,
 ]
 
 export const messageService = {
@@ -128,8 +129,8 @@ export const messageService = {
         ? log.status !== MessageStatus.delivered && log.status !== MessageStatus.read
         : (rank[status] ?? -1) > (rank[log.status] ?? -1)
       if (!canAdvance) continue
-      await prisma.messageLog.update({
-        where: { id: log.id },
+      await prisma.messageLog.updateMany({
+        where: { id: log.id, status: log.status },
         data: { status, response: extra?.response ?? undefined, errorCode: extra?.errorCode ?? undefined, sentAt: extra?.sentAt ?? undefined },
       })
     }
@@ -139,7 +140,7 @@ export const messageService = {
       const canAdvance = status === MessageStatus.failed
         ? current !== MessageStatus.delivered && current !== MessageStatus.read
         : (rank[status] ?? -1) > (current ? rank[current] ?? -1 : -1)
-      if (canAdvance) await prisma.chatMessage.update({ where: { id: chat.id }, data: { status } })
+      if (canAdvance) await prisma.chatMessage.updateMany({ where: { id: chat.id, status: chat.status }, data: { status } })
     }
   },
 }

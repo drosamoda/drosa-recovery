@@ -9,6 +9,7 @@ import { logger } from '../config/logger'
 import { getFriendlyTemplatePreview, renderTemplatePreview } from '../helpers/inboxTemplatePreview'
 import { isValidBrazilianPhone } from '../helpers/phoneService'
 import { messageService } from '../services/messageService'
+import { verifyDispatchContract, renderContract } from '../services/templateContracts'
 
 export type ProcessResult = {
   found: number
@@ -618,6 +619,13 @@ export async function runProcessMessages(): Promise<ProcessResult> {
         }
       }
 
+      const contractError = await verifyDispatchContract(sendParams.templateName, sendParams.languageCode, sendParams.bodyParams)
+      if (contractError) {
+        await markSkipped(msg.id, contractError)
+        result.skipped++
+        continue
+      }
+      sendParams.renderedPreview = renderContract(sendParams.templateName, sendParams.bodyParams) ?? undefined
       // Once dispatch starts an unexpected failure must never schedule another send.
       dispatchStarted = true
       const sendResult = await trySendWithNinthDigitFallback(msg, sendParams)
