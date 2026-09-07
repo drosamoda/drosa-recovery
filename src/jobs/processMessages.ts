@@ -10,10 +10,13 @@ import { getFriendlyTemplatePreview, renderTemplatePreview } from '../helpers/in
 
 export type ProcessResult = {
   found: number
+  eligible: number
   markedProcessing: number
+  dryRun: number
   sent: number
   skipped: number
   failed: number
+  errors: number
   retryScheduled: number
 }
 
@@ -54,6 +57,20 @@ type SendParams = {
   templatePreview?: string | null
   templateVariables?: Record<string, string>
   renderedPreview?: string
+}
+
+function isRemarketingMessage(msg: MessageLog): boolean {
+  return msg.source?.startsWith('remarketing') ?? false
+}
+
+function disabledFlowReason(msg: MessageLog): string | null {
+  if (msg.entityType === EntityType.abandoned_checkout && !env.ABANDONED_CART_ENABLED) {
+    return 'abandoned_cart_disabled'
+  }
+  if (isRemarketingMessage(msg) && !env.REMARKETING_ENABLED) {
+    return 'remarketing_disabled'
+  }
+  return null
 }
 
 function firstName(fullName?: string | null): string {
@@ -187,10 +204,14 @@ async function revalidate(msg: MessageLog): Promise<ValidationResult> {
         normalizedPhone: true,
         abandonedCheckoutUrl: true,
         firstSeenAt: true,
+        status: true,
       },
     })
     if (!checkout) {
       return { ok: false, reason: 'invalid_phone' }
+    }
+    if (checkout.status !== 'abandoned') {
+      return { ok: false, reason: 'checkout_not_abandoned' }
     }
 
     // Pedido posterior ao checkout?
@@ -295,16 +316,16 @@ async function revalidate(msg: MessageLog): Promise<ValidationResult> {
 }
 
 // -----------------------------------------------------------------------
-// Dry run — salva payload, marca sent sem chamar a API
+// Dry run — registra a simulação e devolve o log à fila sem consumir idempotência.
 // -----------------------------------------------------------------------
 
 async function markDryRun(id: string, payload: object): Promise<void> {
   await prisma.messageLog.update({
     where: { id },
     data: {
-      status: MessageStatus.sent,
-      metaMessageId: 'dry_run',
-      sentAt: new Date(),
+      status: MessageStatus.pending,
+      metaMessageId: null,
+      sentAt: null,
       payload,
       response: { dry_run: true },
       reason: 'dry_run',
@@ -454,10 +475,13 @@ async function trySendWithNinthDigitFallback(
 export async function runProcessMessages(): Promise<ProcessResult> {
   const result: ProcessResult = {
     found: 0,
+    eligible: 0,
     markedProcessing: 0,
+    dryRun: 0,
     sent: 0,
     skipped: 0,
     failed: 0,
+    errors: 0,
     retryScheduled: 0,
   }
 
@@ -477,27 +501,35 @@ export async function runProcessMessages(): Promise<ProcessResult> {
   result.found = candidates.length
   if (candidates.length === 0) return result
 
-  const ids = candidates.map((c) => c.id)
-
-  // 2. Lock transacional — só marca os que ainda estão pending
-  await prisma.$transaction(async (tx) => {
-    await tx.messageLog.updateMany({
-      where: { id: { in: ids }, status: MessageStatus.pending },
+  // 2. Claim condicional por mensagem. Apenas esta execução processa os
+  // registros cujo update pending -> processing alterou exatamente uma linha.
+  const toProcess: MessageLog[] = []
+  for (const candidate of candidates) {
+    const claim = await prisma.messageLog.updateMany({
+      where: { id: candidate.id, status: MessageStatus.pending },
       data: { status: MessageStatus.processing },
     })
-  })
-
-  // 3. Rebusca apenas os efetivamente marcados como processing
-  const toProcess = await prisma.messageLog.findMany({
-    where: { id: { in: ids }, status: MessageStatus.processing },
-  })
+    if (claim.count === 1) {
+      toProcess.push({ ...candidate, status: MessageStatus.processing })
+    }
+  }
 
   result.markedProcessing = toProcess.length
   logger.info('[processMessages] lote iniciado', { found: result.found, locked: result.markedProcessing })
 
-  // 4. Processar cada mensagem com delay entre envios
+  let abandonedCartSendAttempts = 0
+  let remarketingSendAttempts = 0
+
+  // 3. Processar cada mensagem com delay entre envios
   for (const msg of toProcess) {
     try {
+      const disabledReason = disabledFlowReason(msg)
+      if (disabledReason) {
+        await markSkipped(msg.id, disabledReason)
+        result.skipped++
+        continue
+      }
+
       // Revalidação completa antes do envio
       const validation = await revalidate(msg)
 
@@ -510,9 +542,10 @@ export async function runProcessMessages(): Promise<ProcessResult> {
       }
 
       const sendParams = validation.params
+      result.eligible++
 
-      // Dry run — não chama a Meta Cloud API
-      if (env.WHATSAPP_DRY_RUN) {
+      // Uma das flags de dry-run protege todos os envios automáticos.
+      if (env.WHATSAPP_DRY_RUN || env.INBOX_SEND_DRY_RUN) {
         const dryPayload = {
           to: sendParams.to,
           template: sendParams.templateName,
@@ -523,13 +556,31 @@ export async function runProcessMessages(): Promise<ProcessResult> {
           dry_run: true,
         }
         await markDryRun(msg.id, dryPayload)
-        result.sent++
+        result.dryRun++
         logger.info('[processMessages] dry_run — payload salvo sem envio real', {
           msgId: msg.id,
           template: sendParams.templateName,
         })
         await sleep(env.MESSAGE_SEND_DELAY_MS)
         continue
+      }
+
+      if (msg.entityType === EntityType.abandoned_checkout) {
+        if (abandonedCartSendAttempts >= env.ABANDONED_CART_MAX_SENDS_PER_RUN) {
+          await markSkipped(msg.id, 'abandoned_cart_run_limit')
+          result.skipped++
+          continue
+        }
+        abandonedCartSendAttempts++
+      }
+
+      if (isRemarketingMessage(msg)) {
+        if (remarketingSendAttempts >= env.REMARKETING_MAX_SENDS_PER_RUN) {
+          await markSkipped(msg.id, 'remarketing_run_limit')
+          result.skipped++
+          continue
+        }
+        remarketingSendAttempts++
       }
 
       // Envio com fallback de nono dígito
@@ -579,6 +630,7 @@ export async function runProcessMessages(): Promise<ProcessResult> {
         // ignore secondary failure
       }
       result.failed++
+      result.errors++
     }
 
     await sleep(env.MESSAGE_SEND_DELAY_MS)
@@ -588,6 +640,8 @@ export async function runProcessMessages(): Promise<ProcessResult> {
     sent: result.sent,
     skipped: result.skipped,
     failed: result.failed,
+    errors: result.errors,
+    dryRun: result.dryRun,
     retryScheduled: result.retryScheduled,
   })
 

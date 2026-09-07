@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../config/prisma', () => ({
   prisma: {
@@ -314,7 +314,10 @@ describe('inboxService.sendManualTextMessage dry-run', () => {
 describe('inboxService.sendManualTextMessage reply', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-05-05T13:00:00.000Z'))
   })
+  afterEach(() => vi.useRealTimers())
 
   it('usa context.message_id quando responder uma mensagem da mesma conversa', async () => {
     const originalDryRun = env.INBOX_SEND_DRY_RUN
@@ -382,7 +385,10 @@ describe('inboxService.sendManualTextMessage reply', () => {
 describe('inboxService.sendManualImageMessage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-05-05T13:00:00.000Z'))
   })
+  afterEach(() => vi.useRealTimers())
 
   it('rejeita mime type invalido sem chamar a API da Meta', async () => {
     const result = await inboxService.sendManualImageMessage('conversation-1', {

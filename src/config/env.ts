@@ -40,6 +40,12 @@ const envSchema = z.object({
   MESSAGES_BATCH_SIZE: z.coerce.number().default(20),
   MESSAGE_SEND_DELAY_MS: z.coerce.number().default(250),
 
+  ENABLE_INTERNAL_CRON: z.string().default('false').transform((v) => v === 'true'),
+  ABANDONED_CART_ENABLED: z.string().default('false').transform((v) => v === 'true'),
+  REMARKETING_ENABLED: z.string().default('false').transform((v) => v === 'true'),
+  ABANDONED_CART_MAX_SENDS_PER_RUN: z.coerce.number().int().min(0).default(1),
+  REMARKETING_MAX_SENDS_PER_RUN: z.coerce.number().int().min(0).default(1),
+
   CRON_ABANDONED_CART_INTERVAL: z.coerce.number().default(15),
   CRON_PROCESS_MESSAGES_INTERVAL: z.coerce.number().default(1),
   CRON_BOLETO_EXPIRING_INTERVAL: z.coerce.number().default(60),
@@ -51,9 +57,8 @@ const envSchema = z.object({
   SENTRY_ENVIRONMENT: z.string().default('development'),
   SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().default(0.1),
 
-  // Quando true, processMessages monta o payload mas NÃO chama a Meta Cloud API.
-  // Marca a mensagem como sent com reason=dry_run. Útil para homologação local.
-  WHATSAPP_DRY_RUN: z.string().default('false').transform((v) => v === 'true'),
+  // Opt-out seguro: envio real exige configuração explícita como false.
+  WHATSAPP_DRY_RUN: z.string().default('true').transform((v) => v === 'true'),
   WHATSAPP_API_NUMBER: z.string().default(''),
   META_WABA_ID: z.string().default(''),
 })

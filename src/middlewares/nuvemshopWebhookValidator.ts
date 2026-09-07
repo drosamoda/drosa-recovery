@@ -62,28 +62,12 @@ function isValidSignature(rawBody: string, signature: string, secrets: WebhookSe
 function buildInvalidSignatureDiagnostics(
   req: Request,
   rawBody: string,
-  signature: string,
   secrets: WebhookSecret[]
 ): Record<string, unknown> {
-  const diagnosticSecret =
-    secrets.find((secret) => secret.name === 'WEBHOOK_SECRET') ?? secrets.find((secret) => secret.value)
-  const secretValue = diagnosticSecret?.value ?? ''
-  const expected = secretValue
-    ? createHmac('sha256', secretValue).update(rawBody, 'utf8').digest('hex')
-    : ''
-
   return {
-    hasSecret: Boolean(secretValue),
-    secretLength: secretValue.length,
-    secretStart: secretValue.slice(0, 3),
-    secretEnd: secretValue.slice(-3),
+    secretConfigured: secrets.length > 0,
     rawBodyLength: rawBody.length,
-    signatureLength: signature.length,
-    expectedLength: expected.length,
-    signatureStart: signature.slice(0, 8),
-    expectedStart: expected.slice(0, 8),
     contentType: req.headers['content-type'] ?? null,
-    userAgent: req.headers['user-agent'] ?? null,
     configuredSecrets: secrets.map((item) => item.name),
   }
 }
@@ -118,7 +102,7 @@ export function nuvemshopWebhookValidator(req: Request, res: Response, next: Nex
   }
 
   if (!isValidSignature(rawBody, signature, secrets)) {
-    logRejected(req, 'signature_invalid', buildInvalidSignatureDiagnostics(req, rawBody, signature, secrets))
+    logRejected(req, 'signature_invalid', buildInvalidSignatureDiagnostics(req, rawBody, secrets))
     res.status(401).json({ error: 'Assinatura invalida', reason: 'signature_invalid' })
     return
   }

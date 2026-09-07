@@ -15,11 +15,15 @@ router.post('/sync-abandoned-checkouts', async (_req: Request, res: Response) =>
   const result = await runSyncAbandonedCheckouts()
   res.json({
     found: result.found,
-    markedProcessing: result.upserted,
-    sent: result.scheduled,
+    eligible: result.scheduled,
+    dryRun: 0,
+    sent: 0,
     skipped: result.skipped,
     failed: result.errors,
+    errors: result.errors,
     retryScheduled: 0,
+    upserted: result.upserted,
+    scheduled: result.scheduled,
     detail: result,
   })
 })
