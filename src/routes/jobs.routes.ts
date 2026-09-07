@@ -7,8 +7,23 @@ import { runBackfillInboxSentMessages } from '../jobs/backfillInboxSentMessages'
 import { runBackfillImportedApiSends } from '../jobs/backfillImportedApiSends'
 import { runBackfillImportedWhatsAppSends } from '../jobs/backfillImportedWhatsAppSends'
 import { runBackfillInboxRenderedTemplatePreviews } from '../jobs/backfillInboxRenderedTemplatePreviews'
+import { runAbandonedCheckoutsPreview } from '../jobs/previewAbandonedCheckouts'
 
 const router = Router()
+
+// Read-only preview. It never schedules, updates or sends messages.
+router.post('/abandoned-checkouts-preview', async (_req: Request, res: Response) => {
+  res.json(await runAbandonedCheckoutsPreview())
+})
+
+router.post('/abandoned-checkouts-preview/:checkoutId', async (req: Request, res: Response) => {
+  const result = await runAbandonedCheckoutsPreview(req.params.checkoutId)
+  if (result.found === 0) {
+    res.status(404).json({ error: 'Checkout nao encontrado' })
+    return
+  }
+  res.json(result)
+})
 
 // POST /jobs/sync-abandoned-checkouts
 router.post('/sync-abandoned-checkouts', async (_req: Request, res: Response) => {
