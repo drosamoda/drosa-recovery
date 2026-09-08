@@ -37,7 +37,7 @@ function buildNuvemshopClient() {
   return axios.create({
     baseURL: `https://api.nuvemshop.com.br/${env.NUVEMSHOP_API_VERSION}/${env.NUVEMSHOP_STORE_ID}`,
     headers: {
-      Authentication: `bearer ${env.NUVEMSHOP_ACCESS_TOKEN}`,
+      Authorization: `Bearer ${env.NUVEMSHOP_ACCESS_TOKEN}`,
       'User-Agent': env.NUVEMSHOP_USER_AGENT,
       'Content-Type': 'application/json',
     },
