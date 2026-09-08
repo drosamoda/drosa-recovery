@@ -1,8 +1,10 @@
 import { Router, Request, Response } from 'express'
 import { normalizePhoneBrazil } from '../helpers/phoneService'
 import { customerService } from '../services/customerService'
+import { adminAuth } from '../middlewares/adminAuth'
 
 const router = Router()
+router.use(adminAuth)
 
 // POST /customers/opt-out
 router.post('/opt-out', async (req: Request, res: Response) => {

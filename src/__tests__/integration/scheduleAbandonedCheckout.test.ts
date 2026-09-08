@@ -9,9 +9,10 @@ vi.mock('../../config/prisma', () => ({
   prisma: {
     automationRule: { findFirst: vi.fn() },
     whatsappTemplate: { findFirst: vi.fn() },
-    order: { findFirst: vi.fn() },
-    messageLog: { findUnique: vi.fn(), create: vi.fn() },
-    customer: { findUnique: vi.fn() },
+    order: { findFirst: vi.fn(), findMany: vi.fn() },
+    suppression: { findUnique: vi.fn() },
+    messageLog: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+    customer: { findUnique: vi.fn(), findFirst: vi.fn() },
     abandonedCheckout: { update: vi.fn() },
   },
 }))
@@ -46,6 +47,9 @@ const checkout = {
   abandonedCheckoutUrl: 'https://www.drosamoda.com.br/checkout/abc123',
   status: AbandonedCheckoutStatus.abandoned,
   rawPayload: {},
+  sourceCreatedAt: new Date(Date.now() - 3600000),
+  sourceUpdatedAt: new Date(Date.now() - 3600000),
+  abandonedAt: null,
   firstSeenAt: new Date('2026-04-29T10:00:00Z'),
   lastSeenAt: new Date('2026-04-29T10:30:00Z'),
   convertedAt: null,
@@ -67,6 +71,7 @@ const activeTemplate = {
   metaTemplateName: TEMPLATE_NAME,
   active: true,
   languageCode: 'pt_BR',
+  messagePreview: 'Oi, [nome_cliente]! Continue: [link_checkout]',
 }
 
 const customer = {
@@ -93,6 +98,10 @@ describe('abandonedCheckoutService.scheduleAbandonedCheckoutMessage', () => {
 
     // Cenário base: tudo válido
     vi.mocked(customerService.isOptOut).mockResolvedValue(false)
+    vi.mocked(prisma.suppression.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.customer.findFirst).mockResolvedValue(customer as never)
+    vi.mocked(prisma.messageLog.findFirst).mockResolvedValue(null)
+    vi.mocked(prisma.order.findMany).mockResolvedValue([])
     vi.mocked(prisma.automationRule.findFirst).mockResolvedValue(activeRule as never)
     vi.mocked(prisma.whatsappTemplate.findFirst).mockResolvedValue(activeTemplate as never)
     vi.mocked(prisma.order.findFirst).mockResolvedValue(null)          // sem pedido posterior
@@ -144,7 +153,7 @@ describe('abandonedCheckoutService.scheduleAbandonedCheckoutMessage', () => {
     )
   })
 
-  it('scheduledAt respeita delay_minutes=30 da regra', async () => {
+  it('scheduledAt preserva a referencia temporal da origem para checkout ja elegivel', async () => {
     const before = Date.now()
     await abandonedCheckoutService.scheduleAbandonedCheckoutMessage(checkout)
     const after = Date.now()
@@ -152,8 +161,8 @@ describe('abandonedCheckoutService.scheduleAbandonedCheckoutMessage', () => {
     const createCall = vi.mocked(prisma.messageLog.create).mock.calls[0][0]
     const scheduledAt = createCall.data.scheduledAt as Date
 
-    const expectedMin = before + DELAY_MINUTES * 60 * 1000
-    const expectedMax = after + DELAY_MINUTES * 60 * 1000
+    const expectedMin = before - 3700000
+    const expectedMax = after
 
     expect(scheduledAt.getTime()).toBeGreaterThanOrEqual(expectedMin)
     expect(scheduledAt.getTime()).toBeLessThanOrEqual(expectedMax)
@@ -173,7 +182,7 @@ describe('abandonedCheckoutService.scheduleAbandonedCheckoutMessage', () => {
   // -----------------------------------------------------------------------
 
   it('retorna false e não cria log quando telefone está vazio', async () => {
-    const checkoutSemFone = { ...checkout, normalizedPhone: '' }
+    const checkoutSemFone = { ...(checkout as unknown as Record<string, unknown>), normalizedPhone: '' }
     const result = await abandonedCheckoutService.scheduleAbandonedCheckoutMessage(checkoutSemFone as never)
 
     expect(result).toBe(false)
@@ -182,6 +191,7 @@ describe('abandonedCheckoutService.scheduleAbandonedCheckoutMessage', () => {
 
   it('retorna false e não cria log quando cliente está em opt-out', async () => {
     vi.mocked(customerService.isOptOut).mockResolvedValue(true)
+    vi.mocked(prisma.suppression.findUnique).mockResolvedValue({ id: 'suppression' } as never)
 
     const result = await abandonedCheckoutService.scheduleAbandonedCheckoutMessage(checkout)
 
@@ -209,6 +219,7 @@ describe('abandonedCheckoutService.scheduleAbandonedCheckoutMessage', () => {
 
   it('retorna false e não cria log quando existe pedido posterior ao checkout', async () => {
     vi.mocked(prisma.order.findFirst).mockResolvedValue({ id: 'order-posterior' } as never)
+    vi.mocked(prisma.order.findMany).mockResolvedValue([{ id: 'order-posterior', sourceCreatedAt: new Date() }] as never)
 
     const result = await abandonedCheckoutService.scheduleAbandonedCheckoutMessage(checkout)
 
@@ -230,16 +241,12 @@ describe('abandonedCheckoutService.scheduleAbandonedCheckoutMessage', () => {
     expect(prisma.messageLog.create).not.toHaveBeenCalled()
   })
 
-  it('marca checkout como converted quando pedido posterior é detectado', async () => {
+  it('nao altera checkout durante a avaliacao quando pedido posterior e detectado', async () => {
     vi.mocked(prisma.order.findFirst).mockResolvedValue({ id: 'order-posterior' } as never)
+    vi.mocked(prisma.order.findMany).mockResolvedValue([{ id: 'order-posterior', sourceCreatedAt: new Date() }] as never)
 
     await abandonedCheckoutService.scheduleAbandonedCheckoutMessage(checkout)
 
-    expect(prisma.abandonedCheckout.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: CHECKOUT_ID },
-        data: expect.objectContaining({ status: AbandonedCheckoutStatus.converted }),
-      })
-    )
+    expect(prisma.abandonedCheckout.update).not.toHaveBeenCalled()
   })
 })

@@ -59,6 +59,7 @@ describe('POST /webhooks/nuvemshop/orders', () => {
   })
 
   it('responde 401 com HMAC inválido', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const res = await request(app)
       .post('/webhooks/nuvemshop/orders')
       .set('Content-Type', 'application/json')
@@ -67,6 +68,10 @@ describe('POST /webhooks/nuvemshop/orders', () => {
 
     expect(res.status).toBe(401)
     expect(res.body).toMatchObject({ reason: 'signature_invalid' })
+    const logOutput = warn.mock.calls.flat().join(' ')
+    expect(logOutput).not.toMatch(/secretStart|secretEnd|tokenStart|tokenEnd/)
+    expect(logOutput).not.toContain(WEBHOOK_SECRET)
+    warn.mockRestore()
   })
 
   it('responde 401 sem header de assinatura', async () => {

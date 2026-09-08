@@ -19,11 +19,12 @@ const OPT_OUT_KEYWORDS = [
   'não quero',
   'nao quero',
   'descadastrar',
+  'stop',
 ]
 
 function detectOptOut(text: string): boolean {
-  const lower = text.toLowerCase().trim()
-  return OPT_OUT_KEYWORDS.some((kw) => lower.includes(kw))
+  const normalized = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim()
+  return OPT_OUT_KEYWORDS.some((kw) => normalized === kw.normalize('NFD').replace(/[\u0300-\u036f]/g, ''))
 }
 
 // -----------------------------------------------------------------------

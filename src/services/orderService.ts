@@ -22,6 +22,8 @@ type NuvemshopOrderPayload = {
   total?: string | number
   currency?: string
   checkout_url?: string
+  created_at?: string
+  updated_at?: string
   [key: string]: unknown
 }
 
@@ -54,6 +56,12 @@ function asOrderPayload(value: unknown): NuvemshopOrderPayload {
   }
 
   return value as NuvemshopOrderPayload
+}
+
+function safeSourceDate(value?: string): Date | null {
+  if (!value) return null
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
 async function resolveOrderPayload(
@@ -137,6 +145,8 @@ export const orderService = {
       const orderUrl = payload.checkout_url ?? null
       const webhookTopic = ((params.headers['x-linkedstore-topic'] as string | undefined) ?? payload.event) ?? null
       const paymentType = detectPaymentType(paymentMethod)
+      const sourceCreatedAt = safeSourceDate(payload.created_at)
+      const sourceUpdatedAt = safeSourceDate(payload.updated_at)
 
       // Upsert do customer fora da transação (não aceita tx como parâmetro)
       const customer = await customerService.upsertCustomer({
@@ -169,6 +179,8 @@ export const orderService = {
               orderUrl,
               webhookTopic,
               rawPayload: rawPayloadForOrder as object,
+              sourceCreatedAt: sourceCreatedAt ?? undefined,
+              sourceUpdatedAt: sourceUpdatedAt ?? undefined,
             },
           })
         } else {
@@ -191,6 +203,8 @@ export const orderService = {
               webhookTopic,
               rawPayload: rawPayloadForOrder as object,
               source: 'nuvemshop_webhook',
+              sourceCreatedAt,
+              sourceUpdatedAt,
             },
           })
         }
@@ -200,11 +214,12 @@ export const orderService = {
         if (normalizedPhone) matchConditions.push({ normalizedPhone })
         if (customerEmail) matchConditions.push({ customerEmail })
 
-        if (matchConditions.length > 0) {
+        if (matchConditions.length > 0 && sourceCreatedAt) {
           const checkoutsToConvert = await tx.abandonedCheckout.findMany({
             where: {
               OR: matchConditions,
               status: AbandonedCheckoutStatus.abandoned,
+              sourceCreatedAt: { not: null, lte: sourceCreatedAt },
             },
           })
 
@@ -213,7 +228,8 @@ export const orderService = {
               where: { id: checkout.id },
               data: {
                 status: AbandonedCheckoutStatus.converted,
-                convertedAt: new Date(),
+                convertedAt: sourceCreatedAt,
+                convertedOrderId: savedOrder.id,
               },
             })
 

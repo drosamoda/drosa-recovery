@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import request from 'supertest'
 import app from '../../index'
 import { prisma } from '../../config/prisma'
+import { env } from '../../config/env'
 
 // Dados de teste criados antes da factory do vi.mock (vi.hoisted garante a ordem)
 const { pendingMsg, processingMsg } = vi.hoisted(() => {
@@ -25,6 +26,7 @@ const { pendingMsg, processingMsg } = vi.hoisted(() => {
 // Mock do Prisma e dos serviços de envio
 vi.mock('../../config/prisma', () => ({
   prisma: {
+    suppression: { findUnique: vi.fn().mockResolvedValue(null) },
     messageLog: {
       findMany: vi.fn(),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -87,18 +89,21 @@ vi.mock('../../services/inboxService', () => ({
 }))
 
 const JOBS_SECRET = process.env.JOBS_SECRET!
+vi.mock('../../services/templateContracts', () => ({
+  verifyDispatchContract: vi.fn().mockResolvedValue(null),
+  renderContract: vi.fn().mockReturnValue('Recebemos o seu pedido'),
+}))
 
-// Repopula a fila do findMany antes de cada teste, pois mockResolvedValueOnce é consumida
+// Repopula a fila antes de cada teste.
 async function resetPrismaMock() {
   const { prisma } = await import('../../config/prisma')
-  vi.mocked(prisma.messageLog.findMany)
-    .mockResolvedValueOnce([pendingMsg])
-    .mockResolvedValueOnce([processingMsg])
+  vi.mocked(prisma.messageLog.findMany).mockResolvedValue([pendingMsg] as never)
 }
 
 describe('POST /jobs/process-messages', () => {
   beforeEach(async () => {
     vi.clearAllMocks()
+    env.AUTOMATION_SEND_ENABLED = true
     await resetPrismaMock()
     // Restaura mocks não-findMany que clearAllMocks apaga
     const { prisma } = await import('../../config/prisma')
@@ -121,9 +126,9 @@ describe('POST /jobs/process-messages', () => {
       id: 'order-001', customerName: 'Maria Silva', orderNumber: '1001', total: '149.90', orderUrl: 'https://example.com',
     } as never)
     vi.mocked(prisma.order.findFirst).mockResolvedValue(null)
-    vi.mocked(prisma.$transaction).mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn({
+    vi.mocked(prisma.$transaction).mockImplementation((async (fn: (tx: unknown) => Promise<unknown>) => fn({
       messageLog: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
-    }))
+    })) as never)
     // Restaura whatsappService mock padrão
     const { whatsappService } = await import('../../services/whatsappService')
     vi.mocked(whatsappService.sendTemplateMessage).mockResolvedValue({
@@ -137,6 +142,50 @@ describe('POST /jobs/process-messages', () => {
     expect(res.status).toBe(401)
   })
 
+  it('dois workers concorrentes fazem uma unica chamada ao sender', async () => {
+    const { whatsappService } = await import('../../services/whatsappService')
+    const { runProcessMessages } = await import('../../jobs/processMessages')
+    let claimed = false
+    vi.mocked(prisma.messageLog.updateMany).mockImplementation((async () => {
+      if (claimed) return { count: 0 }
+      claimed = true
+      return { count: 1 }
+    }) as never)
+    const results = await Promise.all([runProcessMessages(), runProcessMessages()])
+    expect(results.reduce((sum, item) => sum + item.sent, 0)).toBe(1)
+    expect(whatsappService.sendTemplateMessage).toHaveBeenCalledTimes(1)
+  })
+
+  it('automation gate fechado impede a chamada Meta', async () => {
+    const { whatsappService } = await import('../../services/whatsappService')
+    const { runProcessMessages } = await import('../../jobs/processMessages')
+    env.AUTOMATION_SEND_ENABLED = false
+    const result = await runProcessMessages()
+    expect(result.sent).toBe(0)
+    expect(whatsappService.sendTemplateMessage).not.toHaveBeenCalled()
+  })
+
+  it('timeout incerto nao agenda retry nem marca failed comum', async () => {
+    const { whatsappService } = await import('../../services/whatsappService')
+    const { runProcessMessages } = await import('../../jobs/processMessages')
+    vi.mocked(whatsappService.sendTemplateMessage).mockResolvedValue({ success: false, uncertain: true, reason: 'delivery_unknown' })
+    const result = await runProcessMessages()
+    expect(result).toMatchObject({ sent: 0, unknown: 1, failed: 0, retryScheduled: 0 })
+    expect(prisma.messageLog.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'unknown' }) }))
+  })
+
+  it('falha no mirror preserva aceite e nao reenvia WhatsApp', async () => {
+    const { whatsappService } = await import('../../services/whatsappService')
+    const { inboxService } = await import('../../services/inboxService')
+    const { runProcessMessages } = await import('../../jobs/processMessages')
+    vi.mocked(inboxService.mirrorAutomationMessage).mockRejectedValueOnce(new Error('mirror unavailable'))
+    const result = await runProcessMessages()
+    expect(result).toMatchObject({ sent: 1, failed: 0, unknown: 0 })
+    expect(whatsappService.sendTemplateMessage).toHaveBeenCalledTimes(1)
+    expect(prisma.messageLog.update).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'failed' }) }))
+    expect(prisma.messageLog.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ mirrorStatus: 'failed' }) }))
+  })
+
   it('retorna resumo com campos corretos', async () => {
     const { inboxService } = await import('../../services/inboxService')
 
@@ -146,10 +195,13 @@ describe('POST /jobs/process-messages', () => {
 
     expect(res.status).toBe(200)
     expect(res.body).toHaveProperty('found')
+    expect(res.body).toHaveProperty('eligible')
     expect(res.body).toHaveProperty('markedProcessing')
+    expect(res.body).toHaveProperty('dryRun')
     expect(res.body).toHaveProperty('sent')
     expect(res.body).toHaveProperty('skipped')
     expect(res.body).toHaveProperty('failed')
+    expect(res.body).toHaveProperty('errors')
     expect(res.body).toHaveProperty('retryScheduled')
     expect(prisma.messageLog.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'msg-001' },
@@ -177,6 +229,91 @@ describe('POST /jobs/process-messages', () => {
         }),
       }),
     }))
+  })
+
+  it('dry-run nao chama Meta, nao marca sent e nao cria metaMessageId falso', async () => {
+    const { whatsappService } = await import('../../services/whatsappService')
+    const originalWhatsappDryRun = env.WHATSAPP_DRY_RUN
+    env.WHATSAPP_DRY_RUN = true
+
+    const res = await request(app)
+      .post('/jobs/process-messages')
+      .set('x-jobs-secret', JOBS_SECRET)
+
+    env.WHATSAPP_DRY_RUN = originalWhatsappDryRun
+
+    expect(res.status).toBe(200)
+    expect(res.body).toMatchObject({ eligible: 1, dryRun: 1, sent: 0 })
+    expect(whatsappService.sendTemplateMessage).not.toHaveBeenCalled()
+    expect(prisma.messageLog.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'msg-001' },
+      data: expect.objectContaining({
+        status: 'pending',
+        metaMessageId: null,
+        sentAt: null,
+        reason: 'dry_run',
+      }),
+    }))
+  })
+
+  it('INBOX_SEND_DRY_RUN tambem protege o envio automatico', async () => {
+    const { whatsappService } = await import('../../services/whatsappService')
+    const originalInboxDryRun = env.INBOX_SEND_DRY_RUN
+    env.INBOX_SEND_DRY_RUN = true
+
+    const res = await request(app)
+      .post('/jobs/process-messages')
+      .set('x-jobs-secret', JOBS_SECRET)
+
+    env.INBOX_SEND_DRY_RUN = originalInboxDryRun
+    expect(res.body).toMatchObject({ dryRun: 1, sent: 0 })
+    expect(whatsappService.sendTemplateMessage).not.toHaveBeenCalled()
+  })
+
+  it('gate desabilitado bloqueia carrinho antes de chamar Meta', async () => {
+    const { whatsappService } = await import('../../services/whatsappService')
+    const originalEnabled = env.ABANDONED_CART_ENABLED
+    env.ABANDONED_CART_ENABLED = false
+    vi.mocked(prisma.messageLog.findMany).mockResolvedValue([
+      { ...pendingMsg, entityType: 'abandoned_checkout', entityId: 'checkout-001' } as never,
+    ])
+
+    const res = await request(app)
+      .post('/jobs/process-messages')
+      .set('x-jobs-secret', JOBS_SECRET)
+
+    env.ABANDONED_CART_ENABLED = originalEnabled
+    expect(res.body).toMatchObject({ sent: 0, skipped: 1 })
+    expect(whatsappService.sendTemplateMessage).not.toHaveBeenCalled()
+    expect(prisma.messageLog.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'skipped', reason: 'abandoned_cart_disabled' }),
+    }))
+  })
+
+  it('gate desabilitado bloqueia fonte de remarketing antes de chamar Meta', async () => {
+    const { whatsappService } = await import('../../services/whatsappService')
+    vi.mocked(prisma.messageLog.findMany).mockResolvedValue([
+      { ...pendingMsg, source: 'remarketing_preview_promoted' } as never,
+    ])
+
+    const res = await request(app)
+      .post('/jobs/process-messages')
+      .set('x-jobs-secret', JOBS_SECRET)
+
+    expect(res.body).toMatchObject({ sent: 0, skipped: 1 })
+    expect(whatsappService.sendTemplateMessage).not.toHaveBeenCalled()
+  })
+
+  it('nao processa candidato que outra execucao reivindicou primeiro', async () => {
+    const { whatsappService } = await import('../../services/whatsappService')
+    vi.mocked(prisma.messageLog.updateMany).mockResolvedValue({ count: 0 })
+
+    const res = await request(app)
+      .post('/jobs/process-messages')
+      .set('x-jobs-secret', JOBS_SECRET)
+
+    expect(res.body).toMatchObject({ found: 1, markedProcessing: 0, sent: 0 })
+    expect(whatsappService.sendTemplateMessage).not.toHaveBeenCalled()
   })
 
   it('agenda retry com next_retry_at para erro temporário', async () => {
@@ -232,6 +369,15 @@ describe('POST /jobs/sync-abandoned-checkouts', () => {
       .set('x-jobs-secret', JOBS_SECRET)
 
     expect(res.status).toBe(200)
-    expect(res.body).toHaveProperty('found')
+    expect(res.body).toMatchObject({
+      found: 0,
+      eligible: 0,
+      dryRun: 0,
+      sent: 0,
+      skipped: 0,
+      failed: 0,
+      errors: 0,
+      scheduled: 0,
+    })
   })
 })

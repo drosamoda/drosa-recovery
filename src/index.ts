@@ -30,6 +30,10 @@ initSentry()
 
 const app = express()
 
+export function shouldStartInternalCron(enabled: boolean = env.ENABLE_INTERNAL_CRON): boolean {
+  return enabled
+}
+
 const ALLOWED_ORIGINS = [
   'https://drosa-recovery-production.up.railway.app',
   'https://drosa-recovery-production-bcfa.up.railway.app',
@@ -99,7 +103,7 @@ app.get('/inbox', (_req, res) => {
 })
 
 // ── Rotas protegidas ───────────────────────────────────────────────────
-app.use('/admin', adminRoutes)
+app.use('/admin', adminAuth, adminRoutes)
 app.use('/jobs', jobsAuth, jobsRoutes)
 app.use('/customers', customersRoutes)
 app.use('/inbox', inboxAuth, inboxRoutes)
@@ -115,6 +119,11 @@ if (env.NODE_ENV !== 'test') {
       port: env.PORT,
       environment: env.NODE_ENV,
     })
+
+    if (!shouldStartInternalCron()) {
+      logger.info('[cron] jobs internos desabilitados', { enabled: false })
+      return
+    }
 
     // ── Cron jobs internos ────────────────────────────────────────────
     // process-messages: a cada 1 minuto

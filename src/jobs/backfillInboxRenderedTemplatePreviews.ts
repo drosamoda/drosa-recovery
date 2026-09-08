@@ -1,4 +1,4 @@
-import { ChatMessageType, MessageDirection, MessageStatus, Prisma } from '@prisma/client'
+import { ChatMessageType, MessageDirection, Prisma } from '@prisma/client'
 import { prisma } from '../config/prisma'
 import { logger } from '../config/logger'
 import { looksLikeCorruptedText, renderTemplatePreview } from '../helpers/inboxTemplatePreview'
@@ -324,7 +324,7 @@ export async function runBackfillInboxRenderedTemplatePreviews(): Promise<Backfi
 
   let skip = 0
 
-  while (true) {
+  for (;;) {
     const chatMessages = await prisma.chatMessage.findMany({
       where: {
         direction: MessageDirection.outbound,

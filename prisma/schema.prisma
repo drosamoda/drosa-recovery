@@ -13,17 +13,17 @@ datasource db {
 // =====================================================================
 
 model Customer {
-  id                        String    @id @default(cuid())
-  name                      String
-  email                     String?
-  phone                     String?
-  normalizedPhone           String
-  normalizedPhoneValidated  String?
-  phoneNote                 String?
-  optOut                    Boolean   @default(false)
-  source                    String?
-  createdAt                 DateTime  @default(now())
-  updatedAt                 DateTime  @updatedAt
+  id                       String   @id @default(cuid())
+  name                     String
+  email                    String?
+  phone                    String?
+  normalizedPhone          String
+  normalizedPhoneValidated String?
+  phoneNote                String?
+  optOut                   Boolean  @default(false)
+  source                   String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
 
   orders             Order[]
   abandonedCheckouts AbandonedCheckout[]
@@ -40,27 +40,30 @@ model Customer {
 // =====================================================================
 
 model Order {
-  id                 String   @id @default(cuid())
-  nuvemshopOrderId   String   @unique
-  orderNumber        String
-  customerId         String?
-  customerName       String
-  customerEmail      String?
-  customerPhone      String?
-  normalizedPhone    String
-  total              Decimal  @db.Decimal(12, 2)
-  currency           String   @default("BRL")
-  paymentStatus      String
-  paymentMethod      String?
-  status             String
-  orderUrl           String?
-  webhookTopic       String?
-  rawPayload         Json
-  source             String?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id               String    @id @default(cuid())
+  nuvemshopOrderId String    @unique
+  orderNumber      String
+  customerId       String?
+  customerName     String
+  customerEmail    String?
+  customerPhone    String?
+  normalizedPhone  String
+  total            Decimal   @db.Decimal(12, 2)
+  currency         String    @default("BRL")
+  paymentStatus    String
+  paymentMethod    String?
+  status           String
+  orderUrl         String?
+  webhookTopic     String?
+  rawPayload       Json
+  source           String?
+  sourceCreatedAt  DateTime?
+  sourceUpdatedAt  DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  customer    Customer?    @relation(fields: [customerId], references: [id])
+  customer           Customer?           @relation(fields: [customerId], references: [id])
+  convertedCheckouts AbandonedCheckout[] @relation("ConvertedCheckoutOrder")
 
   @@index([nuvemshopOrderId])
   @@index([normalizedPhone])
@@ -68,6 +71,7 @@ model Order {
   @@index([paymentStatus])
   @@index([status])
   @@index([webhookTopic])
+  @@index([sourceCreatedAt])
   @@map("orders")
 }
 
@@ -76,34 +80,43 @@ model Order {
 // =====================================================================
 
 model AbandonedCheckout {
-  id                    String    @id @default(cuid())
-  nuvemshopCheckoutId   String    @unique
-  token                 String?
-  customerId            String?
-  customerName          String
-  customerEmail         String?
-  customerPhone         String?
-  normalizedPhone       String
-  total                 Decimal?  @db.Decimal(12, 2)
-  currency              String    @default("BRL")
-  productsSummary       String?
-  abandonedCheckoutUrl  String
-  status                AbandonedCheckoutStatus @default(abandoned)
-  rawPayload            Json
-  firstSeenAt           DateTime
-  lastSeenAt            DateTime
-  convertedAt           DateTime?
-  source                String?
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  id                   String                  @id @default(cuid())
+  nuvemshopCheckoutId  String                  @unique
+  token                String?
+  customerId           String?
+  customerName         String
+  customerEmail        String?
+  customerPhone        String?
+  normalizedPhone      String
+  total                Decimal?                @db.Decimal(12, 2)
+  currency             String                  @default("BRL")
+  productsSummary      String?
+  abandonedCheckoutUrl String
+  status               AbandonedCheckoutStatus @default(abandoned)
+  rawPayload           Json
+  firstSeenAt          DateTime
+  lastSeenAt           DateTime
+  convertedAt          DateTime?
+  convertedOrderId     String?
+  sourceCreatedAt      DateTime?
+  sourceUpdatedAt      DateTime?
+  abandonedAt          DateTime?
+  collectedAt          DateTime                @default(now())
+  source               String?
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
 
-  customer    Customer?    @relation(fields: [customerId], references: [id])
+  customer       Customer? @relation(fields: [customerId], references: [id])
+  convertedOrder Order?    @relation("ConvertedCheckoutOrder", fields: [convertedOrderId], references: [id])
 
   @@index([nuvemshopCheckoutId])
   @@index([normalizedPhone])
   @@index([customerEmail])
   @@index([status])
   @@index([convertedAt])
+  @@index([sourceCreatedAt])
+  @@index([sourceUpdatedAt])
+  @@index([convertedOrderId])
   @@map("abandoned_checkouts")
 }
 
@@ -181,29 +194,41 @@ enum EventType {
 // =====================================================================
 
 model MessageLog {
-  id              String           @id @default(cuid())
-  idempotencyKey  String
-  entityType      EntityType
-  entityId        String
-  customerId      String?
-  normalizedPhone String
-  templateName    String
-  status          MessageStatus    @default(pending)
-  reason          String?
-  errorCode       String?
-  metaMessageId   String?
-  payload         Json?
-  response        Json?
-  retryCount      Int              @default(0)
-  lastRetryAt     DateTime?
-  nextRetryAt     DateTime?
-  scheduledAt     DateTime
-  sentAt          DateTime?
-  source          String?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  id                 String        @id @default(cuid())
+  idempotencyKey     String
+  entityType         EntityType
+  entityId           String
+  customerId         String?
+  normalizedPhone    String
+  templateName       String
+  status             MessageStatus @default(pending)
+  reason             String?
+  errorCode          String?
+  metaMessageId      String?
+  acceptedAt         DateTime?
+  deliveryUnknownAt  DateTime?
+  claimOwner         String?
+  claimExpiresAt     DateTime?
+  templateLanguage   String?
+  templateParameters Json?
+  renderedPreview    String?
+  templateHash       String?
+  mirrorStatus       MirrorStatus  @default(pending)
+  mirrorRetryCount   Int           @default(0)
+  mirrorLastError    String?
+  mirroredAt         DateTime?
+  payload            Json?
+  response           Json?
+  retryCount         Int           @default(0)
+  lastRetryAt        DateTime?
+  nextRetryAt        DateTime?
+  scheduledAt        DateTime
+  sentAt             DateTime?
+  source             String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
 
-  customer          Customer?          @relation("CustomerMessages", fields: [customerId], references: [id])
+  customer Customer? @relation("CustomerMessages", fields: [customerId], references: [id])
 
   @@unique([idempotencyKey])
   @@index([normalizedPhone])
@@ -211,6 +236,8 @@ model MessageLog {
   @@index([scheduledAt])
   @@index([metaMessageId])
   @@index([entityType, entityId, templateName])
+  @@index([claimExpiresAt])
+  @@index([mirrorStatus])
   @@map("message_logs")
 }
 
@@ -227,6 +254,14 @@ enum MessageStatus {
   read
   failed
   skipped
+  unknown
+}
+
+enum MirrorStatus {
+  pending
+  processing
+  mirrored
+  failed
 }
 
 // =====================================================================
@@ -244,6 +279,103 @@ model Contact {
 
   @@index([phone])
   @@map("contacts")
+}
+
+model Suppression {
+  id              String   @id @default(cuid())
+  normalizedPhone String   @unique
+  reason          String
+  source          String
+  suppressedAt    DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([suppressedAt])
+  @@map("suppressions")
+}
+
+model ContactFrequencyLock {
+  normalizedPhone String   @id
+  messageLogId    String
+  lockedUntil     DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([lockedUntil])
+  @@map("contact_frequency_locks")
+}
+
+model RemarketingRun {
+  id             String               @id @default(cuid())
+  segment        RemarketingSegment
+  mode           RemarketingRunMode
+  status         RemarketingRunStatus @default(running)
+  candidateCount Int                  @default(0)
+  eligibleCount  Int                  @default(0)
+  sentCount      Int                  @default(0)
+  skippedCount   Int                  @default(0)
+  failedCount    Int                  @default(0)
+  startedAt      DateTime             @default(now())
+  completedAt    DateTime?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  recipients RemarketingRecipient[]
+
+  @@index([segment, startedAt])
+  @@index([status])
+  @@map("remarketing_runs")
+}
+
+model RemarketingRecipient {
+  id                  String                     @id @default(cuid())
+  runId               String
+  normalizedPhoneHash String
+  entityType          EntityType
+  entityId            String
+  templateName        String
+  status              RemarketingRecipientStatus
+  reason              String?
+  eligibilitySnapshot Json
+  messageLogId        String?
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+
+  run RemarketingRun @relation(fields: [runId], references: [id])
+
+  @@unique([runId, entityType, entityId])
+  @@index([normalizedPhoneHash])
+  @@index([status])
+  @@map("remarketing_recipients")
+}
+
+enum RemarketingSegment {
+  abandoned_cart
+  pix_pending
+  boleto_pending
+  recent_customer
+  inactive_customer
+  vip_customer
+  engaged_no_purchase
+}
+
+enum RemarketingRunMode {
+  preview
+  send
+}
+
+enum RemarketingRunStatus {
+  running
+  completed
+  failed
+}
+
+enum RemarketingRecipientStatus {
+  eligible
+  suppressed
+  queued
+  sent
+  failed
 }
 
 model Conversation {

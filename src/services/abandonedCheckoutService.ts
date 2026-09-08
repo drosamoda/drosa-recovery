@@ -4,6 +4,7 @@ import { addMinutes } from '../helpers/dateService'
 import { customerService } from './customerService'
 import { messageService } from './messageService'
 import { AbandonedCheckout, AbandonedCheckoutStatus } from '@prisma/client'
+import { evaluateAbandonedCheckoutEligibility } from './abandonedCheckoutEligibilityService'
 
 // Formato esperado do payload da Nuvemshop
 type NuvemshopCheckoutPayload = {
@@ -22,6 +23,27 @@ type NuvemshopCheckoutPayload = {
   [key: string]: unknown
 }
 
+function nonEmpty(value?: string | null): string | null {
+  const normalized = value?.trim()
+  return normalized ? normalized : null
+}
+
+function normalizeEmail(value?: string | null): string | null {
+  return nonEmpty(value)?.toLowerCase() ?? null
+}
+
+function safeDate(value?: string): Date | null {
+  if (!value) return null
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+function safeTotal(value?: string | number): number | null {
+  if (value === undefined || value === null || value === '') return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+}
+
 function buildProductsSummary(
   products?: Array<{ name?: string; quantity?: number }>
 ): string {
@@ -38,17 +60,17 @@ export const abandonedCheckoutService = {
     payload: NuvemshopCheckoutPayload
   ): Promise<AbandonedCheckout> {
     const nuvemshopCheckoutId = String(payload.id)
-    const customerName = payload.contact_name ?? 'Cliente'
-    const customerEmail = payload.contact_email ?? null
-    const customerPhone = payload.contact_phone ?? null
+    const customerName = nonEmpty(payload.contact_name)
+    const customerEmail = normalizeEmail(payload.contact_email)
+    const customerPhone = nonEmpty(payload.contact_phone)
     const normalizedPhone = normalizePhoneBrazil(customerPhone) ?? ''
-    const total = payload.total ? Number(payload.total) : null
-    const currency = payload.currency ?? 'BRL'
+    const total = safeTotal(payload.total)
+    const currency = nonEmpty(payload.currency)?.toUpperCase() ?? null
     const productsSummary = buildProductsSummary(payload.products)
-    const abandonedCheckoutUrl =
-      payload.abandoned_checkout_url ?? payload.checkout_url ?? ''
+    const abandonedCheckoutUrl = nonEmpty(payload.abandoned_checkout_url) ?? nonEmpty(payload.checkout_url)
     const now = new Date()
-    const firstSeenAt = payload.created_at ? new Date(payload.created_at) : now
+    const sourceCreatedAt = safeDate(payload.created_at)
+    const sourceUpdatedAt = safeDate(payload.updated_at)
 
     const existing = await prisma.abandonedCheckout.findUnique({
       where: { nuvemshopCheckoutId },
@@ -58,7 +80,7 @@ export const abandonedCheckoutService = {
     if (normalizedPhone) {
       try {
         customer = await customerService.upsertCustomer({
-          name: customerName,
+          name: customerName ?? existing?.customerName ?? 'Cliente',
           email: customerEmail,
           phone: customerPhone,
           normalizedPhone,
@@ -73,13 +95,17 @@ export const abandonedCheckoutService = {
       return prisma.abandonedCheckout.update({
         where: { id: existing.id },
         data: {
-          customerName,
-          customerEmail,
-          customerPhone,
-          normalizedPhone,
+          customerName: customerName ?? undefined,
+          customerEmail: customerEmail ?? undefined,
+          customerPhone: customerPhone ?? undefined,
+          normalizedPhone: normalizedPhone || undefined,
           total: total ?? undefined,
-          productsSummary,
-          abandonedCheckoutUrl,
+          currency: currency ?? undefined,
+          productsSummary: productsSummary || undefined,
+          abandonedCheckoutUrl: abandonedCheckoutUrl ?? undefined,
+          sourceCreatedAt: sourceCreatedAt ?? undefined,
+          sourceUpdatedAt: sourceUpdatedAt ?? undefined,
+          collectedAt: now,
           lastSeenAt: now,
           rawPayload: payload as object,
           customerId: customer?.id ?? existing.customerId,
@@ -92,18 +118,21 @@ export const abandonedCheckoutService = {
         nuvemshopCheckoutId,
         token: payload.token ?? null,
         customerId: customer?.id ?? null,
-        customerName,
+        customerName: customerName ?? 'Cliente',
         customerEmail,
         customerPhone,
         normalizedPhone,
         total: total ?? undefined,
-        currency,
+        currency: currency ?? 'BRL',
         productsSummary,
-        abandonedCheckoutUrl,
+        abandonedCheckoutUrl: abandonedCheckoutUrl ?? '',
         status: AbandonedCheckoutStatus.abandoned,
         rawPayload: payload as object,
-        firstSeenAt,
+        firstSeenAt: now,
         lastSeenAt: now,
+        sourceCreatedAt,
+        sourceUpdatedAt,
+        collectedAt: now,
         source: 'nuvemshop_api',
       },
     })
@@ -113,6 +142,7 @@ export const abandonedCheckoutService = {
     normalizedPhone?: string
     email?: string
     orderCreatedAt: Date
+    orderId?: string
   }): Promise<void> {
     const conditions: object[] = []
     if (params.normalizedPhone) conditions.push({ normalizedPhone: params.normalizedPhone })
@@ -123,6 +153,7 @@ export const abandonedCheckoutService = {
       where: {
         OR: conditions,
         status: AbandonedCheckoutStatus.abandoned,
+        sourceCreatedAt: { not: null, lte: params.orderCreatedAt },
       },
     })
 
@@ -132,6 +163,7 @@ export const abandonedCheckoutService = {
         data: {
           status: AbandonedCheckoutStatus.converted,
           convertedAt: params.orderCreatedAt,
+          convertedOrderId: params.orderId ?? null,
         },
       })
       await messageService.skipPendingCheckoutLogs(checkout.id, 'converted_before_send')
@@ -151,47 +183,19 @@ export const abandonedCheckoutService = {
     const order = await prisma.order.findFirst({
       where: {
         OR: conditions,
-        createdAt: { gte: params.checkoutCreatedAt },
+        sourceCreatedAt: { gte: params.checkoutCreatedAt },
       },
     })
     return !!order
   },
 
   async scheduleAbandonedCheckoutMessage(checkout: AbandonedCheckout): Promise<boolean> {
-    if (!checkout.normalizedPhone) return false
-
-    const isOptOut = await customerService.isOptOut(checkout.normalizedPhone)
-    if (isOptOut) return false
-
-    const rule = await prisma.automationRule.findFirst({
-      where: { eventType: 'abandoned_checkout', active: true },
-    })
+    const rule = await prisma.automationRule.findFirst({ where: { eventType: 'abandoned_checkout', active: true } })
     if (!rule) return false
-
-    const template = await prisma.whatsappTemplate.findFirst({
-      where: { metaTemplateName: rule.templateName, active: true },
-    })
-    if (!template) return false
-
-    const hasPosteriorOrder = await abandonedCheckoutService.hasOrderAfterCheckout({
-      normalizedPhone: checkout.normalizedPhone,
-      email: checkout.customerEmail ?? undefined,
-      checkoutCreatedAt: checkout.firstSeenAt,
-    })
-    if (hasPosteriorOrder) {
-      await prisma.abandonedCheckout.update({
-        where: { id: checkout.id },
-        data: { status: AbandonedCheckoutStatus.converted, convertedAt: new Date() },
-      })
-      return false
-    }
-
-    const alreadyBlocked = await messageService.existsBlockingLog(
-      'abandoned_checkout',
-      checkout.id,
-      rule.templateName
-    )
-    if (alreadyBlocked) return false
+    const eligibility = await evaluateAbandonedCheckoutEligibility(checkout)
+    if (!eligibility.eligible || !eligibility.normalizedPhone) return false
+    if (rule.templateName !== eligibility.templateName) return false
+    if (await messageService.existsBlockingLog('abandoned_checkout', checkout.id, eligibility.templateName)) return false
 
     const customer = checkout.customerId
       ? await prisma.customer.findUnique({ where: { id: checkout.customerId } })
@@ -202,8 +206,8 @@ export const abandonedCheckoutService = {
       entityId: checkout.id,
       customerId: customer?.id ?? null,
       normalizedPhone: checkout.normalizedPhone,
-      templateName: rule.templateName,
-      scheduledAt: addMinutes(new Date(), rule.delayMinutes),
+      templateName: eligibility.templateName,
+      scheduledAt: addMinutes(checkout.abandonedAt ?? checkout.sourceUpdatedAt ?? checkout.sourceCreatedAt ?? new Date(), 0),
       source: 'sync_abandoned_checkouts',
     })
 

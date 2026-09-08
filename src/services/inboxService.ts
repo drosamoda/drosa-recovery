@@ -208,27 +208,6 @@ function normalizeImageMimeType(mimeType: string): string | null {
   return normalized === 'image/jpg' ? 'image/jpeg' : normalized
 }
 
-function getReplyContextLabel(type?: string | null): string {
-  switch (type) {
-    case 'image':
-      return 'Respondendo à imagem'
-    case 'audio':
-      return 'Respondendo ao áudio'
-    case 'document':
-      return 'Respondendo ao documento'
-    case 'sticker':
-      return 'Respondendo à figurinha'
-    case 'video':
-      return 'Respondendo ao vídeo'
-    case 'reaction':
-      return 'Respondendo à reação'
-    case 'other':
-      return 'Respondendo à mensagem'
-    default:
-      return 'Respondendo à mensagem'
-  }
-}
-
 async function getReplyContext(conversationId: string, replyToMessageId?: string): Promise<ReplyContext | null> {
   if (!replyToMessageId) return null
 

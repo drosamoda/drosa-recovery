@@ -45,25 +45,14 @@ export const customerService = {
   },
 
   async applyOptOutByPhone(normalizedPhone: string): Promise<void> {
-    const existing = await prisma.customer.findFirst({
-      where: { normalizedPhone },
+    await prisma.$transaction(async (tx) => {
+      await tx.suppression.upsert({
+        where: { normalizedPhone },
+        update: { reason: 'inbound_keyword', source: 'meta_webhook', suppressedAt: new Date() },
+        create: { normalizedPhone, reason: 'inbound_keyword', source: 'meta_webhook' },
+      })
+      await tx.customer.updateMany({ where: { normalizedPhone }, data: { optOut: true } })
     })
-
-    if (existing) {
-      await prisma.customer.update({
-        where: { id: existing.id },
-        data: { optOut: true },
-      })
-    } else {
-      await prisma.customer.create({
-        data: {
-          name: 'Desconhecido',
-          normalizedPhone,
-          optOut: true,
-          source: 'opt_out_inbound',
-        },
-      })
-    }
   },
 
   async findByPhoneOrEmail(params: {
@@ -87,10 +76,10 @@ export const customerService = {
   },
 
   async isOptOut(normalizedPhone: string): Promise<boolean> {
-    const customer = await prisma.customer.findFirst({
-      where: { normalizedPhone },
-      select: { optOut: true },
-    })
-    return customer?.optOut ?? false
+    const [suppression, customer] = await Promise.all([
+      prisma.suppression.findUnique({ where: { normalizedPhone }, select: { id: true } }),
+      prisma.customer.findFirst({ where: { normalizedPhone }, select: { optOut: true } }),
+    ])
+    return Boolean(suppression || customer?.optOut)
   },
 }

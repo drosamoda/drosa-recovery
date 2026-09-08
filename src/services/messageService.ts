@@ -18,9 +18,26 @@ const BLOCKING_STATUSES: MessageStatus[] = [
   MessageStatus.delivered,
   MessageStatus.read,
   MessageStatus.skipped,
+  MessageStatus.unknown,
 ]
 
 export const messageService = {
+  async acquireFrequencyLock(normalizedPhone: string, messageLogId: string, lockedUntil: Date): Promise<boolean> {
+    const rows = await prisma.$queryRaw<Array<{ acquired: boolean }>>`
+      INSERT INTO "contact_frequency_locks" ("normalizedPhone", "messageLogId", "lockedUntil", "createdAt", "updatedAt")
+      VALUES (${normalizedPhone}, ${messageLogId}, ${lockedUntil}, NOW(), NOW())
+      ON CONFLICT ("normalizedPhone") DO UPDATE
+      SET "messageLogId" = EXCLUDED."messageLogId", "lockedUntil" = EXCLUDED."lockedUntil", "updatedAt" = NOW()
+      WHERE "contact_frequency_locks"."lockedUntil" <= NOW()
+         OR "contact_frequency_locks"."messageLogId" = EXCLUDED."messageLogId"
+      RETURNING TRUE AS acquired
+    `
+    return rows.length === 1
+  },
+
+  async releaseFrequencyLock(normalizedPhone: string, messageLogId: string): Promise<void> {
+    await prisma.contactFrequencyLock.deleteMany({ where: { normalizedPhone, messageLogId } })
+  },
   generateIdempotencyKey(
     entityType: 'order' | 'abandoned_checkout',
     entityId: string,
@@ -103,14 +120,27 @@ export const messageService = {
     status: MessageStatus,
     extra?: { response?: object; errorCode?: string; sentAt?: Date }
   ): Promise<void> {
-    await prisma.messageLog.updateMany({
-      where: { metaMessageId },
-      data: {
-        status,
-        response: extra?.response ?? undefined,
-        errorCode: extra?.errorCode ?? undefined,
-        sentAt: extra?.sentAt ?? undefined,
-      },
-    })
+    const rank: Partial<Record<MessageStatus, number>> = {
+      pending: 0, processing: 1, sent: 2, delivered: 3, read: 4,
+    }
+    const logs = await prisma.messageLog.findMany({ where: { metaMessageId }, select: { id: true, status: true } })
+    for (const log of logs) {
+      const canAdvance = status === MessageStatus.failed
+        ? log.status !== MessageStatus.delivered && log.status !== MessageStatus.read
+        : (rank[status] ?? -1) > (rank[log.status] ?? -1)
+      if (!canAdvance) continue
+      await prisma.messageLog.updateMany({
+        where: { id: log.id, status: log.status },
+        data: { status, response: extra?.response ?? undefined, errorCode: extra?.errorCode ?? undefined, sentAt: extra?.sentAt ?? undefined },
+      })
+    }
+    const chats = await prisma.chatMessage.findMany({ where: { waMessageId: metaMessageId }, select: { id: true, status: true } })
+    for (const chat of chats) {
+      const current = chat.status as MessageStatus | null
+      const canAdvance = status === MessageStatus.failed
+        ? current !== MessageStatus.delivered && current !== MessageStatus.read
+        : (rank[status] ?? -1) > (current ? rank[current] ?? -1 : -1)
+      if (canAdvance) await prisma.chatMessage.updateMany({ where: { id: chat.id, status: chat.status }, data: { status } })
+    }
   },
 }

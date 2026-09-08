@@ -40,6 +40,25 @@ const envSchema = z.object({
   MESSAGES_BATCH_SIZE: z.coerce.number().default(20),
   MESSAGE_SEND_DELAY_MS: z.coerce.number().default(250),
 
+  ENABLE_INTERNAL_CRON: z.string().default('false').transform((v) => v === 'true'),
+  ABANDONED_CART_ENABLED: z.string().default('false').transform((v) => v === 'true'),
+  REMARKETING_ENABLED: z.string().default('false').transform((v) => v === 'true'),
+  ABANDONED_CART_MAX_SENDS_PER_RUN: z.coerce.number().int().min(0).default(1),
+  ABANDONED_CART_DELAY_MINUTES: z.coerce.number().int().min(0).default(30),
+  ABANDONED_CART_COOLDOWN_HOURS: z.coerce.number().positive().default(24),
+  ABANDONED_CART_PREVIEW_LIMIT: z.coerce.number().int().min(1).max(500).default(100),
+  ABANDONED_CART_MAX_AGE_HOURS: z.coerce.number().positive().default(168),
+  ABANDONED_CART_OVERLAP_HOURS: z.coerce.number().positive().default(72),
+  REMARKETING_MAX_SENDS_PER_RUN: z.coerce.number().int().min(0).default(1),
+  REMARKETING_GLOBAL_COOLDOWN_HOURS: z.coerce.number().positive().default(24),
+  REMARKETING_RECENT_CUSTOMER_DAYS: z.coerce.number().int().positive().default(30),
+  REMARKETING_INACTIVE_DAYS: z.coerce.number().int().positive().default(90),
+  VIP_MIN_ORDERS: z.coerce.number().int().positive().default(3),
+  VIP_MIN_SPEND: z.coerce.number().positive().default(500),
+  MARKETING_SEND_HOUR_START: z.coerce.number().int().min(0).max(23).default(9),
+  MARKETING_SEND_HOUR_END: z.coerce.number().int().min(1).max(24).default(20),
+  MESSAGE_CLAIM_LEASE_SECONDS: z.coerce.number().int().min(30).default(300),
+
   CRON_ABANDONED_CART_INTERVAL: z.coerce.number().default(15),
   CRON_PROCESS_MESSAGES_INTERVAL: z.coerce.number().default(1),
   CRON_BOLETO_EXPIRING_INTERVAL: z.coerce.number().default(60),
@@ -51,9 +70,9 @@ const envSchema = z.object({
   SENTRY_ENVIRONMENT: z.string().default('development'),
   SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().default(0.1),
 
-  // Quando true, processMessages monta o payload mas NÃO chama a Meta Cloud API.
-  // Marca a mensagem como sent com reason=dry_run. Útil para homologação local.
-  WHATSAPP_DRY_RUN: z.string().default('false').transform((v) => v === 'true'),
+  // Opt-out seguro: envio real exige configuração explícita como false.
+  WHATSAPP_DRY_RUN: z.string().default('true').transform((v) => v === 'true'),
+  AUTOMATION_SEND_ENABLED: z.string().default('false').transform((v) => v === 'true'),
   WHATSAPP_API_NUMBER: z.string().default(''),
   META_WABA_ID: z.string().default(''),
 })

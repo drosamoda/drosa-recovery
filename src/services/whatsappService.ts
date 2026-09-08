@@ -18,11 +18,13 @@ export type SendTemplateResult = {
   errorCode?: string
   errorType?: 'temporary' | 'permanent'
   reason?: string
+  uncertain?: boolean
 }
 
 export type SendTextMessageParams = {
   to: string
   text: string
+  contextMessageId?: string
 }
 
 export type SendTextMessageResult = SendTemplateResult
@@ -71,6 +73,14 @@ function buildComponents(
 }
 
 export const whatsappService = {
+  async sendImageMessage(_params: {
+    to: string; fileBuffer: Buffer; mimeType: string; caption?: string;
+    contextMessageId?: string; fileName?: string;
+  }): Promise<SendTemplateResult & { mediaId?: string }> {
+    // This checkout contains the Inbox caller but no validated media transport.
+    // Keep it explicit and fail closed until that transport has been reviewed.
+    return { success: false, errorType: 'permanent', reason: 'image_transport_not_configured' }
+  },
   async sendTextMessage(params: SendTextMessageParams): Promise<SendTextMessageResult> {
     const { to, text } = params
 
@@ -80,6 +90,7 @@ export const whatsappService = {
       messaging_product: 'whatsapp',
       to,
       type: 'text',
+      ...(params.contextMessageId ? { context: { message_id: params.contextMessageId } } : {}),
       text: {
         preview_url: false,
         body: text,
@@ -108,12 +119,16 @@ export const whatsappService = {
         if (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT') {
           return {
             success: false,
-            errorType: 'temporary',
-            reason: 'network_timeout',
+            errorType: 'permanent',
+            reason: 'delivery_unknown',
             errorCode: err.code,
+            uncertain: true,
           }
         }
 
+        if (!err.response && err.request) {
+          return { success: false, errorType: 'permanent', reason: 'delivery_unknown', errorCode: err.code ?? 'network_error', uncertain: true }
+        }
         const status = err.response?.status
         const errorData = err.response?.data?.error
         const metaCode: number | undefined = errorData?.code
@@ -188,12 +203,16 @@ export const whatsappService = {
         if (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT') {
           return {
             success: false,
-            errorType: 'temporary',
-            reason: 'network_timeout',
+            errorType: 'permanent',
+            reason: 'delivery_unknown',
             errorCode: err.code,
+            uncertain: true,
           }
         }
 
+        if (!err.response && err.request) {
+          return { success: false, errorType: 'permanent', reason: 'delivery_unknown', errorCode: err.code ?? 'network_error', uncertain: true }
+        }
         const status = err.response?.status
         const errorData = err.response?.data?.error
 
