@@ -23,7 +23,7 @@ export function renderContract(name: string, values: string[]): string | null {
 
 export async function verifyDispatchContract(name: string, language: string, values: string[]) {
   const contract = templateContracts[name]
-  if (!contract || contract.language !== language || !renderContract(name, values)) return 'invalid_template_data'
+  if (!contract || contract.language !== language || !renderContract(name, values)) return 'template_data_missing'
   if (contract.risk) return contract.risk
   // No proven marketing-consent source exists in this checkout.
   if (contract.category === 'MARKETING') return 'consent_unproven'
@@ -35,7 +35,7 @@ export async function verifyDispatchContract(name: string, language: string, val
     })
     const actual = response.data?.data?.find((item: { name: string; language: string }) => item.name === name && item.language === language)
     const body = actual?.components?.find((item: { type: string }) => item.type === 'BODY')?.text
-    if (actual?.status !== 'APPROVED' || actual.category !== contract.category || body !== contract.body) return 'meta_template_contract_mismatch'
+    if (actual?.status !== 'APPROVED' || actual.category !== contract.category || body !== contract.body) return 'template_contract_mismatch'
     if (actual.components.some((item: { type: string }) => !['BODY', 'FOOTER'].includes(item.type))) return 'unsupported_template_components'
     return null
   } catch { return 'meta_template_verification_failed' }

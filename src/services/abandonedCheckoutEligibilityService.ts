@@ -112,7 +112,11 @@ export async function evaluateAbandonedCheckoutEligibility(
       where: {
         normalizedPhone: phone,
         status: { in: BLOCKING_DELIVERY_STATUSES },
-        acceptedAt: { gte: new Date(now.getTime() - env.REMARKETING_GLOBAL_COOLDOWN_HOURS * 3_600_000) },
+        OR: [
+          { acceptedAt: { gte: new Date(now.getTime() - Math.max(env.ABANDONED_CART_COOLDOWN_HOURS, env.REMARKETING_GLOBAL_COOLDOWN_HOURS) * 3_600_000) } },
+          { sentAt: { gte: new Date(now.getTime() - Math.max(env.ABANDONED_CART_COOLDOWN_HOURS, env.REMARKETING_GLOBAL_COOLDOWN_HOURS) * 3_600_000) } },
+          { status: MessageStatus.unknown },
+        ],
       },
       select: { id: true },
     }) : null,
@@ -122,7 +126,6 @@ export async function evaluateAbandonedCheckoutEligibility(
         ...(checkout.customerEmail ? [{ customerEmail: checkout.customerEmail.trim().toLowerCase() }] : []),
       ] },
       select: { id: true, sourceCreatedAt: true },
-      take: 20,
     }) : [],
   ])
 

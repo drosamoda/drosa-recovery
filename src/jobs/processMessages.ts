@@ -182,7 +182,7 @@ async function revalidate(msg: MessageLog): Promise<ValidationResult> {
       entityType: msg.entityType,
       entityId: msg.entityId,
       templateName: msg.templateName,
-      status: { in: [MessageStatus.sent, MessageStatus.delivered, MessageStatus.read] },
+      status: { in: [MessageStatus.sent, MessageStatus.delivered, MessageStatus.read, MessageStatus.unknown] },
       id: { not: msg.id },
     },
   })
@@ -284,16 +284,36 @@ async function revalidate(msg: MessageLog): Promise<ValidationResult> {
         orderNumber: true,
         total: true,
         orderUrl: true,
+        paymentStatus: true,
+        paymentMethod: true,
+        status: true,
       },
     })
     if (!order) {
       return { ok: false, reason: 'invalid_phone' }
     }
+    if (['order_created_pix', 'order_created_boleto', 'boleto_expiring'].includes(rule.eventType)) {
+      if (['cancelled', 'canceled'].includes(order.status)) return { ok: false, reason: 'order_cancelled' }
+      if (order.paymentStatus !== 'pending' || ['paid', 'confirmed', 'authorized', 'refunded'].includes(order.paymentStatus)) {
+        return { ok: false, reason: 'payment_already_completed' }
+      }
+      const method = order.paymentMethod?.toLowerCase() ?? ''
+      if (rule.eventType === 'order_created_pix' ? !method.includes('pix') : !/boleto|ticket/.test(method)) {
+        return { ok: false, reason: 'payment_method_mismatch' }
+      }
+    }
 
     const customerName = order.customerName ?? 'Cliente'
     const orderNumber = order.orderNumber
     if (!customerName.trim() || !orderNumber) {
-      return { ok: false, reason: 'missing_template_variable' }
+      return { ok: false, reason: 'template_data_missing' }
+    }
+
+    const bodyParams = [customerName.trim().split(' ')[0], orderNumber]
+    if (rule.eventType === 'order_created_pix') {
+      const total = Number(order.total)
+      if (!Number.isFinite(total)) return { ok: false, reason: 'template_data_missing' }
+      bodyParams.push(total.toFixed(2).replace('.', ','))
     }
 
     const templateVariables = buildTemplateVariables({
@@ -314,7 +334,7 @@ async function revalidate(msg: MessageLog): Promise<ValidationResult> {
         to: msg.normalizedPhone,
         templateName: msg.templateName,
         languageCode: template.languageCode,
-        bodyParams: [customerName.trim().split(' ')[0], orderNumber],
+        bodyParams,
         templatePreview: template.messagePreview,
         templateVariables,
         renderedPreview,
@@ -456,15 +476,15 @@ async function handleRetryOrFail(
 async function trySendWithNinthDigitFallback(
   msg: MessageLog,
   params: SendParams
-): Promise<{ success: true; metaMessageId: string; usedPhone: string } | { success: false; result: Awaited<ReturnType<typeof whatsappService.sendTemplateMessage>> }> {
+): Promise<{ success: true; metaMessageId: string; usedPhone: string; response?: object } | { success: false; result: Awaited<ReturnType<typeof whatsappService.sendTemplateMessage>> }> {
   const primary = await whatsappService.sendTemplateMessage(params)
 
   if (primary.success && primary.metaMessageId) {
-    return { success: true, metaMessageId: primary.metaMessageId, usedPhone: params.to }
+    return { success: true, metaMessageId: primary.metaMessageId, usedPhone: params.to, response: primary.response }
   }
 
   // Tenta fallback com nono dígito removido apenas uma vez
-  if (primary.errorCode === '100' && params.to.length === 13) {
+  if (!primary.uncertain && primary.errorCode === '100' && params.to.length === 13) {
     const altPhone = stripNinthDigit(params.to)
     if (altPhone) {
       logger.info('[processMessages] Tentando sem nono dígito', { msgId: msg.id })
@@ -481,7 +501,7 @@ async function trySendWithNinthDigitFallback(
             },
           })
         }
-        return { success: true, metaMessageId: fallback.metaMessageId, usedPhone: altPhone }
+        return { success: true, metaMessageId: fallback.metaMessageId, usedPhone: altPhone, response: fallback.response }
       }
 
       return { success: false, result: fallback }
@@ -609,6 +629,14 @@ export async function runProcessMessages(): Promise<ProcessResult> {
         remarketingSendAttempts++
       }
 
+      const contractError = await verifyDispatchContract(sendParams.templateName, sendParams.languageCode, sendParams.bodyParams)
+      if (contractError) {
+        await markSkipped(msg.id, contractError)
+        result.skipped++
+        continue
+      }
+      sendParams.renderedPreview = renderContract(sendParams.templateName, sendParams.bodyParams) ?? undefined
+
       if (msg.entityType === EntityType.abandoned_checkout || isRemarketingMessage(msg)) {
         const hours = Math.max(env.ABANDONED_CART_COOLDOWN_HOURS, env.REMARKETING_GLOBAL_COOLDOWN_HOURS)
         const acquired = await messageService.acquireFrequencyLock(msg.normalizedPhone, msg.id, new Date(Date.now() + hours * 3600000))
@@ -619,13 +647,6 @@ export async function runProcessMessages(): Promise<ProcessResult> {
         }
       }
 
-      const contractError = await verifyDispatchContract(sendParams.templateName, sendParams.languageCode, sendParams.bodyParams)
-      if (contractError) {
-        await markSkipped(msg.id, contractError)
-        result.skipped++
-        continue
-      }
-      sendParams.renderedPreview = renderContract(sendParams.templateName, sendParams.bodyParams) ?? undefined
       // Once dispatch starts an unexpected failure must never schedule another send.
       dispatchStarted = true
       const sendResult = await trySendWithNinthDigitFallback(msg, sendParams)
@@ -641,7 +662,7 @@ export async function runProcessMessages(): Promise<ProcessResult> {
             ...buildAutomationMessagePayload(sendParams),
             bodyParams: sendParams.bodyParams,
           },
-          {}
+          sendResult.response ?? {}
         )
         result.sent++
         logger.info('[processMessages] mensagem enviada', { msgId: msg.id, metaMessageId: sendResult.metaMessageId })
