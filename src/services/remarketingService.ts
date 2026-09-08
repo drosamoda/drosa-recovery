@@ -7,13 +7,37 @@ export const segmentNames = ['abandoned_cart', 'pix_pending', 'boleto_pending', 
 export type Segment = typeof segmentNames[number]
 
 export const segmentContracts: Record<Segment, { priority: number; template: string; marketing: boolean }> = {
-  pix_pending: { priority: 1, template: 'pix_pendente_drosa_v2', marketing: false },
+  pix_pending: { priority: 1, template: '_pix_pendente', marketing: false },
   boleto_pending: { priority: 2, template: 'pedido_boleto_drosa_01', marketing: false },
   abandoned_cart: { priority: 3, template: env.ABANDONED_CART_TEMPLATE, marketing: true },
   recent_customer: { priority: 4, template: 'cliente_recente_drosa_v1', marketing: true },
   vip_customer: { priority: 5, template: 'cliente_vip_drosa_v1', marketing: true },
   inactive_customer: { priority: 6, template: 'cliente_inativo_drosa_v1', marketing: true },
   engaged_no_purchase: { priority: 7, template: 'atendimento_retomada_drosa_v1', marketing: true },
+}
+
+export async function remarketingSend(segment: Segment | 'all' = 'all') {
+  const preview = await remarketingPreview(segment)
+  const result = {
+    found: preview.found,
+    eligible: preview.eligible,
+    claimed: 0,
+    sent: 0,
+    skipped: preview.skipped,
+    failed: 0,
+    unknown: 0,
+    errors: 0,
+    reasons: preview.reasons,
+    segments: preview.segments,
+  }
+
+  if (!env.AUTOMATION_SEND_ENABLED) return { status: 423, result: { ...result, reasons: { ...result.reasons, automation_send_disabled: preview.found } } }
+  if (!env.REMARKETING_ENABLED) return { status: 423, result: { ...result, reasons: { ...result.reasons, remarketing_disabled: preview.found } } }
+  if (env.WHATSAPP_DRY_RUN) return { status: 423, result: { ...result, reasons: { ...result.reasons, whatsapp_dry_run: preview.found } } }
+
+  // The preview is the source of eligibility and currently fails closed until
+  // consent and the live Meta contract are proven for every candidate.
+  return { status: 200, result }
 }
 
 type Candidate = { entityId: string; phone: string; segment: Segment; reasons: string[] }

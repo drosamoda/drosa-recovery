@@ -4,6 +4,7 @@ import app from '../../index'
 import { prisma } from '../../config/prisma'
 import { runAbandonedCheckoutsPreview } from '../../jobs/previewAbandonedCheckouts'
 import { remarketingPreview } from '../../services/remarketingService'
+import { env } from '../../config/env'
 
 const state = vi.hoisted(() => ({ writes: vi.fn(() => { throw new Error('Preview attempted a write') }) }))
 vi.mock('../../config/prisma', () => {
@@ -16,8 +17,17 @@ vi.mock('../../config/prisma', () => {
 })
 
 describe('read-only automation previews', () => {
-  it.each(['/jobs/abandoned-checkouts-preview', '/jobs/remarketing-preview'])('rejects unauthenticated %s', async (url) => {
+  it.each(['/jobs/abandoned-checkouts-preview', '/jobs/remarketing-preview', '/jobs/remarketing-send'])('rejects unauthenticated %s', async (url) => {
     expect((await request(app).post(url)).status).toBe(401)
+  })
+  it('keeps remarketing send closed when the global automation gate is disabled', async () => {
+    const previous = env.AUTOMATION_SEND_ENABLED
+    env.AUTOMATION_SEND_ENABLED = false
+    const response = await request(app).post('/jobs/remarketing-send').set('x-jobs-secret', process.env.JOBS_SECRET!)
+    env.AUTOMATION_SEND_ENABLED = previous
+    expect(response.status).toBe(423)
+    expect(response.body).toMatchObject({ claimed: 0, sent: 0, unknown: 0 })
+    expect(state.writes).not.toHaveBeenCalled()
   })
   it('cart preview reads an invalid candidate without writing timestamps or messages', async () => {
     vi.mocked(prisma.abandonedCheckout.findMany).mockResolvedValueOnce([{

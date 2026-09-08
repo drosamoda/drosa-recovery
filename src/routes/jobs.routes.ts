@@ -10,7 +10,7 @@ import { runBackfillInboxRenderedTemplatePreviews } from '../jobs/backfillInboxR
 import { runAbandonedCheckoutsPreview } from '../jobs/previewAbandonedCheckouts'
 import { automationHealth } from '../jobs/automationHealth'
 import { retryInboxMirrors } from '../jobs/retryInboxMirrors'
-import { remarketingPreview, segmentNames, Segment } from '../services/remarketingService'
+import { remarketingPreview, remarketingSend, segmentNames, Segment } from '../services/remarketingService'
 
 const router = Router()
 router.post('/remarketing-preview', async (req: Request, res: Response) => {
@@ -20,6 +20,15 @@ router.post('/remarketing-preview', async (req: Request, res: Response) => {
     return
   }
   res.json(await remarketingPreview(segment as Segment | 'all'))
+})
+router.post('/remarketing-send', async (req: Request, res: Response) => {
+  const segment = req.body?.segment ?? 'all'
+  if (segment !== 'all' && !segmentNames.includes(segment)) {
+    res.status(400).json({ error: 'invalid_segment' })
+    return
+  }
+  const response = await remarketingSend(segment as Segment | 'all')
+  res.status(response.status).json(response.result)
 })
 router.get('/automation-health', async (_req: Request, res: Response) => {
   const result = await automationHealth()
