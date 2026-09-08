@@ -1,11 +1,9 @@
 import { Request, Response } from 'express'
 
 // Augmenta o tipo Request para incluir rawBody
-declare global {
-  namespace Express {
-    interface Request {
-      rawBody?: string
-    }
+declare module 'express-serve-static-core' {
+  interface Request {
+    rawBody?: string
   }
 }
 

@@ -137,7 +137,7 @@ export async function runBackfillInboxSentMessages(): Promise<BackfillInboxSentM
 
   let skip = 0
 
-  while (true) {
+  for (;;) {
     const logs = await prisma.messageLog.findMany({
       where: {
         metaMessageId: { not: null },

@@ -57,7 +57,7 @@ export const nuvemshopService = {
     let page = 1
     const allCheckouts: NuvemshopCheckout[] = []
 
-    while (true) {
+    for (;;) {
       const response = await client.get<NuvemshopCheckout[]>('/checkouts', {
         params: {
           per_page: 200,

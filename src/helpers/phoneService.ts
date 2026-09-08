@@ -11,7 +11,7 @@ export function normalizePhoneBrazil(phone: string | null | undefined): string |
   if (!phone) return null
 
   // Remove todos os caracteres não numéricos exceto o +
-  let cleaned = phone.replace(/[\s\(\)\-\.]/g, '')
+  let cleaned = phone.replace(/[\s().-]/g, '')
 
   // Remove o + se existir
   if (cleaned.startsWith('+')) {

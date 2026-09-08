@@ -103,7 +103,7 @@ app.get('/inbox', (_req, res) => {
 })
 
 // ── Rotas protegidas ───────────────────────────────────────────────────
-app.use('/admin', adminRoutes)
+app.use('/admin', adminAuth, adminRoutes)
 app.use('/jobs', jobsAuth, jobsRoutes)
 app.use('/customers', customersRoutes)
 app.use('/inbox', inboxAuth, inboxRoutes)

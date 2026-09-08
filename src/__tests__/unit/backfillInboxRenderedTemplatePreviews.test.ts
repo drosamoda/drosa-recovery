@@ -184,7 +184,7 @@ describe('runBackfillInboxRenderedTemplatePreviews', () => {
       abandonedCheckoutUrl: 'https://example.com/carrinho/checkout-1',
     } as never)
 
-    const result = await runBackfillInboxRenderedTemplatePreviews()
+    await runBackfillInboxRenderedTemplatePreviews()
 
     const checkoutUpdate = vi.mocked(prisma.chatMessage.update).mock.calls[0]?.[0]
     expect(checkoutUpdate).toBeTruthy()
