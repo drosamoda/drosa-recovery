@@ -97,7 +97,7 @@ vi.mock('../../services/templateContracts', () => ({
 // Repopula a fila antes de cada teste.
 async function resetPrismaMock() {
   const { prisma } = await import('../../config/prisma')
-  vi.mocked(prisma.messageLog.findMany).mockResolvedValue([pendingMsg])
+  vi.mocked(prisma.messageLog.findMany).mockResolvedValue([pendingMsg] as never)
 }
 
 describe('POST /jobs/process-messages', () => {
@@ -126,9 +126,9 @@ describe('POST /jobs/process-messages', () => {
       id: 'order-001', customerName: 'Maria Silva', orderNumber: '1001', total: '149.90', orderUrl: 'https://example.com',
     } as never)
     vi.mocked(prisma.order.findFirst).mockResolvedValue(null)
-    vi.mocked(prisma.$transaction).mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn({
+    vi.mocked(prisma.$transaction).mockImplementation((async (fn: (tx: unknown) => Promise<unknown>) => fn({
       messageLog: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
-    }))
+    })) as never)
     // Restaura whatsappService mock padrão
     const { whatsappService } = await import('../../services/whatsappService')
     vi.mocked(whatsappService.sendTemplateMessage).mockResolvedValue({
@@ -146,11 +146,11 @@ describe('POST /jobs/process-messages', () => {
     const { whatsappService } = await import('../../services/whatsappService')
     const { runProcessMessages } = await import('../../jobs/processMessages')
     let claimed = false
-    vi.mocked(prisma.messageLog.updateMany).mockImplementation(async () => {
+    vi.mocked(prisma.messageLog.updateMany).mockImplementation((async () => {
       if (claimed) return { count: 0 }
       claimed = true
       return { count: 1 }
-    })
+    }) as never)
     const results = await Promise.all([runProcessMessages(), runProcessMessages()])
     expect(results.reduce((sum, item) => sum + item.sent, 0)).toBe(1)
     expect(whatsappService.sendTemplateMessage).toHaveBeenCalledTimes(1)

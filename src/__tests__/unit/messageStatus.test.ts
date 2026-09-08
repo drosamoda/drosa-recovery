@@ -9,7 +9,7 @@ vi.mock('../../config/prisma', () => ({ prisma: {
 } }))
 
 describe('delivery status conditional advancement', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => { vi.clearAllMocks() })
   it.each(['sent', 'delivered', 'failed'] as const)('read never regresses to %s', async (status) => {
     vi.mocked(prisma.messageLog.findMany).mockResolvedValue([{ id: 'log', status: 'read' }] as never)
     vi.mocked(prisma.chatMessage.findMany).mockResolvedValue([{ id: 'chat', status: 'read' }] as never)

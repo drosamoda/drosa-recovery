@@ -317,7 +317,7 @@ describe('inboxService.sendManualTextMessage reply', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-05-05T13:00:00.000Z'))
   })
-  afterEach(() => vi.useRealTimers())
+  afterEach(() => { vi.useRealTimers() })
 
   it('usa context.message_id quando responder uma mensagem da mesma conversa', async () => {
     const originalDryRun = env.INBOX_SEND_DRY_RUN
@@ -388,7 +388,7 @@ describe('inboxService.sendManualImageMessage', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-05-05T13:00:00.000Z'))
   })
-  afterEach(() => vi.useRealTimers())
+  afterEach(() => { vi.useRealTimers() })
 
   it('rejeita mime type invalido sem chamar a API da Meta', async () => {
     const result = await inboxService.sendManualImageMessage('conversation-1', {

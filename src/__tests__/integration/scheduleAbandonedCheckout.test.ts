@@ -182,7 +182,7 @@ describe('abandonedCheckoutService.scheduleAbandonedCheckoutMessage', () => {
   // -----------------------------------------------------------------------
 
   it('retorna false e não cria log quando telefone está vazio', async () => {
-    const checkoutSemFone = { ...checkout, normalizedPhone: '' }
+    const checkoutSemFone = { ...(checkout as unknown as Record<string, unknown>), normalizedPhone: '' }
     const result = await abandonedCheckoutService.scheduleAbandonedCheckoutMessage(checkoutSemFone as never)
 
     expect(result).toBe(false)
