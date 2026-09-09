@@ -2,6 +2,7 @@
 // Necessário porque env.ts lê process.env no momento do import
 
 process.env.NODE_ENV = 'test'
+process.env.APP_BASE_URL = 'https://drosa-recovery.example.test'
 process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/drosa_test'
 process.env.NUVEMSHOP_STORE_ID = 'test_store_id'
 process.env.NUVEMSHOP_ACCESS_TOKEN = 'test_nuvemshop_token'
