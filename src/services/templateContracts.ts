@@ -11,6 +11,8 @@ export const templateContracts: Record<string, TemplateContract> = {
   carrinho_abandonado_drosa_01: { language: 'pt_BR', category: 'MARKETING', parameters: ['name', 'recoveryUrl'],
     body: "Oi, {{1}}! 😊 Vi que você iniciou um pedido na D'Rosa Moda mas não conseguiu finalizar. Ainda temos os itens reservados! Continue a compra pelo link: {{2}} 🛒",
     risk: 'unsupported_reservation_claim' },
+  carrinho_abandonado_drosa_v2: { language: 'pt_BR', category: 'MARKETING', parameters: ['name', 'recoveryUrl'],
+    body: 'Oi, {{1}}! 😊 Você deixou algumas peças no carrinho da D’Rosa Moda. Se quiser continuar sua compra, acesse: {{2}} Se precisar de ajuda com tamanho, tecido ou combinação, me chama por aqui.' },
   _pix_pendente: { language: 'pt_BR', category: 'MARKETING', parameters: ['name', 'orderNumber', 'total'],
     body: 'Oi, {{1}}! Pedido nº *{{2}}* no valor de *R$ {{3}}* aguardando pagamento PIX. Complete o pagamento para garantir seus itens! 💙' },
 }
