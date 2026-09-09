@@ -39,7 +39,8 @@ const ALLOWED_ORIGINS = [
   'https://drosa-recovery-production-bcfa.up.railway.app',
   'http://localhost:3000',
   'http://127.0.0.1:3000',
-]
+  env.APP_BASE_URL,
+].filter(Boolean).map(normalizeOrigin)
 
 function normalizeOrigin(origin: string): string {
   return origin.replace(/\/$/, '')

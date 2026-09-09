@@ -3,6 +3,17 @@ import request from 'supertest'
 import app from '../../index'
 
 describe('CORS', () => {
+  it('permite a origem configurada para a aplicacao', async () => {
+    const res = await request(app)
+      .get('/health')
+      .set('Origin', 'https://drosa-recovery.example.test')
+
+    expect(res.status).toBe(200)
+    expect(res.headers['access-control-allow-origin']).toBe(
+      'https://drosa-recovery.example.test'
+    )
+  })
+
   it('permite a origem principal do Railway', async () => {
     const res = await request(app)
       .get('/health')
