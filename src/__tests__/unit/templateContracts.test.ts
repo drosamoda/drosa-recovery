@@ -17,4 +17,10 @@ describe('verified template contracts', () => {
   it('blocks unsupported reservation claim before API access', async () => {
     expect(await verifyDispatchContract('carrinho_abandonado_drosa_01', 'pt_BR', ['Ana', 'https://example.com'])).toBe('unsupported_reservation_claim')
   })
+  it('recognizes the approved cart v2 contract and still requires marketing consent', async () => {
+    const text = renderContract('carrinho_abandonado_drosa_v2', ['Ana', 'https://example.com/checkout'])
+    expect(text).toContain('Você deixou algumas peças no carrinho')
+    expect(text).toContain('https://example.com/checkout')
+    expect(await verifyDispatchContract('carrinho_abandonado_drosa_v2', 'pt_BR', ['Ana', 'https://example.com/checkout'])).toBe('consent_unproven')
+  })
 })
