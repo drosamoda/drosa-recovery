@@ -47,6 +47,7 @@ const envSchema = z.object({
   ABANDONED_CART_DELAY_MINUTES: z.coerce.number().int().min(0).default(30),
   ABANDONED_CART_COOLDOWN_HOURS: z.coerce.number().positive().default(24),
   ABANDONED_CART_PREVIEW_LIMIT: z.coerce.number().int().min(1).max(500).default(100),
+  PREVIEW_CONCURRENCY: z.coerce.number().int().min(1).max(4).default(2),
   ABANDONED_CART_MAX_AGE_HOURS: z.coerce.number().positive().default(168),
   ABANDONED_CART_OVERLAP_HOURS: z.coerce.number().positive().default(72),
   REMARKETING_MAX_SENDS_PER_RUN: z.coerce.number().int().min(0).default(1),
