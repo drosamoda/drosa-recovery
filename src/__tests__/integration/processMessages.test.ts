@@ -256,7 +256,7 @@ describe('POST /jobs/process-messages', () => {
     }))
   })
 
-  it('INBOX_SEND_DRY_RUN tambem protege o envio automatico', async () => {
+  it('INBOX_SEND_DRY_RUN protege somente a Inbox manual', async () => {
     const { whatsappService } = await import('../../services/whatsappService')
     const originalInboxDryRun = env.INBOX_SEND_DRY_RUN
     env.INBOX_SEND_DRY_RUN = true
@@ -266,8 +266,8 @@ describe('POST /jobs/process-messages', () => {
       .set('x-jobs-secret', JOBS_SECRET)
 
     env.INBOX_SEND_DRY_RUN = originalInboxDryRun
-    expect(res.body).toMatchObject({ dryRun: 1, sent: 0 })
-    expect(whatsappService.sendTemplateMessage).not.toHaveBeenCalled()
+    expect(res.body).toMatchObject({ dryRun: 0, sent: 1 })
+    expect(whatsappService.sendTemplateMessage).toHaveBeenCalledTimes(1)
   })
 
   it('gate desabilitado bloqueia carrinho antes de chamar Meta', async () => {
