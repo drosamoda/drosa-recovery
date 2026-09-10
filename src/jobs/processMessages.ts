@@ -591,8 +591,9 @@ export async function runProcessMessages(): Promise<ProcessResult> {
       const sendParams = validation.params
       result.eligible++
 
-      // Uma das flags de dry-run protege todos os envios automáticos.
-      if (env.WHATSAPP_DRY_RUN || env.INBOX_SEND_DRY_RUN || !env.AUTOMATION_SEND_ENABLED) {
+      // INBOX_SEND_DRY_RUN protege somente o envio manual da Inbox.
+      // Automações exigem o gate global, o gate do fluxo e WHATSAPP_DRY_RUN=false.
+      if (env.WHATSAPP_DRY_RUN || !env.AUTOMATION_SEND_ENABLED) {
         const dryPayload = {
           to: sendParams.to,
           template: sendParams.templateName,
