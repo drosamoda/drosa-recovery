@@ -3,17 +3,21 @@ import { env } from '../../config/env'
 import { prisma } from '../../config/prisma'
 import { runAbandonedCheckoutsPreview } from '../../jobs/previewAbandonedCheckouts'
 
-const state = vi.hoisted(() => ({
-  active: 0,
-  peak: 0,
-  failId: null as string | null,
-  writes: vi.fn(() => { throw new Error('Preview attempted a write') }),
-  evaluate: vi.fn(async (checkout: { id: string; normalizedPhone: string }) => {
-    state.active++
-    state.peak = Math.max(state.peak, state.active)
+const state = vi.hoisted(() => {
+  const tracker = {
+    active: 0,
+    peak: 0,
+    failId: null as string | null,
+  }
+  const writes = vi.fn((): never => { throw new Error('Preview attempted a write') })
+  const evaluate = vi.fn(async (checkout: { id: string; normalizedPhone: string }) => {
+    tracker.active++
+    tracker.peak = Math.max(tracker.peak, tracker.active)
     await new Promise((resolve) => setTimeout(resolve, 2))
-    state.active--
-    if (checkout.id === state.failId) throw Object.assign(new Error('candidate failed'), { code: 'TEST_FAILURE' })
+    tracker.active--
+    if (checkout.id === tracker.failId) {
+      throw Object.assign(new Error('candidate failed'), { code: 'TEST_FAILURE' })
+    }
     return {
       eligible: true,
       reasons: [],
@@ -24,8 +28,18 @@ const state = vi.hoisted(() => ({
       templateParameters: ['Cliente', 'https://example.test/checkout'],
       renderedPreview: 'Preview seguro',
     }
-  }),
-}))
+  })
+  return {
+    get active() { return tracker.active },
+    set active(value: number) { tracker.active = value },
+    get peak() { return tracker.peak },
+    set peak(value: number) { tracker.peak = value },
+    get failId() { return tracker.failId },
+    set failId(value: string | null) { tracker.failId = value },
+    writes,
+    evaluate,
+  }
+})
 
 vi.mock('../../services/abandonedCheckoutEligibilityService', () => ({
   evaluateAbandonedCheckoutEligibility: state.evaluate,
