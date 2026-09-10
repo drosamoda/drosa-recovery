@@ -2,12 +2,13 @@ import { prisma } from '../config/prisma'
 import { env } from '../config/env'
 import { isValidBrazilianPhone } from '../helpers/phoneService'
 import { runAbandonedCheckoutsPreview } from '../jobs/previewAbandonedCheckouts'
+import { verifyMetaTemplateContract } from './templateContracts'
 
 export const segmentNames = ['abandoned_cart', 'pix_pending', 'boleto_pending', 'recent_customer', 'inactive_customer', 'vip_customer', 'engaged_no_purchase'] as const
 export type Segment = typeof segmentNames[number]
 
 export const segmentContracts: Record<Segment, { priority: number; template: string; marketing: boolean }> = {
-  pix_pending: { priority: 1, template: '_pix_pendente', marketing: false },
+  pix_pending: { priority: 1, template: '_pix_pendente', marketing: true },
   boleto_pending: { priority: 2, template: 'pedido_boleto_drosa_01', marketing: false },
   abandoned_cart: { priority: 3, template: env.ABANDONED_CART_TEMPLATE, marketing: true },
   recent_customer: { priority: 4, template: 'cliente_recente_drosa_v1', marketing: true },
@@ -47,7 +48,23 @@ type Candidate = { entityId: string; phone: string; segment: Segment; reasons: s
 export async function remarketingPreview(segment: Segment | 'all' = 'all') {
   const now = Date.now()
   const day = 86400000
-  const [orders, conversations, suppressions, optedOut, recentMessages] = await Promise.all([
+  const templateNames = [...new Set(segmentNames
+    .filter(name => segment === 'all' || name === segment)
+    .map(name => segmentContracts[name].template))]
+  const templateVerification = new Map<string, string | null>()
+  if (env.NODE_ENV !== 'test') {
+    const checks = await Promise.all(templateNames.map(async name => [name, await verifyMetaTemplateContract(name, 'pt_BR')] as const))
+    for (const [name, result] of checks) templateVerification.set(name, result)
+  } else {
+    for (const name of templateNames) templateVerification.set(name, 'meta_template_verification_skipped_test')
+  }
+  const consentQuery = prisma.whatsappConsent?.findMany
+    ? prisma.whatsappConsent.findMany({
+      where: { consented: true, revokedAt: null, scope: 'marketing', consentedAt: { not: null } },
+      select: { normalizedPhone: true },
+    })
+    : Promise.resolve([])
+  const [orders, conversations, suppressions, optedOut, recentMessages, consents] = await Promise.all([
     prisma.order.findMany({ orderBy: { sourceCreatedAt: 'desc' }, take: 10000 }),
     prisma.conversation.findMany({ where: { lastInboundAt: { not: null } }, include: { contact: true }, take: 10000 }),
     prisma.suppression.findMany({ select: { normalizedPhone: true } }),
@@ -55,9 +72,11 @@ export async function remarketingPreview(segment: Segment | 'all' = 'all') {
     prisma.messageLog.findMany({ where: { status: { in: ['sent', 'delivered', 'read', 'unknown'] },
       OR: [{ sentAt: { gte: new Date(now - env.REMARKETING_GLOBAL_COOLDOWN_HOURS * 3600000) } }, { status: 'unknown' }] },
       select: { normalizedPhone: true } }),
+    consentQuery,
   ])
   const suppressed = new Set([...suppressions, ...optedOut].map(item => item.normalizedPhone))
   const cooldown = new Set(recentMessages.map(item => item.normalizedPhone))
+  const consented = new Set(consents.map(item => item.normalizedPhone))
   const candidates: Candidate[] = []
   const incomplete = orders.length === 10000 || conversations.length === 10000
   const push = (entityId: string, phone: string, candidateSegment: Segment, reasons: string[] = []) => {
@@ -67,8 +86,8 @@ export async function remarketingPreview(segment: Segment | 'all' = 'all') {
     if (suppressed.has(phone)) reasons.push('opt_out')
     if (cooldown.has(phone)) reasons.push('cooldown_active')
     if (incomplete) reasons.push('history_incomplete')
-    if (segmentContracts[candidateSegment].marketing) reasons.push('consent_unproven')
-    reasons.push('meta_template_unverified')
+    if (segmentContracts[candidateSegment].marketing && !consented.has(phone)) reasons.push('consent_unproven')
+    if (templateVerification.get(segmentContracts[candidateSegment].template) !== null) reasons.push('meta_template_unverified')
     candidates.push({ entityId, phone, segment: candidateSegment, reasons })
   }
   const byPhone = new Map<string, typeof orders>()
@@ -111,18 +130,29 @@ export async function remarketingPreview(segment: Segment | 'all' = 'all') {
   for (const name of segmentNames.filter(name => name !== 'abandoned_cart' && (segment === 'all' || name === segment))) {
     const items = candidates.filter(item => item.segment === name)
     for (const item of items) for (const reason of item.reasons) reasons[reason] = (reasons[reason] ?? 0) + 1
-    segments[name] = { found: items.length, eligible: 0, skipped: items.length, sent: 0,
-      template: segmentContracts[name].template, status: segmentContracts[name].marketing ? 'READY_BUT_SUPPRESSED_BY_CONSENT' : 'META_TEMPLATE_SYNC_REQUIRED',
+    const eligible = items.filter(item => item.reasons.length === 0).length
+    segments[name] = { found: items.length, eligible, skipped: items.length - eligible, sent: 0,
+      template: segmentContracts[name].template, status: eligible > 0 ? 'READY' : segmentContracts[name].marketing ? 'READY_BUT_SUPPRESSED_BY_CONSENT' : 'NO_ELIGIBLE_CANDIDATES',
       data: items.map(item => ({ entityId: item.entityId, maskedPhone: item.phone ? `***${item.phone.slice(-2)}` : null, reasons: item.reasons })) }
   }
   let carts = { found: 0, eligible: 0, skipped: 0 }
   if (segment === 'all' || segment === 'abandoned_cart') {
     const preview = await runAbandonedCheckoutsPreview()
-    carts = { found: preview.found, eligible: 0, skipped: preview.found }
-    segments.abandoned_cart = { ...preview, eligible: 0, skipped: preview.found, status: 'META_TEMPLATE_SYNC_REQUIRED' }
-    reasons.meta_template_unverified = (reasons.meta_template_unverified ?? 0) + preview.found
+    const cartContractVerified = templateVerification.get(segmentContracts.abandoned_cart.template) === null
+    carts = cartContractVerified
+      ? { found: preview.found, eligible: preview.eligible, skipped: preview.skipped }
+      : { found: preview.found, eligible: 0, skipped: preview.found }
+    segments.abandoned_cart = { ...preview, ...carts, status: carts.eligible > 0 ? 'READY' : cartContractVerified ? 'READY_BUT_SUPPRESSED_BY_CONSENT' : 'META_TEMPLATE_SYNC_REQUIRED' }
+    for (const [reason, count] of Object.entries(preview.reasons)) reasons[reason] = (reasons[reason] ?? 0) + count
+    if (!cartContractVerified) reasons.meta_template_unverified = (reasons.meta_template_unverified ?? 0) + preview.found
   }
-  return { dryRun: true, found: candidates.length + carts.found, eligible: 0, skipped: candidates.length + carts.found, sent: 0,
-    segments, reasons, dataQuality: { historyTruncated: incomplete, consentSourceConfigured: false, metaTemplatesVerified: false },
+  const candidateEligible = candidates.filter(item => item.reasons.length === 0).length
+  const found = candidates.length + carts.found
+  const eligible = candidateEligible + carts.eligible
+  const usedTemplates = new Set(candidates.map(item => segmentContracts[item.segment].template))
+  if (carts.found > 0) usedTemplates.add(segmentContracts.abandoned_cart.template)
+  return { dryRun: true, found, eligible, skipped: found - eligible, sent: 0,
+    segments, reasons, dataQuality: { historyTruncated: incomplete, consentSourceConfigured: Boolean(prisma.whatsappConsent),
+      metaTemplatesVerified: [...usedTemplates].every(name => templateVerification.get(name) === null) },
     vipThresholds: { minimumOrders: env.VIP_MIN_ORDERS, minimumSpend: env.VIP_MIN_SPEND } }
 }

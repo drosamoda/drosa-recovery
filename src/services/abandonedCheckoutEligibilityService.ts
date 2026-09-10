@@ -3,6 +3,7 @@ import { prisma } from '../config/prisma'
 import { env } from '../config/env'
 import { isValidBrazilianPhone } from '../helpers/phoneService'
 import { renderTemplatePreview } from '../helpers/inboxTemplatePreview'
+import { hasActiveWhatsappConsent } from './whatsappConsentService'
 
 export type AbandonedCheckoutEligibilityReason =
   | 'missing_phone'
@@ -16,6 +17,7 @@ export type AbandonedCheckoutEligibilityReason =
   | 'order_after_checkout'
   | 'order_timing_uncertain'
   | 'opt_out'
+  | 'consent_unproven'
   | 'too_recent'
   | 'too_old'
   | 'invalid_template'
@@ -94,9 +96,10 @@ export async function evaluateAbandonedCheckoutEligibility(
 
   if (!name || !recoveryUrl) reasons.push('invalid_template_data')
 
-  const [suppression, customer, template, existingForCheckout, recentContact, matchingOrders] = await Promise.all([
+  const [suppression, customer, consentProven, template, existingForCheckout, recentContact, matchingOrders] = await Promise.all([
     phone ? prisma.suppression.findUnique({ where: { normalizedPhone: phone }, select: { id: true } }) : null,
     phone ? prisma.customer.findFirst({ where: { normalizedPhone: phone }, select: { optOut: true } }) : null,
+    phone ? hasActiveWhatsappConsent(phone) : false,
     prisma.whatsappTemplate.findFirst({
       where: { metaTemplateName: templateName, active: true },
       select: { metaTemplateName: true, languageCode: true, messagePreview: true, variables: true },
@@ -130,6 +133,7 @@ export async function evaluateAbandonedCheckoutEligibility(
   ])
 
   if (suppression || customer?.optOut) reasons.push('opt_out')
+  if (!consentProven) reasons.push('consent_unproven')
   if (!template) reasons.push('invalid_template')
   if (existingForCheckout) reasons.push('already_sent')
   if (recentContact) reasons.push('cooldown_active')
