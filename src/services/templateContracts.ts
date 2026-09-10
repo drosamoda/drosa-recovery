@@ -29,16 +29,9 @@ export function renderContract(name: string, values: string[]): string | null {
   return contract.body.replace(/{{(\d+)}}/g, (_match, index: string) => values[Number(index) - 1])
 }
 
-export async function verifyDispatchContract(
-  name: string,
-  language: string,
-  values: string[],
-  options: { marketingConsentProven?: boolean } = {}
-) {
+export async function verifyMetaTemplateContract(name: string, language: string): Promise<string | null> {
   const contract = templateContracts[name]
-  if (!contract || contract.language !== language || !renderContract(name, values)) return 'template_data_missing'
-  if (contract.risk) return contract.risk
-  if (contract.category === 'MARKETING' && !options.marketingConsentProven) return 'consent_unproven'
+  if (!contract || contract.language !== language) return 'template_contract_mismatch'
   if (!env.META_WABA_ID) return 'missing_meta_waba_id'
   try {
     const response = await axios.get(`https://graph.facebook.com/${env.META_API_VERSION}/${env.META_WABA_ID}/message_templates`, {
@@ -50,5 +43,20 @@ export async function verifyDispatchContract(
     if (actual?.status !== 'APPROVED' || actual.category !== contract.category || body !== contract.body) return 'template_contract_mismatch'
     if (actual.components.some((item: { type: string }) => !['BODY', 'FOOTER'].includes(item.type))) return 'unsupported_template_components'
     return null
-  } catch { return 'meta_template_verification_failed' }
+  } catch {
+    return 'meta_template_verification_failed'
+  }
+}
+
+export async function verifyDispatchContract(
+  name: string,
+  language: string,
+  values: string[],
+  options: { marketingConsentProven?: boolean } = {}
+) {
+  const contract = templateContracts[name]
+  if (!contract || contract.language !== language || !renderContract(name, values)) return 'template_data_missing'
+  if (contract.risk) return contract.risk
+  if (contract.category === 'MARKETING' && !options.marketingConsentProven) return 'consent_unproven'
+  return verifyMetaTemplateContract(name, language)
 }
