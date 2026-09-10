@@ -11,6 +11,7 @@ vi.mock('../../config/prisma', () => ({
     whatsappTemplate: { findFirst: vi.fn() },
     order: { findFirst: vi.fn(), findMany: vi.fn() },
     suppression: { findUnique: vi.fn() },
+    whatsappConsent: { findUnique: vi.fn() },
     messageLog: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
     customer: { findUnique: vi.fn(), findFirst: vi.fn() },
     abandonedCheckout: { update: vi.fn() },
@@ -27,7 +28,7 @@ vi.mock('../../services/customerService', () => ({
 // Dados de teste
 // -----------------------------------------------------------------------
 
-const TEMPLATE_NAME = 'carrinho_abandonado_drosa_01'
+const TEMPLATE_NAME = 'carrinho_abandonado_drosa_v2'
 const DELAY_MINUTES = 30
 const CHECKOUT_ID = 'checkout-001'
 const CUSTOMER_ID = 'cust-001'
@@ -99,6 +100,11 @@ describe('abandonedCheckoutService.scheduleAbandonedCheckoutMessage', () => {
     // Cenário base: tudo válido
     vi.mocked(customerService.isOptOut).mockResolvedValue(false)
     vi.mocked(prisma.suppression.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.whatsappConsent.findUnique).mockResolvedValue({
+      consented: true,
+      revokedAt: null,
+      consentedAt: new Date('2026-04-29T09:00:00Z'),
+    } as never)
     vi.mocked(prisma.customer.findFirst).mockResolvedValue(customer as never)
     vi.mocked(prisma.messageLog.findFirst).mockResolvedValue(null)
     vi.mocked(prisma.order.findMany).mockResolvedValue([])
@@ -130,7 +136,7 @@ describe('abandonedCheckoutService.scheduleAbandonedCheckoutMessage', () => {
     expect(prisma.messageLog.create).toHaveBeenCalledTimes(1)
   })
 
-  it('message_log tem templateName=carrinho_abandonado_drosa_01', async () => {
+  it('message_log tem templateName=carrinho_abandonado_drosa_v2', async () => {
     await abandonedCheckoutService.scheduleAbandonedCheckoutMessage(checkout)
 
     const createCall = vi.mocked(prisma.messageLog.create).mock.calls[0][0]
@@ -144,7 +150,7 @@ describe('abandonedCheckoutService.scheduleAbandonedCheckoutMessage', () => {
     expect(createCall.data.status).toBe('pending')
   })
 
-  it('idempotency_key correta: abandoned_checkout:checkout-001:carrinho_abandonado_drosa_01', async () => {
+  it('idempotency_key usa o contrato v2 aprovado', async () => {
     await abandonedCheckoutService.scheduleAbandonedCheckoutMessage(checkout)
 
     const createCall = vi.mocked(prisma.messageLog.create).mock.calls[0][0]
@@ -192,6 +198,15 @@ describe('abandonedCheckoutService.scheduleAbandonedCheckoutMessage', () => {
   it('retorna false e não cria log quando cliente está em opt-out', async () => {
     vi.mocked(customerService.isOptOut).mockResolvedValue(true)
     vi.mocked(prisma.suppression.findUnique).mockResolvedValue({ id: 'suppression' } as never)
+
+    const result = await abandonedCheckoutService.scheduleAbandonedCheckoutMessage(checkout)
+
+    expect(result).toBe(false)
+    expect(prisma.messageLog.create).not.toHaveBeenCalled()
+  })
+
+  it('retorna false e não cria log sem consentimento WhatsApp comprovado', async () => {
+    vi.mocked(prisma.whatsappConsent.findUnique).mockResolvedValue(null)
 
     const result = await abandonedCheckoutService.scheduleAbandonedCheckoutMessage(checkout)
 

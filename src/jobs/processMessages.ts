@@ -10,6 +10,7 @@ import { getFriendlyTemplatePreview, renderTemplatePreview } from '../helpers/in
 import { isValidBrazilianPhone } from '../helpers/phoneService'
 import { messageService } from '../services/messageService'
 import { verifyDispatchContract, renderContract } from '../services/templateContracts'
+import { hasActiveWhatsappConsent } from '../services/whatsappConsentService'
 
 export type ProcessResult = {
   found: number
@@ -629,7 +630,8 @@ export async function runProcessMessages(): Promise<ProcessResult> {
         remarketingSendAttempts++
       }
 
-      const contractError = await verifyDispatchContract(sendParams.templateName, sendParams.languageCode, sendParams.bodyParams)
+      const marketingConsentProven = await hasActiveWhatsappConsent(msg.normalizedPhone)
+      const contractError = await verifyDispatchContract(sendParams.templateName, sendParams.languageCode, sendParams.bodyParams, { marketingConsentProven })
       if (contractError) {
         await markSkipped(msg.id, contractError)
         result.skipped++

@@ -294,6 +294,22 @@ model Suppression {
   @@map("suppressions")
 }
 
+model WhatsappConsent {
+  id              String    @id @default(cuid())
+  normalizedPhone String
+  consented       Boolean
+  source          String
+  scope           String    @default("marketing")
+  consentedAt     DateTime?
+  revokedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([normalizedPhone, scope])
+  @@index([consented, revokedAt])
+  @@map("whatsapp_consents")
+}
+
 model ContactFrequencyLock {
   normalizedPhone String   @id
   messageLogId    String

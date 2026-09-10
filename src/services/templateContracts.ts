@@ -29,12 +29,16 @@ export function renderContract(name: string, values: string[]): string | null {
   return contract.body.replace(/{{(\d+)}}/g, (_match, index: string) => values[Number(index) - 1])
 }
 
-export async function verifyDispatchContract(name: string, language: string, values: string[]) {
+export async function verifyDispatchContract(
+  name: string,
+  language: string,
+  values: string[],
+  options: { marketingConsentProven?: boolean } = {}
+) {
   const contract = templateContracts[name]
   if (!contract || contract.language !== language || !renderContract(name, values)) return 'template_data_missing'
   if (contract.risk) return contract.risk
-  // No proven marketing-consent source exists in this checkout.
-  if (contract.category === 'MARKETING') return 'consent_unproven'
+  if (contract.category === 'MARKETING' && !options.marketingConsentProven) return 'consent_unproven'
   if (!env.META_WABA_ID) return 'missing_meta_waba_id'
   try {
     const response = await axios.get(`https://graph.facebook.com/${env.META_API_VERSION}/${env.META_WABA_ID}/message_templates`, {

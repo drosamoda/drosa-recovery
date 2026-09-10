@@ -7,7 +7,7 @@ export const segmentNames = ['abandoned_cart', 'pix_pending', 'boleto_pending', 
 export type Segment = typeof segmentNames[number]
 
 export const segmentContracts: Record<Segment, { priority: number; template: string; marketing: boolean }> = {
-  pix_pending: { priority: 1, template: '_pix_pendente', marketing: false },
+  pix_pending: { priority: 1, template: '_pix_pendente', marketing: true },
   boleto_pending: { priority: 2, template: 'pedido_boleto_drosa_01', marketing: false },
   abandoned_cart: { priority: 3, template: env.ABANDONED_CART_TEMPLATE, marketing: true },
   recent_customer: { priority: 4, template: 'cliente_recente_drosa_v1', marketing: true },
