@@ -85,4 +85,45 @@ describe('nuvemshopService authentication', () => {
       expect.objectContaining({ params: { per_page: 200, page: 1 } })
     )
   })
+
+  it('enriches incomplete checkout details with bounded concurrency', async () => {
+    let activeDetails = 0
+    let maxActiveDetails = 0
+
+    mocks.get.mockImplementation((url: string) => {
+      if (url === '/checkouts') {
+        return Promise.resolve({
+          data: [
+            { id: 1, created_at: '2026-09-10T10:00:00Z', updated_at: '2026-09-10T10:00:00Z' },
+            { id: 2, created_at: '2026-09-10T10:00:00Z', updated_at: '2026-09-10T10:00:00Z' },
+            { id: 3, created_at: '2026-09-10T10:00:00Z', updated_at: '2026-09-10T10:00:00Z' },
+          ],
+        })
+      }
+
+      activeDetails++
+      maxActiveDetails = Math.max(maxActiveDetails, activeDetails)
+      const id = Number(url.split('/').pop())
+
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          activeDetails--
+          resolve({
+            data: {
+              id,
+              contact_name: `Cliente ${id}`,
+              contact_phone: '31999999999',
+              abandoned_checkout_url: `https://www.drosamoda.com.br/checkout/${id}`,
+            },
+          })
+        }, 10)
+      })
+    })
+
+    const result = await nuvemshopService.fetchAbandonedCheckouts()
+
+    expect(result).toHaveLength(3)
+    expect(maxActiveDetails).toBeGreaterThan(1)
+    expect(maxActiveDetails).toBeLessThanOrEqual(4)
+  })
 })
