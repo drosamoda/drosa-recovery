@@ -29,6 +29,8 @@ type HttpLikeError = {
   }
 }
 
+const CHECKOUT_DETAIL_CONCURRENCY = 4
+
 function validDate(value?: string): Date | null {
   if (!value) return null
   const date = new Date(value)
@@ -50,6 +52,27 @@ function isTransientCheckoutPageError(error: unknown): boolean {
 
   const status = candidate.response?.status
   return status === 429 || (typeof status === 'number' && status >= 500 && status <= 599)
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let nextIndex = 0
+
+  async function runWorker(): Promise<void> {
+    for (;;) {
+      const index = nextIndex++
+      if (index >= items.length) return
+      results[index] = await worker(items[index])
+    }
+  }
+
+  const workerCount = Math.min(concurrency, items.length)
+  await Promise.all(Array.from({ length: workerCount }, () => runWorker()))
+  return results
 }
 
 function buildNuvemshopClient() {
@@ -110,19 +133,23 @@ export const nuvemshopService = {
         return ref >= since
       })
 
-      for (const checkout of filtered) {
-        if (!needsCheckoutDetail(checkout)) {
-          allCheckouts.push(checkout)
-          continue
+      const enriched = await mapWithConcurrency(
+        filtered,
+        CHECKOUT_DETAIL_CONCURRENCY,
+        async (checkout) => {
+          if (!needsCheckoutDetail(checkout)) return checkout
+
+          try {
+            const detail = await client.get<NuvemshopCheckout>(`/checkouts/${checkout.id}`)
+            return { ...checkout, ...detail.data }
+          } catch {
+            // The list payload is still useful and remains fail-closed at eligibility.
+            return checkout
+          }
         }
-        try {
-          const detail = await client.get<NuvemshopCheckout>(`/checkouts/${checkout.id}`)
-          allCheckouts.push({ ...checkout, ...detail.data })
-        } catch {
-          // The list payload is still useful and remains fail-closed at eligibility.
-          allCheckouts.push(checkout)
-        }
-      }
+      )
+
+      allCheckouts.push(...enriched)
 
       // Se recebeu menos que o máximo, não há mais páginas
       if (data.length < 200) break
