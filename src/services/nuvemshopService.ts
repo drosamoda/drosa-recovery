@@ -22,6 +22,13 @@ type FetchParams = {
   lookbackHours?: number
 }
 
+type HttpLikeError = {
+  code?: string
+  response?: {
+    status?: number
+  }
+}
+
 function validDate(value?: string): Date | null {
   if (!value) return null
   const date = new Date(value)
@@ -31,6 +38,18 @@ function validDate(value?: string): Date | null {
 function needsCheckoutDetail(checkout: NuvemshopCheckout): boolean {
   return !checkout.contact_phone || !checkout.contact_name ||
     !(checkout.abandoned_checkout_url || checkout.checkout_url) || !checkout.created_at
+}
+
+function isTransientCheckoutPageError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+
+  const candidate = error as HttpLikeError
+  if (['ECONNABORTED', 'ETIMEDOUT', 'ECONNRESET', 'EAI_AGAIN'].includes(candidate.code ?? '')) {
+    return true
+  }
+
+  const status = candidate.response?.status
+  return status === 429 || (typeof status === 'number' && status >= 500 && status <= 599)
 }
 
 function buildNuvemshopClient() {
@@ -43,6 +62,25 @@ function buildNuvemshopClient() {
     },
     timeout: 15000,
   })
+}
+
+async function fetchCheckoutPage(
+  client: ReturnType<typeof buildNuvemshopClient>,
+  page: number
+) {
+  const request = () => client.get<NuvemshopCheckout[]>('/checkouts', {
+    params: {
+      per_page: 200,
+      page,
+    },
+  })
+
+  try {
+    return await request()
+  } catch (error) {
+    if (!isTransientCheckoutPageError(error)) throw error
+    return request()
+  }
 }
 
 export const nuvemshopService = {
@@ -58,12 +96,7 @@ export const nuvemshopService = {
     const allCheckouts: NuvemshopCheckout[] = []
 
     for (;;) {
-      const response = await client.get<NuvemshopCheckout[]>('/checkouts', {
-        params: {
-          per_page: 200,
-          page,
-        },
-      })
+      const response = await fetchCheckoutPage(client, page)
 
       const data = response.data
       if (!Array.isArray(data) || data.length === 0) break
