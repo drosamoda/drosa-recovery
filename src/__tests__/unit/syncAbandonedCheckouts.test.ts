@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   fetchAbandonedCheckouts: vi.fn(),
+  fetchCheckoutById: vi.fn(),
   upsertAbandonedCheckout: vi.fn(),
   scheduleAbandonedCheckoutMessage: vi.fn(),
   info: vi.fn(),
@@ -11,6 +12,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../services/nuvemshopService', () => ({
   nuvemshopService: {
     fetchAbandonedCheckouts: mocks.fetchAbandonedCheckouts,
+    fetchCheckoutById: mocks.fetchCheckoutById,
   },
 }))
 
@@ -34,7 +36,10 @@ vi.mock('../../config/logger', () => ({
   },
 }))
 
-import { runSyncAbandonedCheckouts } from '../../jobs/syncAbandonedCheckouts'
+import {
+  runSyncAbandonedCheckouts,
+  runSyncAbandonedCheckoutById,
+} from '../../jobs/syncAbandonedCheckouts'
 
 describe('runSyncAbandonedCheckouts', () => {
   beforeEach(() => {
@@ -68,5 +73,36 @@ describe('runSyncAbandonedCheckouts', () => {
     expect(result.upserted).toBe(6)
     expect(maxActive).toBeGreaterThan(1)
     expect(maxActive).toBeLessThanOrEqual(4)
+  })
+
+  it('syncs and schedules exactly one checkout by Nuvemshop id', async () => {
+    mocks.fetchCheckoutById.mockResolvedValue({
+      id: '2067348677',
+      contact_name: 'Cliente Teste',
+      contact_phone: '31999999999',
+      abandoned_checkout_url: 'https://www.drosamoda.com.br/checkout/test-token',
+      created_at: '2026-09-10T22:51:16Z',
+      updated_at: '2026-09-11T00:50:14Z',
+    })
+    mocks.upsertAbandonedCheckout.mockResolvedValue({
+      id: 'checkout-db-1',
+      status: 'abandoned',
+    })
+    mocks.scheduleAbandonedCheckoutMessage.mockResolvedValue(true)
+
+    const result = await runSyncAbandonedCheckoutById('2067348677')
+
+    expect(mocks.fetchCheckoutById).toHaveBeenCalledWith('2067348677')
+    expect(mocks.fetchAbandonedCheckouts).not.toHaveBeenCalled()
+    expect(mocks.upsertAbandonedCheckout).toHaveBeenCalledTimes(1)
+    expect(mocks.scheduleAbandonedCheckoutMessage).toHaveBeenCalledTimes(1)
+    expect(result).toEqual({
+      found: 1,
+      upserted: 1,
+      converted: 0,
+      scheduled: 1,
+      skipped: 0,
+      errors: 0,
+    })
   })
 })

@@ -1,5 +1,8 @@
 import { Router, Request, Response } from 'express'
-import { runSyncAbandonedCheckouts } from '../jobs/syncAbandonedCheckouts'
+import {
+  runSyncAbandonedCheckoutById,
+  runSyncAbandonedCheckouts,
+} from '../jobs/syncAbandonedCheckouts'
 import { runProcessMessages } from '../jobs/processMessages'
 import { runBackfillInboxContacts } from '../jobs/backfillInboxContacts'
 import { runBackfillInboxTemplatePreviews } from '../jobs/backfillInboxTemplatePreviews'
@@ -55,6 +58,24 @@ router.post('/abandoned-checkouts-preview/:checkoutId', async (req: Request, res
 // POST /jobs/sync-abandoned-checkouts
 router.post('/sync-abandoned-checkouts', async (_req: Request, res: Response) => {
   const result = await runSyncAbandonedCheckouts()
+  res.json({
+    found: result.found,
+    eligible: result.scheduled,
+    dryRun: 0,
+    sent: 0,
+    skipped: result.skipped,
+    failed: result.errors,
+    errors: result.errors,
+    retryScheduled: 0,
+    upserted: result.upserted,
+    scheduled: result.scheduled,
+    detail: result,
+  })
+})
+
+// Targeted sync for one Nuvemshop checkout. It can schedule a pending message but never sends it.
+router.post('/sync-abandoned-checkouts/:checkoutId', async (req: Request, res: Response) => {
+  const result = await runSyncAbandonedCheckoutById(req.params.checkoutId)
   res.json({
     found: result.found,
     eligible: result.scheduled,
