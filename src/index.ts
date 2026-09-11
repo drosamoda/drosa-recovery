@@ -18,6 +18,7 @@ import adminRoutes from './routes/admin.routes'
 import jobsRoutes from './routes/jobs.routes'
 import customersRoutes from './routes/customers.routes'
 import inboxRoutes from './routes/inbox.routes'
+import crmRoutes from './routes/crm.routes'
 import nuvemshopWebhookRoutes from './routes/webhooks.nuvemshop.routes'
 import metaWebhookRoutes from './routes/webhooks.meta.routes'
 
@@ -90,6 +91,7 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   next(err)
 })
 app.use('/inbox-assets', express.static(path.join(process.cwd(), 'public', 'inbox')))
+app.use('/crm-assets', express.static(path.join(process.cwd(), 'public', 'crm')))
 
 // ── Rotas públicas ─────────────────────────────────────────────────────
 app.use('/health', healthRoutes)
@@ -102,12 +104,16 @@ app.use('/webhooks/meta', metaWebhookRoutes)
 app.get('/inbox', (_req, res) => {
   res.sendFile(path.join(process.cwd(), 'public', 'inbox', 'index.html'))
 })
+app.get('/crm', (_req, res) => {
+  res.sendFile(path.join(process.cwd(), 'public', 'crm', 'index.html'))
+})
 
 // ── Rotas protegidas ───────────────────────────────────────────────────
 app.use('/admin', adminAuth, adminRoutes)
 app.use('/jobs', jobsAuth, jobsRoutes)
 app.use('/customers', customersRoutes)
 app.use('/inbox', inboxAuth, inboxRoutes)
+app.use('/crm-api', inboxAuth, crmRoutes)
 
 // ── 404 ────────────────────────────────────────────────────────────────
 app.use((_req, res) => {
