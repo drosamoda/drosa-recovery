@@ -36,6 +36,7 @@ router.get('/deep', async (_req: Request, res: Response) => {
     'META_PHONE_NUMBER_ID',
     'ADMIN_SECRET',
     'JOBS_SECRET',
+    'CRM_READ_SECRET',
   ]
   const missingVars = requiredVars.filter((v) => !process.env[v])
   checks.env_vars = missingVars.length === 0 ? 'ok' : 'error'

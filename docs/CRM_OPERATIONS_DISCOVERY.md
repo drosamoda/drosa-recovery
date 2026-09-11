@@ -5,7 +5,7 @@
 - Express/TypeScript API (`src/index.ts`), Prisma/PostgreSQL (`prisma/schema.prisma`) and static Inbox (`public/inbox`).
 - Meta and Nuvemshop webhooks are isolated from protected operator and job routes.
 - `runProcessMessages` remains the only automation dispatch pipeline and is not called by this CRM.
-- Operator authentication reuses `inboxAuth` and `INBOX_ADMIN_SECRET` (fallback: `ADMIN_SECRET`).
+- Operator authentication uses the dedicated `crmAuth` boundary and `CRM_READ_SECRET`, without fallback to Inbox, admin or jobs credentials.
 
 ## CURRENT_SCHEMA_MAP
 
@@ -51,6 +51,10 @@ One authenticated SPA at `/crm`: Dashboard, Clientes, Conversas, Envios, Carrinh
 
 Protected read-only `/crm-api/*` endpoints with server-side pagination, filters and search. List responses mask phone/email. Raw payloads are excluded from lists and are not exposed by default in details.
 
+`CRM_READ_SECRET` is required at runtime for CRM access. It grants access only to `/crm-api` and is sent by the browser solely in the `x-crm-read-secret` header.
+
+Dashboard time sources are semantic: message creation uses `message_logs.createdAt`; sends and contacted customers use `sentAt`; inbound uses `chat_messages.timestamp` with documented fallback to `createdAt` only when the provider timestamp is absent; abandonment uses `abandonedAt`; conversion uses `convertedAt`; Pix/boleto orders use `sourceCreatedAt`. Delivery/read time remains `NOT_AVAILABLE` because no dedicated persisted timestamp exists.
+
 ## MIGRATION_REQUIREMENTS
 
 `NONE`. Existing data supports the visibility layer. The complete audit ledger remains a documented future gap.
@@ -71,4 +75,3 @@ Protected read-only `/crm-api/*` endpoints with server-side pagination, filters 
 4. CRM-D: Rules, templates, consent, health and audit gap.
 5. Test mappings, masking, pagination, auth and no-send invariants.
 6. Run Prisma validation/generation, typecheck, lint and the full test suite. No production deploy.
-

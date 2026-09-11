@@ -25,6 +25,7 @@ import metaWebhookRoutes from './routes/webhooks.meta.routes'
 import { adminAuth } from './middlewares/adminAuth'
 import { jobsAuth } from './middlewares/jobsAuth'
 import { inboxAuth } from './middlewares/inboxAuth'
+import { crmAuth } from './middlewares/crmAuth'
 
 // Inicializa Sentry antes de qualquer rota (opcional — sem DSN não faz nada)
 initSentry()
@@ -59,7 +60,7 @@ const corsOptions: cors.CorsOptions = {
     callback(null, isAllowedOrigin(origin))
   },
   methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'x-inbox-admin-secret'],
+  allowedHeaders: ['Content-Type', 'x-inbox-admin-secret', 'x-crm-read-secret'],
 }
 
 // CORS — aceita qualquer subdomínio *.lovable.app e localhost
@@ -113,7 +114,7 @@ app.use('/admin', adminAuth, adminRoutes)
 app.use('/jobs', jobsAuth, jobsRoutes)
 app.use('/customers', customersRoutes)
 app.use('/inbox', inboxAuth, inboxRoutes)
-app.use('/crm-api', inboxAuth, crmRoutes)
+app.use('/crm-api', crmAuth, crmRoutes)
 
 // ── 404 ────────────────────────────────────────────────────────────────
 app.use((_req, res) => {

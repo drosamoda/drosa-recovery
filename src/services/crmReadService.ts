@@ -15,6 +15,77 @@ export function parsePageSize(input: unknown, fallback = 25): number {
   return Number.isInteger(value) && value > 0 ? Math.min(value, MAX_PAGE_SIZE) : fallback
 }
 
+export function phoneSearchTerm(search: string): string | null {
+  const digits = search.replace(/\D/g, '')
+  return digits.length >= 3 ? digits : null
+}
+
+export function buildCustomerSearch(search: string): Prisma.CustomerWhereInput {
+  if (!search) return {}
+  const phone = phoneSearchTerm(search)
+  return { OR: [{ name: { contains: search, mode: 'insensitive' } }, { email: { contains: search, mode: 'insensitive' } }, ...(phone ? [{ normalizedPhone: { contains: phone } }] : [])] }
+}
+
+export function buildConversationSearch(search: string): Prisma.ConversationWhereInput {
+  if (!search) return {}
+  const phone = phoneSearchTerm(search)
+  return { contact: { OR: [{ name: { contains: search, mode: 'insensitive' } }, ...(phone ? [{ phone: { contains: phone } }] : [])] } }
+}
+
+export function buildMessageSearch(search: string): Prisma.MessageLogWhereInput {
+  if (!search) return {}
+  const phone = phoneSearchTerm(search)
+  return { OR: [{ entityId: { contains: search, mode: 'insensitive' } }, { metaMessageId: { contains: search, mode: 'insensitive' } }, ...(phone ? [{ normalizedPhone: { contains: phone } }] : []), { customer: { name: { contains: search, mode: 'insensitive' } } }] }
+}
+
+type TimelineSource = {
+  status: string
+  createdAt: Date
+  scheduledAt: Date | null
+  acceptedAt: Date | null
+  sentAt: Date | null
+  updatedAt: Date
+  deliveredAt?: Date | null
+  readAt?: Date | null
+}
+
+export function extractMetaStatusTimestamp(response: unknown, expectedStatus: 'delivered' | 'read'): Date | null {
+  if (!response || typeof response !== 'object' || Array.isArray(response)) return null
+  const value = response as Record<string, unknown>
+  if (value.status !== expectedStatus) return null
+  const seconds = Number(value.timestamp)
+  if (!Number.isFinite(seconds) || seconds <= 0) return null
+  return new Date(seconds * 1000)
+}
+
+export function buildMessageTimeline(row: TimelineSource) {
+  return [
+    { stage: 'created', at: row.createdAt },
+    ...(row.scheduledAt ? [{ stage: 'scheduled', at: row.scheduledAt }] : []),
+    ...(row.acceptedAt ? [{ stage: 'accepted', at: row.acceptedAt }] : []),
+    ...(row.sentAt ? [{ stage: 'sent', at: row.sentAt }] : []),
+    ...(row.deliveredAt ? [{ stage: 'delivered', at: row.deliveredAt }] : []),
+    ...(row.readAt ? [{ stage: 'read', at: row.readAt }] : []),
+  ]
+}
+
+type DateRange = { gte: Date, lte: Date }
+
+export function buildDashboardFilters(period: DateRange) {
+  return {
+    messagesCreated: { createdAt: period },
+    messagesSent: { sentAt: period },
+    orders: { sourceCreatedAt: period },
+    abandoned: { abandonedAt: period },
+    converted: { convertedAt: period },
+    inbound: { direction: 'inbound' as const, OR: [{ timestamp: period }, { timestamp: null, createdAt: period }] },
+  }
+}
+
+export function summarizeInbound(inboundMessages: number, conversationGroups: Array<{ conversationId: string }>) {
+  return { inboundMessages, inboundConversations: conversationGroups.length }
+}
+
 export function maskPhone(value: string | null | undefined): string | null {
   if (!value) return null
   const digits = value.replace(/\D/g, '')
@@ -68,18 +139,22 @@ export const crmReadService = {
   async dashboard(period?: string, from?: string, to?: string) {
     const start = startDate(period, from)
     const end = to && !Number.isNaN(new Date(to).getTime()) ? new Date(to) : new Date()
-    const createdAt = { gte: start, lte: end }
-    const [groups, contacted, inbound, abandoned, converted, pix, boleto] = await Promise.all([
-      prisma.messageLog.groupBy({ by: ['status'], where: { createdAt }, _count: { _all: true } }),
-      prisma.messageLog.findMany({ where: { createdAt }, distinct: ['normalizedPhone'], select: { normalizedPhone: true } }),
-      prisma.chatMessage.count({ where: { direction: 'inbound', createdAt } }),
-      prisma.abandonedCheckout.count({ where: { createdAt, status: 'abandoned' } }),
-      prisma.abandonedCheckout.count({ where: { convertedAt: createdAt } }),
-      prisma.order.count({ where: { createdAt, paymentMethod: { contains: 'pix', mode: 'insensitive' }, paymentStatus: { notIn: ['paid', 'confirmed', 'authorized', 'refunded'] } } }),
-      prisma.order.count({ where: { createdAt, paymentMethod: { contains: 'boleto', mode: 'insensitive' }, paymentStatus: { notIn: ['paid', 'confirmed', 'authorized', 'refunded'] } } }),
+    const dateRange = { gte: start, lte: end }
+    const filters = buildDashboardFilters(dateRange)
+    const [groups, sent, contacted, inboundMessages, inboundConversationGroups, abandoned, converted, pix, boleto] = await Promise.all([
+      prisma.messageLog.groupBy({ by: ['status'], where: filters.messagesCreated, _count: { _all: true } }),
+      prisma.messageLog.count({ where: filters.messagesSent }),
+      prisma.messageLog.findMany({ where: filters.messagesSent, distinct: ['normalizedPhone'], select: { normalizedPhone: true } }),
+      prisma.chatMessage.count({ where: filters.inbound }),
+      prisma.chatMessage.groupBy({ by: ['conversationId'], where: filters.inbound }),
+      prisma.abandonedCheckout.count({ where: { ...filters.abandoned, status: 'abandoned' } }),
+      prisma.abandonedCheckout.count({ where: filters.converted }),
+      prisma.order.count({ where: { ...filters.orders, paymentMethod: { contains: 'pix', mode: 'insensitive' }, paymentStatus: { notIn: ['paid', 'confirmed', 'authorized', 'refunded'] } } }),
+      prisma.order.count({ where: { ...filters.orders, paymentMethod: { contains: 'boleto', mode: 'insensitive' }, paymentStatus: { notIn: ['paid', 'confirmed', 'authorized', 'refunded'] } } }),
     ])
     const statuses = Object.fromEntries(groups.map(item => [item.status, item._count._all]))
-    return { period: { from: start, to: end }, messages: { total: groups.reduce((sum, item) => sum + item._count._all, 0), ...statuses }, contactedCustomers: contacted.length, inboundConversations: inbound, abandonedCheckouts: abandoned, eligibleCheckouts: null, convertedCheckouts: converted, pixPending: pix, boletoPending: boleto }
+    const inbound = summarizeInbound(inboundMessages, inboundConversationGroups)
+    return { period: { from: start, to: end }, messages: { total: groups.reduce((sum, item) => sum + item._count._all, 0), ...statuses, sent, delivered: null, read: null }, contactedCustomers: contacted.length, ...inbound, abandonedCheckouts: abandoned, eligibleCheckouts: null, convertedCheckouts: converted, pixPending: pix, boletoPending: boleto }
   },
 
   async messages(query: Record<string, unknown>) {
@@ -90,7 +165,7 @@ export const crmReadService = {
       ...(query.template ? { templateName: String(query.template) } : {}),
       ...(query.entityType ? { entityType: String(query.entityType) as never } : {}),
       ...(query.source ? { source: String(query.source) } : {}),
-      ...(search ? { OR: [{ entityId: { contains: search, mode: 'insensitive' } }, { metaMessageId: { contains: search, mode: 'insensitive' } }, { normalizedPhone: { contains: search.replace(/\D/g, '') } }, { customer: { name: { contains: search, mode: 'insensitive' } } }] } : {}),
+      ...buildMessageSearch(search),
     }
     const [total, rows] = await Promise.all([prisma.messageLog.count({ where }), prisma.messageLog.findMany({ where, skip, take: pageSize, orderBy: { createdAt: 'desc' }, include: { customer: { select: { name: true } } } })])
     return { data: rows.map(row => ({ id: row.id, createdAt: row.createdAt, customer: row.customer?.name ?? null, phone: maskPhone(row.normalizedPhone), source: row.source, entityType: row.entityType, entityId: row.entityId, template: row.templateName, status: row.status, attempts: row.retryCount + 1, conversion: null, failureCategory: normalizeFailure(row.reason, row.errorCode, row.status) })), pagination: pagination(page, pageSize, total) }
@@ -99,12 +174,14 @@ export const crmReadService = {
   async message(id: string) {
     const row = await prisma.messageLog.findUnique({ where: { id }, include: { customer: { select: { id: true, name: true } } } })
     if (!row) return null
-    return { id: row.id, customer: row.customer, phone: maskPhone(row.normalizedPhone), source: row.source, entityType: row.entityType, entityId: row.entityId, templateName: row.templateName, templateLanguage: row.templateLanguage, templateParameters: row.templateParameters, renderedPreview: row.renderedPreview, status: row.status, scheduledAt: row.scheduledAt, acceptedAt: row.acceptedAt, sentAt: row.sentAt, updatedAt: row.updatedAt, metaMessageId: row.metaMessageId, retryCount: row.retryCount, lastRetryAt: row.lastRetryAt, nextRetryAt: row.nextRetryAt, reason: row.reason, errorCode: row.errorCode, failureCategory: normalizeFailure(row.reason, row.errorCode, row.status), mirrorStatus: row.mirrorStatus, mirroredAt: row.mirroredAt, timeline: [{ stage: 'created', at: row.createdAt }, { stage: 'scheduled', at: row.scheduledAt }, ...(row.acceptedAt ? [{ stage: 'accepted', at: row.acceptedAt }] : []), ...(row.sentAt ? [{ stage: 'sent', at: row.sentAt }] : []), ...(['delivered', 'read'].includes(row.status) ? [{ stage: 'delivered', at: row.updatedAt }] : []), ...(row.status === 'read' ? [{ stage: 'read', at: row.updatedAt }] : [])] }
+    const deliveredAt = extractMetaStatusTimestamp(row.response, 'delivered')
+    const readAt = extractMetaStatusTimestamp(row.response, 'read')
+    return { id: row.id, customer: row.customer, phone: maskPhone(row.normalizedPhone), source: row.source, entityType: row.entityType, entityId: row.entityId, templateName: row.templateName, templateLanguage: row.templateLanguage, templateParameters: row.templateParameters, renderedPreview: row.renderedPreview, status: row.status, scheduledAt: row.scheduledAt, acceptedAt: row.acceptedAt, sentAt: row.sentAt, deliveredAt, readAt, metaMessageId: row.metaMessageId, retryCount: row.retryCount, lastRetryAt: row.lastRetryAt, nextRetryAt: row.nextRetryAt, reason: row.reason, errorCode: row.errorCode, failureCategory: normalizeFailure(row.reason, row.errorCode, row.status), mirrorStatus: row.mirrorStatus, mirroredAt: row.mirroredAt, timeline: buildMessageTimeline({ ...row, deliveredAt, readAt }) }
   },
 
   async customers(query: Record<string, unknown>) {
     const { page, pageSize, skip } = range(query), search = String(query.search ?? '').trim()
-    const where: Prisma.CustomerWhereInput = search ? { OR: [{ name: { contains: search, mode: 'insensitive' } }, { email: { contains: search, mode: 'insensitive' } }, { normalizedPhone: { contains: search.replace(/\D/g, '') } }] } : {}
+    const where = buildCustomerSearch(search)
     const [total, rows] = await Promise.all([prisma.customer.count({ where }), prisma.customer.findMany({ where, skip, take: pageSize, orderBy: { updatedAt: 'desc' }, include: { _count: { select: { orders: true, messageLogs: true } }, orders: { take: 1, orderBy: { sourceCreatedAt: 'desc' }, select: { sourceCreatedAt: true, createdAt: true } } } })])
     const phones = rows.map(row => row.normalizedPhone)
     const [consents, suppressions, messages, conversations] = await Promise.all([prisma.whatsappConsent.findMany({ where: { normalizedPhone: { in: phones }, scope: 'marketing' } }), prisma.suppression.findMany({ where: { normalizedPhone: { in: phones } } }), prisma.messageLog.groupBy({ by: ['normalizedPhone'], where: { normalizedPhone: { in: phones } }, _max: { createdAt: true } }), prisma.conversation.findMany({ where: { contact: { phone: { in: phones } } }, include: { contact: { select: { phone: true } } } })])
@@ -132,7 +209,7 @@ export const crmReadService = {
 
   async conversations(query: Record<string, unknown>) {
     const { page, pageSize, skip } = range(query), search = String(query.search ?? '').trim()
-    const where: Prisma.ConversationWhereInput = { ...(query.status ? { status: String(query.status) as never } : {}), ...(search ? { contact: { OR: [{ name: { contains: search, mode: 'insensitive' } }, { phone: { contains: search.replace(/\D/g, '') } }] } } : {}) }
+    const where: Prisma.ConversationWhereInput = { ...(query.status ? { status: String(query.status) as never } : {}), ...buildConversationSearch(search) }
     const [total, rows] = await Promise.all([prisma.conversation.count({ where }), prisma.conversation.findMany({ where, skip, take: pageSize, orderBy: { lastMessageAt: 'desc' }, include: { contact: true, messages: { take: 1, orderBy: { createdAt: 'desc' } } } })])
     return { data: rows.map(row => ({ id: row.id, contact: row.contact.name, phone: maskPhone(row.contact.phone), status: row.status, lastMessageAt: row.lastMessageAt, lastInboundAt: row.lastInboundAt, preview: row.messages[0]?.body ?? `[${row.messages[0]?.type ?? 'sem mensagem'}]` })), pagination: pagination(page, pageSize, total) }
   },
