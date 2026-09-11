@@ -1,4 +1,4 @@
-﻿import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   create: vi.fn(),
@@ -59,5 +59,30 @@ describe('nuvemshopService authentication', () => {
     const axiosConfig = mocks.create.mock.calls[0][0]
 
     expect(axiosConfig.headers).not.toHaveProperty('Authentication')
+  })
+
+  it('retries a checkout page once after a transient timeout', async () => {
+    const timeout = Object.assign(new Error('timeout of 15000ms exceeded'), {
+      code: 'ECONNABORTED',
+    })
+
+    mocks.get
+      .mockRejectedValueOnce(timeout)
+      .mockResolvedValueOnce({ data: [] })
+
+    const result = await nuvemshopService.fetchAbandonedCheckouts()
+
+    expect(result).toEqual([])
+    expect(mocks.get).toHaveBeenCalledTimes(2)
+    expect(mocks.get).toHaveBeenNthCalledWith(
+      1,
+      '/checkouts',
+      expect.objectContaining({ params: { per_page: 200, page: 1 } })
+    )
+    expect(mocks.get).toHaveBeenNthCalledWith(
+      2,
+      '/checkouts',
+      expect.objectContaining({ params: { per_page: 200, page: 1 } })
+    )
   })
 })
