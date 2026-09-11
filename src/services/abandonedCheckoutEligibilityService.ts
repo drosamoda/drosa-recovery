@@ -128,7 +128,7 @@ export async function evaluateAbandonedCheckoutEligibility(
         ...(phone ? [{ normalizedPhone: phone }] : []),
         ...(checkout.customerEmail ? [{ customerEmail: checkout.customerEmail.trim().toLowerCase() }] : []),
       ] },
-      select: { id: true, sourceCreatedAt: true },
+      select: { id: true, sourceCreatedAt: true, createdAt: true },
     }) : [],
   ])
 
@@ -139,9 +139,15 @@ export async function evaluateAbandonedCheckoutEligibility(
   if (recentContact) reasons.push('cooldown_active')
 
   if (checkout.sourceCreatedAt && matchingOrders.length > 0) {
-    if (matchingOrders.some((order) => !order.sourceCreatedAt)) {
+    const uncertainLegacyOrder = matchingOrders.some((order) =>
+      !order.sourceCreatedAt && order.createdAt >= checkout.sourceCreatedAt!
+    )
+
+    if (uncertainLegacyOrder) {
       reasons.push('order_timing_uncertain')
-    } else if (matchingOrders.some((order) => order.sourceCreatedAt! >= checkout.sourceCreatedAt!)) {
+    } else if (matchingOrders.some((order) =>
+      order.sourceCreatedAt !== null && order.sourceCreatedAt >= checkout.sourceCreatedAt!
+    )) {
       reasons.push('order_after_checkout')
     }
   }
