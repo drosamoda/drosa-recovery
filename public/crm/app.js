@@ -5,6 +5,7 @@ $('secret').value=state.secret
 $('nav').innerHTML=views.map(v=>`<button data-view="${v[0]}">${v[1]}</button>`).join('')
 $('nav').onclick=e=>{const b=e.target.closest('[data-view]');if(!b)return;state.view=b.dataset.view;state.page=1;render()}
 $('connect').onclick=()=>{state.secret=$('secret').value.trim();sessionStorage.setItem('crmSecret',state.secret);render()}
+$('disconnect').onclick=()=>{state.secret='';state.search='';state.page=1;sessionStorage.removeItem('crmSecret');$('secret').value='';closeDrawer();render()}
 $('closeDrawer').onclick=$('backdrop').onclick=closeDrawer
 function closeDrawer(){$('drawer').classList.add('hidden');$('backdrop').classList.add('hidden')}
 async function api(path){const r=await fetch('/crm-api/'+path,{headers:{'x-inbox-admin-secret':state.secret}});if(r.status===401)throw Error('Segredo inválido ou ausente.');if(!r.ok)throw Error('Falha ao carregar dados.');return r.json()}
@@ -25,4 +26,3 @@ function conversationDetail(d){return details({status:d.status,contact:d.contact
 function customerDetail(d){return details({name:d.name,phone:d.phone,email:d.email,optOut:d.optOut,suppression:d.suppression,consents:d.consents})+`<h3>Pedidos (${d.orders.length})</h3><pre class="json">${esc(JSON.stringify(d.orders,null,2))}</pre><h3>Checkouts (${d.checkouts.length})</h3><pre class="json">${esc(JSON.stringify(d.checkouts,null,2))}</pre><h3>WhatsApp (${d.messages.length})</h3><pre class="json">${esc(JSON.stringify(d.messages,null,2))}</pre>`}
 async function loadHealth(){const d=await api('health');$('content').innerHTML=`<div class="notice">HEALTHY só é válido quando acompanhado por evidência recente. Ausência de evidência aparece como NOT_AVAILABLE.</div><div class="cards">${Object.entries(d.runtime).map(([k,v])=>`<div class="card"><span>${esc(k)}</span><strong>${v?'ON':'OFF'}</strong></div>`).join('')}</div><div class="split"><div class="panel"><div class="panel-head"><b>Meta</b></div><pre class="json">${esc(JSON.stringify(d.meta,null,2))}</pre></div><div class="panel"><div class="panel-head"><b>Nuvemshop</b></div><pre class="json">${esc(JSON.stringify(d.nuvemshop,null,2))}</pre></div><div class="panel"><div class="panel-head"><b>Recovery Engine</b></div><pre class="json">${esc(JSON.stringify(d.recoveryEngine,null,2))}</pre></div><div class="panel"><div class="panel-head"><b>Inbox / Mirror</b></div><pre class="json">${esc(JSON.stringify(d.inboxMirror,null,2))}</pre></div></div>`}
 render()
-
