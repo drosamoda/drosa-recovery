@@ -12,6 +12,27 @@ export type SyncResult = {
   errors: number
 }
 
+const CHECKOUT_PROCESS_CONCURRENCY = 4
+
+async function forEachWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>
+): Promise<void> {
+  let nextIndex = 0
+
+  async function runWorker(): Promise<void> {
+    for (;;) {
+      const index = nextIndex++
+      if (index >= items.length) return
+      await worker(items[index])
+    }
+  }
+
+  const workerCount = Math.min(concurrency, items.length)
+  await Promise.all(Array.from({ length: workerCount }, () => runWorker()))
+}
+
 export async function runSyncAbandonedCheckouts(): Promise<SyncResult> {
   const result: SyncResult = {
     found: 0,
@@ -29,7 +50,7 @@ export async function runSyncAbandonedCheckouts(): Promise<SyncResult> {
   result.found = checkouts.length
   logger.info('[syncAbandonedCheckouts] carrinhos encontrados', { found: result.found })
 
-  for (const payload of checkouts) {
+  await forEachWithConcurrency(checkouts, CHECKOUT_PROCESS_CONCURRENCY, async (payload) => {
     try {
       const checkout = await abandonedCheckoutService.upsertAbandonedCheckout(payload)
       result.upserted++
@@ -37,7 +58,7 @@ export async function runSyncAbandonedCheckouts(): Promise<SyncResult> {
       // Já convertido — pula agendamento
       if (checkout.status === 'converted') {
         result.converted++
-        continue
+        return
       }
 
       const scheduled = await abandonedCheckoutService.scheduleAbandonedCheckoutMessage(checkout)
@@ -49,7 +70,7 @@ export async function runSyncAbandonedCheckouts(): Promise<SyncResult> {
       })
       result.errors++
     }
-  }
+  })
 
   result.skipped = result.upserted - result.converted - result.errors - result.scheduled
   if (result.skipped < 0) result.skipped = 0
