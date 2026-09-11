@@ -14,6 +14,22 @@ export type SyncResult = {
 
 const CHECKOUT_PROCESS_CONCURRENCY = 4
 
+function emptySyncResult(): SyncResult {
+  return {
+    found: 0,
+    upserted: 0,
+    converted: 0,
+    scheduled: 0,
+    skipped: 0,
+    errors: 0,
+  }
+}
+
+function finalizeSkipped(result: SyncResult): void {
+  result.skipped = result.upserted - result.converted - result.errors - result.scheduled
+  if (result.skipped < 0) result.skipped = 0
+}
+
 async function forEachWithConcurrency<T>(
   items: T[],
   concurrency: number,
@@ -33,15 +49,38 @@ async function forEachWithConcurrency<T>(
   await Promise.all(Array.from({ length: workerCount }, () => runWorker()))
 }
 
-export async function runSyncAbandonedCheckouts(): Promise<SyncResult> {
-  const result: SyncResult = {
-    found: 0,
-    upserted: 0,
-    converted: 0,
-    scheduled: 0,
-    skipped: 0,
-    errors: 0,
+export async function runSyncAbandonedCheckoutById(
+  checkoutId: string | number
+): Promise<SyncResult> {
+  const result = emptySyncResult()
+
+  try {
+    const payload = await nuvemshopService.fetchCheckoutById(checkoutId)
+    result.found = 1
+
+    const checkout = await abandonedCheckoutService.upsertAbandonedCheckout(payload)
+    result.upserted = 1
+
+    if (checkout.status === 'converted') {
+      result.converted = 1
+    } else {
+      const scheduled = await abandonedCheckoutService.scheduleAbandonedCheckoutMessage(checkout)
+      if (scheduled) result.scheduled = 1
+    }
+  } catch (err) {
+    logger.error('[syncAbandonedCheckouts] erro no checkout individual', {
+      checkoutId: String(checkoutId),
+      error: err instanceof Error ? err.message : String(err),
+    })
+    result.errors = 1
   }
+
+  finalizeSkipped(result)
+  return result
+}
+
+export async function runSyncAbandonedCheckouts(): Promise<SyncResult> {
+  const result = emptySyncResult()
 
   const checkouts = await nuvemshopService.fetchAbandonedCheckouts({
     lookbackHours: env.ABANDONED_CART_LOOKBACK_HOURS,
@@ -72,8 +111,7 @@ export async function runSyncAbandonedCheckouts(): Promise<SyncResult> {
     }
   })
 
-  result.skipped = result.upserted - result.converted - result.errors - result.scheduled
-  if (result.skipped < 0) result.skipped = 0
+  finalizeSkipped(result)
 
   logger.info('[syncAbandonedCheckouts] concluído', {
     upserted: result.upserted,
