@@ -93,6 +93,7 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 })
 app.use('/inbox-assets', express.static(path.join(process.cwd(), 'public', 'inbox')))
 app.use('/crm-assets', express.static(path.join(process.cwd(), 'public', 'crm')))
+app.use('/crm-v2-assets', express.static(path.join(process.cwd(), 'public', 'crm-v2')))
 
 // ── Rotas públicas ─────────────────────────────────────────────────────
 app.use('/health', healthRoutes)
@@ -107,6 +108,12 @@ app.get('/inbox', (_req, res) => {
 })
 app.get('/crm', (_req, res) => {
   res.sendFile(path.join(process.cwd(), 'public', 'crm', 'index.html'))
+})
+// Piloto visual isolado (redesign radical de interface) — reaproveita EXATAMENTE o mesmo /crm-api
+// e o mesmo crmAuth já usados por /crm; nenhuma lógica de negócio, dado ou regra nova. /crm
+// permanece intocado e servido em paralelo até aprovação humana visual do /crm-v2.
+app.get('/crm-v2', (_req, res) => {
+  res.sendFile(path.join(process.cwd(), 'public', 'crm-v2', 'index.html'))
 })
 
 // ── Rotas protegidas ───────────────────────────────────────────────────
