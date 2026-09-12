@@ -18,12 +18,14 @@ import adminRoutes from './routes/admin.routes'
 import jobsRoutes from './routes/jobs.routes'
 import customersRoutes from './routes/customers.routes'
 import inboxRoutes from './routes/inbox.routes'
+import crmRoutes from './routes/crm.routes'
 import nuvemshopWebhookRoutes from './routes/webhooks.nuvemshop.routes'
 import metaWebhookRoutes from './routes/webhooks.meta.routes'
 
 import { adminAuth } from './middlewares/adminAuth'
 import { jobsAuth } from './middlewares/jobsAuth'
 import { inboxAuth } from './middlewares/inboxAuth'
+import { crmAuth } from './middlewares/crmAuth'
 
 // Inicializa Sentry antes de qualquer rota (opcional — sem DSN não faz nada)
 initSentry()
@@ -58,7 +60,7 @@ const corsOptions: cors.CorsOptions = {
     callback(null, isAllowedOrigin(origin))
   },
   methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'x-inbox-admin-secret'],
+  allowedHeaders: ['Content-Type', 'x-inbox-admin-secret', 'x-crm-read-secret'],
 }
 
 // CORS — aceita qualquer subdomínio *.lovable.app e localhost
@@ -90,6 +92,7 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   next(err)
 })
 app.use('/inbox-assets', express.static(path.join(process.cwd(), 'public', 'inbox')))
+app.use('/crm-assets', express.static(path.join(process.cwd(), 'public', 'crm')))
 
 // ── Rotas públicas ─────────────────────────────────────────────────────
 app.use('/health', healthRoutes)
@@ -102,12 +105,16 @@ app.use('/webhooks/meta', metaWebhookRoutes)
 app.get('/inbox', (_req, res) => {
   res.sendFile(path.join(process.cwd(), 'public', 'inbox', 'index.html'))
 })
+app.get('/crm', (_req, res) => {
+  res.sendFile(path.join(process.cwd(), 'public', 'crm', 'index.html'))
+})
 
 // ── Rotas protegidas ───────────────────────────────────────────────────
 app.use('/admin', adminAuth, adminRoutes)
 app.use('/jobs', jobsAuth, jobsRoutes)
 app.use('/customers', customersRoutes)
 app.use('/inbox', inboxAuth, inboxRoutes)
+app.use('/crm-api', crmAuth, crmRoutes)
 
 // ── 404 ────────────────────────────────────────────────────────────────
 app.use((_req, res) => {

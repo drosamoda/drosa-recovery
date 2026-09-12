@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>D'Rosa CRM WhatsApp</title><link rel="stylesheet" href="/crm-assets/app.css"></head>
+<body>
+  <div class="shell">
+    <aside class="nav">
+      <div class="brand"><span>DR</span><div><strong>D'Rosa CRM</strong><small>WhatsApp Operations</small></div></div>
+      <nav id="nav"></nav>
+      <div class="safety"><b>Modo somente leitura</b><span>Nenhuma ação de envio disponível</span></div>
+    </aside>
+    <main>
+      <header class="topbar"><div><p class="eyebrow">OPERAÇÃO WHATSAPP</p><h1 id="pageTitle">Dashboard</h1><p id="pageSubtitle">O que está acontecendo agora.</p></div><div class="auth"><input id="secret" type="password" placeholder="Segredo de leitura do CRM" autocomplete="off"><button id="connect">Conectar</button><button id="disconnect" type="button">Desconectar</button><span id="connection">Desconectado</span></div></header>
+      <section id="toolbar" class="toolbar"></section>
+      <section id="content" class="content"><div class="empty"><h2>Conecte o CRM</h2><p>Informe o segredo administrativo para consultar os dados operacionais.</p></div></section>
+    </main>
+  </div>
+  <div id="drawer" class="drawer hidden"><button id="closeDrawer" class="drawer-close">Fechar</button><div id="drawerContent"></div></div><div id="backdrop" class="backdrop hidden"></div>
+  <script src="/crm-assets/app.js"></script>
+</body></html>

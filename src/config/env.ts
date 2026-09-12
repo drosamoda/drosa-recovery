@@ -26,6 +26,7 @@ const envSchema = z.object({
   ADMIN_SECRET: z.string().min(1, 'ADMIN_SECRET é obrigatório'),
   JOBS_SECRET: z.string().min(1, 'JOBS_SECRET é obrigatório'),
   INBOX_ADMIN_SECRET: z.string().default(''),
+  CRM_READ_SECRET: z.string().default(''),
   INBOX_SEND_DRY_RUN: z.string().default('false').transform((v) => v === 'true'),
 
   ORDER_CONFIRMATION_TEMPLATE: z.string().default('confirmacao_pedido_drosa'),

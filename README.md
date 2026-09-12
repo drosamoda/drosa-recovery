@@ -61,6 +61,7 @@ Preencha as variáveis obrigatórias:
 | `ADMIN_SECRET` | Secret para rotas `/admin` (`x-admin-secret`) |
 | `JOBS_SECRET` | Secret para rotas `/jobs` (`x-jobs-secret`) |
 | `INBOX_ADMIN_SECRET` | Secret para acessar a inbox manual (`x-inbox-admin-secret`) |
+| `CRM_READ_SECRET` | Secret exclusivo para leitura do CRM (`x-crm-read-secret`), sem fallback administrativo |
 | `WEBHOOK_SECRET` | Secret HMAC configurado na Nuvemshop |
 
 > **Nunca versione o arquivo `.env`.** Ele já está no `.gitignore`.
