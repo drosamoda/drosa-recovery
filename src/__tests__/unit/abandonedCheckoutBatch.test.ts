@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 type CheckoutFixture = { id: string; normalizedPhone: string | null; customerName: string; customerEmail: string; abandonedCheckoutUrl: string; status: string; sourceCreatedAt: Date; sourceUpdatedAt: Date; abandonedAt: Date; nuvemshopCheckoutId: string; productsSummary: string; total: number; currency: string }
 
 const state = vi.hoisted(() => ({
-  facts: { suppressed: false, optOut: false, consent: true, template: true, sent: false, recent: false, orders: [] as Array<{ id: string; normalizedPhone: string; customerEmail: string; sourceCreatedAt: Date | null; createdAt: Date }> },
+  facts: { suppressed: false, optOut: false, consent: true, template: true, sent: false, recent: false, queryFailure: false, orders: [] as Array<{ id: string; normalizedPhone: string; customerEmail: string; sourceCreatedAt: Date | null; createdAt: Date }> },
   calls: [] as string[],
   checkouts: [] as CheckoutFixture[],
 }))
@@ -16,7 +16,7 @@ vi.mock('../../config/prisma', () => ({ prisma: {
   suppression: { findUnique: () => record('suppression.findUnique', state.facts.suppressed ? { id: 's' } : null), findMany: () => record('suppression.findMany', state.facts.suppressed ? [{ normalizedPhone: phone }] : []) },
   customer: { findFirst: () => record('customer.findFirst', { optOut: state.facts.optOut }), findMany: () => record('customer.findMany', [{ normalizedPhone: phone, optOut: state.facts.optOut }]) },
   whatsappConsent: { findMany: () => record('whatsappConsent.findMany', state.facts.consent ? [{ normalizedPhone: phone, consented: true, revokedAt: null, consentedAt: new Date() }] : []) },
-  whatsappTemplate: { findFirst: () => record('whatsappTemplate.findFirst', state.facts.template ? template : null) },
+  whatsappTemplate: { findFirst: () => state.facts.queryFailure ? (state.calls.push('whatsappTemplate.findFirst'), Promise.reject(new Error('database unavailable'))) : record('whatsappTemplate.findFirst', state.facts.template ? template : null) },
   messageLog: {
     findFirst: (args: { where: { entityId?: string } }) => record('messageLog.findFirst', args.where.entityId ? (state.facts.sent ? { id: 'm' } : null) : (state.facts.recent ? { id: 'm' } : null)),
     findMany: (args: { select?: { entityId?: boolean; normalizedPhone?: boolean } }) => record('messageLog.findMany', args.select?.entityId ? (state.facts.sent ? state.checkouts.map(c => ({ entityId: c.id })) : []) : args.select?.normalizedPhone ? (state.facts.recent ? [{ normalizedPhone: phone }] : []) : []),
@@ -29,7 +29,10 @@ vi.mock('../../config/env', () => ({ env: {
   ABANDONED_CART_DELAY_MINUTES: 30, ABANDONED_CART_MAX_AGE_HOURS: 168, ABANDONED_CART_COOLDOWN_HOURS: 24, REMARKETING_GLOBAL_COOLDOWN_HOURS: 24,
 } }))
 vi.mock('../../services/whatsappConsentService', () => ({ hasActiveWhatsappConsent: (candidate: string) => record('consent.findUnique', state.facts.consent && candidate === phone) }))
-vi.mock('../../helpers/inboxTemplatePreview', () => ({ renderTemplatePreview: (_name: string, args: { templateVariables: { nome_cliente: string; link_checkout: string } }) => ({ renderedPreview: `Oi ${args.templateVariables.nome_cliente} ${args.templateVariables.link_checkout}` }) }))
+vi.mock('../../helpers/inboxTemplatePreview', () => ({ renderTemplatePreview: (_name: string, args: { templateVariables: { nome_cliente: string; link_checkout: string } }) => {
+  if (args.templateVariables.nome_cliente === 'Anomalo') throw new Error('unexpected row data')
+  return { renderedPreview: `Oi ${args.templateVariables.nome_cliente} ${args.templateVariables.link_checkout}` }
+} }))
 
 import { evaluateAbandonedCheckoutEligibility, evaluateAbandonedCheckoutEligibilityBatch } from '../../services/abandonedCheckoutEligibilityService'
 import { crmReadService } from '../../services/crmReadService'
@@ -38,7 +41,7 @@ const now = new Date('2026-09-12T12:00:00Z')
 const base = (): CheckoutFixture => ({ id: 'checkout-1', normalizedPhone: phone, customerName: 'Cliente Teste', customerEmail: email, abandonedCheckoutUrl: 'https://www.drosamoda.com.br/checkout/test', status: 'abandoned', sourceCreatedAt: new Date('2026-09-11T11:00:00Z'), sourceUpdatedAt: new Date('2026-09-11T12:00:00Z'), abandonedAt: new Date('2026-09-11T12:00:00Z'), nuvemshopCheckoutId: 'n1', productsSummary: 'Produto', total: 10, currency: 'BRL' })
 
 describe('abandoned checkout batch eligibility', () => {
-  beforeEach(() => { state.facts = { suppressed: false, optOut: false, consent: true, template: true, sent: false, recent: false, orders: [] }; state.calls = []; state.checkouts = [] })
+  beforeEach(() => { state.facts = { suppressed: false, optOut: false, consent: true, template: true, sent: false, recent: false, queryFailure: false, orders: [] }; state.calls = []; state.checkouts = [] })
 
   const cases: Array<[string, (c: CheckoutFixture) => void, string | null]> = [
     ['eligible', () => {}, null],
@@ -64,15 +67,15 @@ describe('abandoned checkout batch eligibility', () => {
     const single = await evaluateAbandonedCheckoutEligibility(checkout as never, now)
     const [batch] = await evaluateAbandonedCheckoutEligibilityBatch([checkout as never], now)
     expect(batch).toEqual(single)
-    if (expected) expect(batch.reasons).toContain(expected)
-    else expect(batch.eligible).toBe(true)
+    if (expected) expect(batch?.reasons).toContain(expected)
+    else expect(batch?.eligible).toBe(true)
   })
 
   it.each([1, 20, 50, 100])('keeps DB query count bounded for %i checkouts', async count => {
     state.checkouts = Array.from({ length: count }, (_, i) => ({ ...base(), id: `checkout-${i}` }))
     const result = await evaluateAbandonedCheckoutEligibilityBatch(state.checkouts as never, now)
     expect(result).toHaveLength(count)
-    expect(result.every(x => x.eligible)).toBe(true)
+    expect(result.every(x => x?.eligible)).toBe(true)
     expect(state.calls).toHaveLength(7)
   })
 
@@ -82,5 +85,22 @@ describe('abandoned checkout batch eligibility', () => {
     expect(result.data).toHaveLength(100)
     expect(result.data.every(x => x.eligible)).toBe(true)
     expect(state.calls).toHaveLength(10)
+  })
+
+  it.each([3, 100])('isolates one anomalous row in a page of %i checkouts', async count => {
+    state.checkouts = Array.from({ length: count }, (_, i) => ({ ...base(), id: `checkout-${i}`, customerName: i === 1 ? 'Anomalo Teste' : 'Cliente Teste' }))
+    const result = await crmReadService.checkouts({ page: 1, pageSize: count })
+    expect(result.data).toHaveLength(count)
+    expect(result.data[0]).toMatchObject({ eligible: true, blockers: [] })
+    expect(result.data[1]).toMatchObject({ eligible: null, blockers: ['evaluation_unavailable'] })
+    expect(result.data[2]).toMatchObject({ eligible: true, blockers: [] })
+    expect(result.data.filter(x => x.eligible === true)).toHaveLength(count - 1)
+    expect(state.calls).toHaveLength(10)
+  })
+
+  it('still fails the whole batch when a prefetch query fails', async () => {
+    state.checkouts = [base()]
+    state.facts.queryFailure = true
+    await expect(evaluateAbandonedCheckoutEligibilityBatch(state.checkouts as never, now)).rejects.toThrow('database unavailable')
   })
 })

@@ -199,7 +199,7 @@ export async function evaluateAbandonedCheckoutEligibility(
 
 export async function evaluateAbandonedCheckoutEligibilityBatch(
   checkouts: AbandonedCheckout[], now: Date = new Date()
-): Promise<AbandonedCheckoutEligibility[]> {
+): Promise<Array<AbandonedCheckoutEligibility | null>> {
   if (checkouts.length === 0) return []
   const phones = [...new Set(checkouts.map(c => c.normalizedPhone).filter((x): x is string => Boolean(x)))]
   const emails = [...new Set(checkouts.map(c => c.customerEmail?.trim().toLowerCase()).filter((x): x is string => Boolean(x)))]
@@ -227,13 +227,17 @@ export async function evaluateAbandonedCheckoutEligibilityBatch(
     if (order.customerEmail) ordersByEmail.set(order.customerEmail, [...(ordersByEmail.get(order.customerEmail) ?? []), order])
   }
   return checkouts.map(checkout => {
-    const phone = checkout.normalizedPhone || null
-    const email = checkout.customerEmail?.trim().toLowerCase() || null
-    const matching = [...new Map([...(phone ? ordersByPhone.get(phone) ?? [] : []), ...(email ? ordersByEmail.get(email) ?? [] : [])].map(x => [x.id, x])).values()]
-    return evaluateFromFacts(checkout, {
-      suppressed: Boolean(phone && suppressedPhones.has(phone)), optedOut: Boolean(phone && firstCustomerByPhone.get(phone)?.optOut),
-      consentProven: Boolean(phone && consentedPhones.has(phone)), template,
-      existingForCheckout: existingIds.has(checkout.id), recentContact: Boolean(phone && recentPhones.has(phone)), matchingOrders: matching,
-    }, now)
+    try {
+      const phone = checkout.normalizedPhone || null
+      const email = checkout.customerEmail?.trim().toLowerCase() || null
+      const matching = [...new Map([...(phone ? ordersByPhone.get(phone) ?? [] : []), ...(email ? ordersByEmail.get(email) ?? [] : [])].map(x => [x.id, x])).values()]
+      return evaluateFromFacts(checkout, {
+        suppressed: Boolean(phone && suppressedPhones.has(phone)), optedOut: Boolean(phone && firstCustomerByPhone.get(phone)?.optOut),
+        consentProven: Boolean(phone && consentedPhones.has(phone)), template,
+        existingForCheckout: existingIds.has(checkout.id), recentContact: Boolean(phone && recentPhones.has(phone)), matchingOrders: matching,
+      }, now)
+    } catch {
+      return null
+    }
   })
 }
