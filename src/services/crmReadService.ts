@@ -1,7 +1,7 @@
 import { MessageStatus, Prisma } from '@prisma/client'
 import { prisma } from '../config/prisma'
 import { env } from '../config/env'
-import { evaluateAbandonedCheckoutEligibility } from './abandonedCheckoutEligibilityService'
+import { evaluateAbandonedCheckoutEligibilityBatch } from './abandonedCheckoutEligibilityService'
 
 const MAX_PAGE_SIZE = 100
 
@@ -223,7 +223,7 @@ export const crmReadService = {
     const { page, pageSize, skip } = range(query)
     const where: Prisma.AbandonedCheckoutWhereInput = query.status ? { status: String(query.status) as never } : {}
     const [total, rows] = await Promise.all([prisma.abandonedCheckout.count({ where }), prisma.abandonedCheckout.findMany({ where, skip, take: pageSize, orderBy: { lastSeenAt: 'desc' } })])
-    const [evaluated, messages] = await Promise.all([Promise.all(rows.map(row => evaluateAbandonedCheckoutEligibility(row).catch(() => null))), prisma.messageLog.findMany({ where: { entityType: 'abandoned_checkout', entityId: { in: rows.map(row => row.id) } }, orderBy: { createdAt: 'desc' } })])
+    const [evaluated, messages] = await Promise.all([evaluateAbandonedCheckoutEligibilityBatch(rows), prisma.messageLog.findMany({ where: { entityType: 'abandoned_checkout', entityId: { in: rows.map(row => row.id) } }, orderBy: { createdAt: 'desc' } })])
     return { data: rows.map((row, index) => { const result = evaluated[index], message = messages.find(item => item.entityId === row.id); return { id: row.id, checkout: row.nuvemshopCheckoutId, customer: row.customerName, phone: maskPhone(row.normalizedPhone), products: row.productsSummary, total: row.total, currency: row.currency, date: row.abandonedAt ?? row.sourceUpdatedAt ?? row.createdAt, status: row.status, eligible: result?.eligible ?? null, blockers: result?.reasons ?? ['evaluation_unavailable'], message: message ? { id: message.id, template: message.templateName, status: message.status } : null, convertedAt: row.convertedAt, convertedOrderId: row.convertedOrderId } }), pagination: pagination(page, pageSize, total) }
   },
 
