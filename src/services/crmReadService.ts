@@ -2,6 +2,7 @@ import { MessageStatus, Prisma } from '@prisma/client'
 import { prisma } from '../config/prisma'
 import { env } from '../config/env'
 import { evaluateAbandonedCheckoutEligibilityBatch } from './abandonedCheckoutEligibilityService'
+import { classifyWhatsappConsent } from './whatsappConsentService'
 
 const MAX_PAGE_SIZE = 100
 
@@ -185,7 +186,7 @@ export const crmReadService = {
     const [total, rows] = await Promise.all([prisma.customer.count({ where }), prisma.customer.findMany({ where, skip, take: pageSize, orderBy: { updatedAt: 'desc' }, include: { _count: { select: { orders: true, messageLogs: true } }, orders: { take: 1, orderBy: { sourceCreatedAt: 'desc' }, select: { sourceCreatedAt: true, createdAt: true } } } })])
     const phones = rows.map(row => row.normalizedPhone)
     const [consents, suppressions, messages, conversations] = await Promise.all([prisma.whatsappConsent.findMany({ where: { normalizedPhone: { in: phones }, scope: 'marketing' } }), prisma.suppression.findMany({ where: { normalizedPhone: { in: phones } } }), prisma.messageLog.groupBy({ by: ['normalizedPhone'], where: { normalizedPhone: { in: phones } }, _max: { createdAt: true } }), prisma.conversation.findMany({ where: { contact: { phone: { in: phones } } }, include: { contact: { select: { phone: true } } } })])
-    return { data: rows.map(row => { const consent = consents.find(c => c.normalizedPhone === row.normalizedPhone); return { id: row.id, name: row.name, phone: maskPhone(row.normalizedPhone), email: maskEmail(row.email), orders: row._count.orders, lastOrder: row.orders[0]?.sourceCreatedAt ?? row.orders[0]?.createdAt ?? null, lastContact: messages.find(m => m.normalizedPhone === row.normalizedPhone)?._max.createdAt ?? null, consent: consent?.consented && !consent.revokedAt ? 'GRANTED' : consent?.revokedAt || consent?.consented === false ? 'REVOKED' : 'UNKNOWN', optOut: row.optOut, suppressed: suppressions.some(s => s.normalizedPhone === row.normalizedPhone), messages: row._count.messageLogs, conversations: conversations.filter(c => c.contact.phone === row.normalizedPhone).length } }), pagination: pagination(page, pageSize, total) }
+    return { data: rows.map(row => { const consent = consents.find(c => c.normalizedPhone === row.normalizedPhone); return { id: row.id, name: row.name, phone: maskPhone(row.normalizedPhone), email: maskEmail(row.email), orders: row._count.orders, lastOrder: row.orders[0]?.sourceCreatedAt ?? row.orders[0]?.createdAt ?? null, lastContact: messages.find(m => m.normalizedPhone === row.normalizedPhone)?._max.createdAt ?? null, consent: classifyWhatsappConsent(consent), optOut: row.optOut, suppressed: suppressions.some(s => s.normalizedPhone === row.normalizedPhone), messages: row._count.messageLogs, conversations: conversations.filter(c => c.contact.phone === row.normalizedPhone).length } }), pagination: pagination(page, pageSize, total) }
   },
 
   async customer(id: string) {
@@ -254,7 +255,7 @@ export const crmReadService = {
   async consents(query: Record<string, unknown>) {
     const { page, pageSize, skip } = range(query)
     const [total, rows] = await Promise.all([prisma.whatsappConsent.count(), prisma.whatsappConsent.findMany({ skip, take: pageSize, orderBy: { updatedAt: 'desc' } })])
-    return { data: rows.map(row => ({ id: row.id, phone: maskPhone(row.normalizedPhone), scope: row.scope, status: row.consented && !row.revokedAt ? 'GRANTED' : row.revokedAt || !row.consented ? 'REVOKED' : 'UNKNOWN', source: row.source, consentedAt: row.consentedAt, revokedAt: row.revokedAt })), pagination: pagination(page, pageSize, total) }
+    return { data: rows.map(row => ({ id: row.id, phone: maskPhone(row.normalizedPhone), scope: row.scope, status: classifyWhatsappConsent(row), source: row.source, consentedAt: row.consentedAt, revokedAt: row.revokedAt })), pagination: pagination(page, pageSize, total) }
   },
 
   async health() {

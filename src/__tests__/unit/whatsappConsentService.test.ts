@@ -5,9 +5,23 @@ vi.mock('../../config/prisma', () => ({
 }))
 
 import { prisma } from '../../config/prisma'
-import { hasActiveWhatsappConsent } from '../../services/whatsappConsentService'
+import { classifyWhatsappConsent, hasActiveWhatsappConsent } from '../../services/whatsappConsentService'
 
 describe('WhatsApp consent registry', () => {
+  it.each([
+    [null, 'UNKNOWN'],
+    [{ consented: true, consentedAt: null, revokedAt: null }, 'UNKNOWN'],
+    [{ consented: true, consentedAt: new Date('2026-09-10'), revokedAt: null }, 'GRANTED'],
+    [{ consented: false, consentedAt: null, revokedAt: null }, 'REVOKED'],
+    [{ consented: false, consentedAt: new Date('2026-09-10'), revokedAt: null }, 'REVOKED'],
+    [{ consented: true, consentedAt: null, revokedAt: new Date('2026-09-11') }, 'REVOKED'],
+    [{ consented: true, consentedAt: new Date('2026-09-10'), revokedAt: new Date('2026-09-11') }, 'REVOKED'],
+    [{ consented: false, consentedAt: new Date('2026-09-10'), revokedAt: new Date('2026-09-11') }, 'REVOKED'],
+  ] as const)('classifies consent evidence consistently: %j', async (record, expected) => {
+    vi.mocked(prisma.whatsappConsent.findUnique).mockResolvedValue(record as never)
+    expect(classifyWhatsappConsent(record)).toBe(expected)
+    expect(await hasActiveWhatsappConsent('5531999999999')).toBe(expected === 'GRANTED')
+  })
   beforeEach(() => {
     vi.clearAllMocks()
   })
