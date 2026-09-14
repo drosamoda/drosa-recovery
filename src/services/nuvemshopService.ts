@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { env } from '../config/env'
+import { logger } from '../config/logger'
 import { subtractHours } from '../helpers/dateService'
 
 export type NuvemshopCheckout = {
@@ -46,6 +47,10 @@ type HttpLikeError = {
   }
 }
 
+type HeaderLike = Record<string, unknown> & {
+  get?: (name: string) => unknown
+}
+
 const CHECKOUT_DETAIL_CONCURRENCY = 4
 const ORDER_PAGE_SIZE = 50
 const ORDER_PAGE_MAX_ATTEMPTS = 3
@@ -71,6 +76,58 @@ function isTransientCheckoutPageError(error: unknown): boolean {
 
   const status = candidate.response?.status
   return status === 429 || (typeof status === 'number' && status >= 500 && status <= 599)
+}
+
+function getHeader(headers: unknown, name: string): unknown {
+  if (!headers || typeof headers !== 'object') return undefined
+
+  const candidate = headers as HeaderLike
+  if (typeof candidate.get === 'function') {
+    const value = candidate.get(name)
+    if (value !== undefined && value !== null) return value
+  }
+
+  const wanted = name.toLowerCase()
+  for (const [key, value] of Object.entries(candidate)) {
+    if (key.toLowerCase() === wanted) return value
+  }
+
+  return undefined
+}
+
+function parseTotalCount(headers: unknown): number | null {
+  const raw = getHeader(headers, 'x-total-count')
+  const parsed = typeof raw === 'number'
+    ? raw
+    : typeof raw === 'string' && raw.trim() !== ''
+      ? Number(raw)
+      : Number.NaN
+
+  if (!Number.isFinite(parsed) || parsed < 0) return null
+  return Math.floor(parsed)
+}
+
+function linkPaginationState(headers: unknown): 'next' | 'terminal' | 'unknown' {
+  const raw = getHeader(headers, 'link')
+  if (raw === undefined || raw === null) return 'unknown'
+
+  const value = Array.isArray(raw) ? raw.join(',') : String(raw)
+  if (!value.trim()) return 'unknown'
+
+  const hasNext = /rel\s*=\s*(?:"[^"]*\bnext\b[^"]*"|'[^']*\bnext\b[^']*'|next)(?:\s*;|\s*,|\s*$)/i.test(value)
+  return hasNext ? 'next' : 'terminal'
+}
+
+function getUpstreamStatus(error: unknown): number | null {
+  if (!error || typeof error !== 'object') return null
+  const status = (error as HttpLikeError).response?.status
+  return typeof status === 'number' ? status : null
+}
+
+function getErrorCode(error: unknown): string | null {
+  if (!error || typeof error !== 'object') return null
+  const code = (error as HttpLikeError).code
+  return typeof code === 'string' && code ? code : null
 }
 
 async function mapWithConcurrency<T, R>(
@@ -143,7 +200,19 @@ async function fetchOrderPage(
         timeout: 30000,
       })
     } catch (error) {
-      if (attempt >= ORDER_PAGE_MAX_ATTEMPTS || !isTransientCheckoutPageError(error)) throw error
+      if (attempt < ORDER_PAGE_MAX_ATTEMPTS && isTransientCheckoutPageError(error)) {
+        continue
+      }
+
+      logger.error('[nuvemshopService] order page fetch failed', {
+        operation: 'nuvemshop_orders_page',
+        page,
+        createdAtMin: createdAtMin.toISOString(),
+        createdAtMax: createdAtMax.toISOString(),
+        upstreamStatus: getUpstreamStatus(error),
+        errorCode: getErrorCode(error),
+      })
+      throw error
     }
   }
 }
@@ -225,6 +294,17 @@ export const nuvemshopService = {
       const response = await fetchOrderPage(client, page, params.createdAtMin, params.createdAtMax)
       const data = Array.isArray(response.data) ? response.data : []
       orders.push(...data)
+
+      const totalCount = parseTotalCount(response.headers)
+      if (totalCount !== null) {
+        if (orders.length >= totalCount) break
+        continue
+      }
+
+      const linkState = linkPaginationState(response.headers)
+      if (linkState === 'terminal') break
+      if (linkState === 'next') continue
+
       if (data.length < ORDER_PAGE_SIZE) break
     }
 
