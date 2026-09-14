@@ -22,11 +22,24 @@ vi.mock('../../config/env', () => ({
   },
 }))
 
+vi.mock('../../config/logger', () => ({
+  logger: {
+    error: vi.fn(),
+  },
+}))
+
 vi.mock('../../helpers/dateService', () => ({
   subtractHours: vi.fn(() => new Date('2026-09-08T00:00:00.000Z')),
 }))
 
 import { nuvemshopService } from '../../services/nuvemshopService'
+
+const createdAtMin = new Date('2026-05-06T00:00:00.000Z')
+const createdAtMax = new Date('2026-09-14T23:59:59.000Z')
+
+function orders(count: number, offset = 0) {
+  return Array.from({ length: count }, (_, index) => ({ id: offset + index + 1 }))
+}
 
 describe('nuvemshopService authentication', () => {
   beforeEach(() => {
@@ -128,13 +141,11 @@ describe('nuvemshopService authentication', () => {
   })
 
   it('paginates order backfill with the requested source date bounds', async () => {
-    const firstPage = Array.from({ length: 50 }, (_, index) => ({ id: index + 1 }))
+    const firstPage = orders(50)
     mocks.get
       .mockResolvedValueOnce({ data: firstPage })
       .mockResolvedValueOnce({ data: [{ id: 51 }] })
 
-    const createdAtMin = new Date('2026-05-06T00:00:00.000Z')
-    const createdAtMax = new Date('2026-09-14T23:59:59.000Z')
     const result = await nuvemshopService.fetchOrders({ createdAtMin, createdAtMax })
 
     expect(result).toHaveLength(51)
@@ -158,28 +169,105 @@ describe('nuvemshopService authentication', () => {
     })
   })
 
+  it('stops at x-total-count when the final page is exactly full', async () => {
+    mocks.get
+      .mockResolvedValueOnce({
+        data: orders(50),
+        headers: {
+          'x-total-count': '100',
+          link: '<https://api.nuvemshop.com.br/v1/123456/orders?page=2>; rel="next"',
+        },
+      })
+      .mockResolvedValueOnce({
+        data: orders(50, 50),
+        headers: {
+          'x-total-count': '100',
+          link: '<https://api.nuvemshop.com.br/v1/123456/orders?page=1>; rel="prev"',
+        },
+      })
+
+    const result = await nuvemshopService.fetchOrders({ createdAtMin, createdAtMax })
+
+    expect(result).toHaveLength(100)
+    expect(mocks.get).toHaveBeenCalledTimes(2)
+  })
+
+  it('uses numeric x-total-count to stop pagination', async () => {
+    mocks.get
+      .mockResolvedValueOnce({
+        data: orders(50),
+        headers: { 'x-total-count': 75 },
+      })
+      .mockResolvedValueOnce({
+        data: orders(25, 50),
+        headers: { 'x-total-count': 75 },
+      })
+
+    const result = await nuvemshopService.fetchOrders({ createdAtMin, createdAtMax })
+
+    expect(result).toHaveLength(75)
+    expect(mocks.get).toHaveBeenCalledTimes(2)
+  })
+
+  it('uses Link rel=next to continue and stops when Link has no next relation', async () => {
+    mocks.get
+      .mockResolvedValueOnce({
+        data: orders(50),
+        headers: {
+          link: '<https://api.nuvemshop.com.br/v1/123456/orders?page=2>; rel="next"',
+        },
+      })
+      .mockResolvedValueOnce({
+        data: orders(50, 50),
+        headers: {
+          link: '<https://api.nuvemshop.com.br/v1/123456/orders?page=1>; rel="prev"',
+        },
+      })
+
+    const result = await nuvemshopService.fetchOrders({ createdAtMin, createdAtMax })
+
+    expect(result).toHaveLength(100)
+    expect(mocks.get).toHaveBeenCalledTimes(2)
+  })
+
+  it('ignores invalid x-total-count and falls back to the page size', async () => {
+    mocks.get.mockResolvedValueOnce({
+      data: orders(10),
+      headers: { 'x-total-count': 'abc' },
+    })
+
+    const result = await nuvemshopService.fetchOrders({ createdAtMin, createdAtMax })
+
+    expect(result).toHaveLength(10)
+    expect(mocks.get).toHaveBeenCalledTimes(1)
+  })
+
   it('retries transient order page failures without duplicating orders', async () => {
     const timeout = Object.assign(new Error('timeout'), { code: 'ECONNABORTED' })
     mocks.get.mockRejectedValueOnce(timeout).mockResolvedValueOnce({ data: [{ id: 1 }] })
 
-    const result = await nuvemshopService.fetchOrders({
-      createdAtMin: new Date('2026-05-06T00:00:00.000Z'),
-      createdAtMax: new Date('2026-09-14T23:59:59.000Z'),
-    })
+    const result = await nuvemshopService.fetchOrders({ createdAtMin, createdAtMax })
 
     expect(result).toEqual([{ id: 1 }])
     expect(mocks.get).toHaveBeenCalledTimes(2)
   })
 
-  it('keeps permanent order API failures visible', async () => {
-    mocks.get.mockRejectedValueOnce(Object.assign(new Error('unauthorized'), {
-      response: { status: 401 },
+  it.each([429, 500])('retries transient HTTP %s order failures', async (status) => {
+    const error = Object.assign(new Error(`HTTP ${status}`), { response: { status } })
+    mocks.get.mockRejectedValueOnce(error).mockResolvedValueOnce({ data: [{ id: 1 }] })
+
+    const result = await nuvemshopService.fetchOrders({ createdAtMin, createdAtMax })
+
+    expect(result).toEqual([{ id: 1 }])
+    expect(mocks.get).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([401, 403, 404])('keeps permanent HTTP %s order API failures visible without retry', async (status) => {
+    mocks.get.mockRejectedValueOnce(Object.assign(new Error(`HTTP ${status}`), {
+      response: { status },
     }))
 
-    await expect(nuvemshopService.fetchOrders({
-      createdAtMin: new Date('2026-05-06T00:00:00.000Z'),
-      createdAtMax: new Date('2026-09-14T23:59:59.000Z'),
-    })).rejects.toThrow('unauthorized')
+    await expect(nuvemshopService.fetchOrders({ createdAtMin, createdAtMax })).rejects.toThrow(`HTTP ${status}`)
     expect(mocks.get).toHaveBeenCalledTimes(1)
   })
 })
