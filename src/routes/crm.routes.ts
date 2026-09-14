@@ -1,5 +1,6 @@
 import { Request, Response, Router } from 'express'
 import { crmReadService } from '../services/crmReadService'
+import { crmJourneyService } from '../services/crmJourneyService'
 
 const router = Router()
 const query = (req: Request) => req.query as Record<string, unknown>
@@ -10,6 +11,8 @@ router.get('/messages', async (req, res) => res.json(await crmReadService.messag
 router.get('/messages/:id', async (req, res) => found(res, await crmReadService.message(req.params.id)))
 router.get('/customers', async (req, res) => res.json(await crmReadService.customers(query(req))))
 router.get('/customers/:id', async (req, res) => found(res, await crmReadService.customer(req.params.id)))
+router.get('/journey', async (req, res) => res.json(await crmJourneyService.list(query(req))))
+router.get('/journey/:id', async (req, res) => found(res, await crmJourneyService.detail(req.params.id)))
 router.get('/conversations', async (req, res) => res.json(await crmReadService.conversations(query(req))))
 router.get('/conversations/:id', async (req, res) => found(res, await crmReadService.conversation(req.params.id)))
 router.get('/checkouts', async (req, res) => res.json(await crmReadService.checkouts(query(req))))
