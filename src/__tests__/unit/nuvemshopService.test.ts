@@ -126,4 +126,33 @@ describe('nuvemshopService authentication', () => {
     expect(maxActiveDetails).toBeGreaterThan(1)
     expect(maxActiveDetails).toBeLessThanOrEqual(4)
   })
+
+  it('paginates order backfill with the requested source date bounds', async () => {
+    const firstPage = Array.from({ length: 200 }, (_, index) => ({ id: index + 1 }))
+    mocks.get
+      .mockResolvedValueOnce({ data: firstPage })
+      .mockResolvedValueOnce({ data: [{ id: 201 }] })
+
+    const createdAtMin = new Date('2026-05-06T00:00:00.000Z')
+    const createdAtMax = new Date('2026-09-14T23:59:59.000Z')
+    const result = await nuvemshopService.fetchOrders({ createdAtMin, createdAtMax })
+
+    expect(result).toHaveLength(201)
+    expect(mocks.get).toHaveBeenNthCalledWith(1, '/orders', {
+      params: {
+        per_page: 200,
+        page: 1,
+        created_at_min: createdAtMin.toISOString(),
+        created_at_max: createdAtMax.toISOString(),
+      },
+    })
+    expect(mocks.get).toHaveBeenNthCalledWith(2, '/orders', {
+      params: {
+        per_page: 200,
+        page: 2,
+        created_at_min: createdAtMin.toISOString(),
+        created_at_max: createdAtMax.toISOString(),
+      },
+    })
+  })
 })

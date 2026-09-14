@@ -42,6 +42,11 @@ const envSchema = z.object({
   MESSAGE_SEND_DELAY_MS: z.coerce.number().default(250),
 
   ENABLE_INTERNAL_CRON: z.string().default('false').transform((v) => v === 'true'),
+  // Quando preenchida, somente estes templates podem ser processados pelo job
+  // de automação. Vazio preserva o comportamento histórico.
+  AUTOMATION_ALLOWED_TEMPLATES: z.string().default('').transform((v) =>
+    v.split(',').map((item) => item.trim()).filter(Boolean),
+  ),
   ABANDONED_CART_ENABLED: z.string().default('false').transform((v) => v === 'true'),
   REMARKETING_ENABLED: z.string().default('false').transform((v) => v === 'true'),
   ABANDONED_CART_MAX_SENDS_PER_RUN: z.coerce.number().int().min(0).default(1),
@@ -64,6 +69,9 @@ const envSchema = z.object({
   CRON_ABANDONED_CART_INTERVAL: z.coerce.number().default(15),
   CRON_PROCESS_MESSAGES_INTERVAL: z.coerce.number().default(1),
   CRON_BOLETO_EXPIRING_INTERVAL: z.coerce.number().default(60),
+  CRON_PROCESS_MESSAGES_ENABLED: z.string().default('true').transform((v) => v === 'true'),
+  CRON_ABANDONED_CART_ENABLED: z.string().default('true').transform((v) => v === 'true'),
+  CRON_BOLETO_EXPIRING_ENABLED: z.string().default('true').transform((v) => v === 'true'),
   ABANDONED_CART_LOOKBACK_HOURS: z.coerce.number().default(2),
   // Horas após o pedido para disparar mensagem de boleto vencendo (padrão: 48h = 2 dias)
   BOLETO_NOTIFY_HOURS: z.coerce.number().default(48),

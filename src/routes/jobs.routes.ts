@@ -10,6 +10,7 @@ import { runBackfillInboxSentMessages } from '../jobs/backfillInboxSentMessages'
 import { runBackfillImportedApiSends } from '../jobs/backfillImportedApiSends'
 import { runBackfillImportedWhatsAppSends } from '../jobs/backfillImportedWhatsAppSends'
 import { runBackfillInboxRenderedTemplatePreviews } from '../jobs/backfillInboxRenderedTemplatePreviews'
+import { runBackfillNuvemshopOrders } from '../jobs/backfillNuvemshopOrders'
 import { runAbandonedCheckoutsPreview } from '../jobs/previewAbandonedCheckouts'
 import { automationHealth } from '../jobs/automationHealth'
 import { retryInboxMirrors } from '../jobs/retryInboxMirrors'
@@ -95,6 +96,17 @@ router.post('/sync-abandoned-checkouts/:checkoutId', async (req: Request, res: R
 router.post('/process-messages', async (_req: Request, res: Response) => {
   const result = await runProcessMessages()
   res.json(result)
+})
+
+// Backfill histórico somente de dados. Nunca agenda mensagens.
+router.post('/backfill-nuvemshop-orders', async (req: Request, res: Response) => {
+  const from = new Date(req.body?.from)
+  const to = req.body?.to ? new Date(req.body.to) : new Date()
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) {
+    res.status(400).json({ error: 'invalid_backfill_period' })
+    return
+  }
+  res.json(await runBackfillNuvemshopOrders({ from, to, scheduleMessages: false }))
 })
 
 // POST /jobs/backfill-inbox-contacts

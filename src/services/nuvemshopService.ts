@@ -18,6 +18,23 @@ export type NuvemshopCheckout = {
   [key: string]: unknown
 }
 
+export type NuvemshopOrder = {
+  id: number | string
+  number?: number | string
+  status?: string
+  payment_status?: string
+  payment_details?: { method?: string }
+  contact_name?: string
+  contact_email?: string
+  contact_phone?: string
+  total?: string | number
+  currency?: string
+  checkout_url?: string
+  created_at?: string
+  updated_at?: string
+  [key: string]: unknown
+}
+
 type FetchParams = {
   lookbackHours?: number
 }
@@ -173,5 +190,26 @@ export const nuvemshopService = {
 
   async getOrder(orderId: string | number): Promise<unknown> {
     return nuvemshopService.fetchOrderById(orderId)
+  },
+
+  async fetchOrders(params: { createdAtMin: Date; createdAtMax: Date }): Promise<NuvemshopOrder[]> {
+    const client = buildNuvemshopClient()
+    const orders: NuvemshopOrder[] = []
+
+    for (let page = 1; ; page++) {
+      const response = await client.get<NuvemshopOrder[]>('/orders', {
+        params: {
+          page,
+          per_page: 200,
+          created_at_min: params.createdAtMin.toISOString(),
+          created_at_max: params.createdAtMax.toISOString(),
+        },
+      })
+      const data = Array.isArray(response.data) ? response.data : []
+      orders.push(...data)
+      if (data.length < 200) break
+    }
+
+    return orders
   },
 }

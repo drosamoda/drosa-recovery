@@ -378,6 +378,21 @@ async function markSkipped(id: string, reason: string): Promise<void> {
   })
 }
 
+// Libera uma reivindicação quando o limite por execução foi atingido. A
+// mensagem volta para pending para ser processada na próxima execução, sem
+// consumir idempotência nem registrar uma falsa perda.
+async function releaseClaim(id: string): Promise<void> {
+  await prisma.messageLog.update({
+    where: { id },
+    data: {
+      status: MessageStatus.pending,
+      claimOwner: null,
+      claimExpiresAt: null,
+      nextRetryAt: null,
+    },
+  })
+}
+
 // -----------------------------------------------------------------------
 // Marca como enviado com sucesso
 // -----------------------------------------------------------------------
@@ -533,8 +548,12 @@ export async function runProcessMessages(): Promise<ProcessResult> {
   const now = new Date()
 
   // 1. Busca candidatos pendentes prontos para envio
+  const templateFilter = env.AUTOMATION_ALLOWED_TEMPLATES.length > 0
+    ? { templateName: { in: env.AUTOMATION_ALLOWED_TEMPLATES } }
+    : {}
   const candidates = await prisma.messageLog.findMany({
     where: {
+      ...templateFilter,
       status: MessageStatus.pending,
       scheduledAt: { lte: now },
       OR: [{ nextRetryAt: null }, { nextRetryAt: { lte: now } }],
@@ -615,8 +634,7 @@ export async function runProcessMessages(): Promise<ProcessResult> {
 
       if (msg.entityType === EntityType.abandoned_checkout) {
         if (abandonedCartSendAttempts >= env.ABANDONED_CART_MAX_SENDS_PER_RUN) {
-          await markSkipped(msg.id, 'abandoned_cart_run_limit')
-          result.skipped++
+          await releaseClaim(msg.id)
           continue
         }
         abandonedCartSendAttempts++
@@ -624,8 +642,7 @@ export async function runProcessMessages(): Promise<ProcessResult> {
 
       if (isRemarketingMessage(msg)) {
         if (remarketingSendAttempts >= env.REMARKETING_MAX_SENDS_PER_RUN) {
-          await markSkipped(msg.id, 'remarketing_run_limit')
-          result.skipped++
+          await releaseClaim(msg.id)
           continue
         }
         remarketingSendAttempts++
