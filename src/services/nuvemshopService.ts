@@ -47,6 +47,8 @@ type HttpLikeError = {
 }
 
 const CHECKOUT_DETAIL_CONCURRENCY = 4
+const ORDER_PAGE_SIZE = 50
+const ORDER_PAGE_MAX_ATTEMPTS = 3
 
 function validDate(value?: string): Date | null {
   if (!value) return null
@@ -120,6 +122,29 @@ async function fetchCheckoutPage(
   } catch (error) {
     if (!isTransientCheckoutPageError(error)) throw error
     return request()
+  }
+}
+
+async function fetchOrderPage(
+  client: ReturnType<typeof buildNuvemshopClient>,
+  page: number,
+  createdAtMin: Date,
+  createdAtMax: Date
+) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await client.get<NuvemshopOrder[]>('/orders', {
+        params: {
+          page,
+          per_page: ORDER_PAGE_SIZE,
+          created_at_min: createdAtMin.toISOString(),
+          created_at_max: createdAtMax.toISOString(),
+        },
+        timeout: 30000,
+      })
+    } catch (error) {
+      if (attempt >= ORDER_PAGE_MAX_ATTEMPTS || !isTransientCheckoutPageError(error)) throw error
+    }
   }
 }
 
@@ -197,17 +222,10 @@ export const nuvemshopService = {
     const orders: NuvemshopOrder[] = []
 
     for (let page = 1; ; page++) {
-      const response = await client.get<NuvemshopOrder[]>('/orders', {
-        params: {
-          page,
-          per_page: 200,
-          created_at_min: params.createdAtMin.toISOString(),
-          created_at_max: params.createdAtMax.toISOString(),
-        },
-      })
+      const response = await fetchOrderPage(client, page, params.createdAtMin, params.createdAtMax)
       const data = Array.isArray(response.data) ? response.data : []
       orders.push(...data)
-      if (data.length < 200) break
+      if (data.length < ORDER_PAGE_SIZE) break
     }
 
     return orders
