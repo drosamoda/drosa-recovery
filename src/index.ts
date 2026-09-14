@@ -33,6 +33,7 @@ initSentry()
 const app = express()
 
 export function shouldStartInternalCron(enabled: boolean = env.ENABLE_INTERNAL_CRON): boolean {
+  if (env.CRM_PREVIEW_READONLY) return false
   return enabled
 }
 
@@ -95,13 +96,27 @@ app.use('/inbox-assets', express.static(path.join(process.cwd(), 'public', 'inbo
 app.use('/crm-assets', express.static(path.join(process.cwd(), 'public', 'crm')))
 app.use('/crm-v2-assets', express.static(path.join(process.cwd(), 'public', 'crm-v2')))
 
+// ── Modo Preview somente-leitura: nenhuma mutação, sem envio real ──────
+// Sem integrações operacionais nem rotas administrativas/webhooks montadas.
+if (env.CRM_PREVIEW_READONLY) {
+  app.use((req, res, next) => {
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
+      res.status(404).json({ error: 'Rota não encontrada' })
+      return
+    }
+    next()
+  })
+}
+
 // ── Rotas públicas ─────────────────────────────────────────────────────
 app.use('/health', healthRoutes)
 app.use('/docs', docsRoutes)
 
 // ── Webhooks (sem auth de usuário — validados por HMAC/assinatura) ─────
-app.use('/webhooks/nuvemshop', nuvemshopWebhookRoutes)
-app.use('/webhooks/meta', metaWebhookRoutes)
+if (!env.CRM_PREVIEW_READONLY) {
+  app.use('/webhooks/nuvemshop', nuvemshopWebhookRoutes)
+  app.use('/webhooks/meta', metaWebhookRoutes)
+}
 
 app.get('/inbox', (_req, res) => {
   res.sendFile(path.join(process.cwd(), 'public', 'inbox', 'index.html'))
@@ -117,10 +132,12 @@ app.get('/crm-v2', (_req, res) => {
 })
 
 // ── Rotas protegidas ───────────────────────────────────────────────────
-app.use('/admin', adminAuth, adminRoutes)
-app.use('/jobs', jobsAuth, jobsRoutes)
-app.use('/customers', customersRoutes)
-app.use('/inbox', inboxAuth, inboxRoutes)
+if (!env.CRM_PREVIEW_READONLY) {
+  app.use('/admin', adminAuth, adminRoutes)
+  app.use('/jobs', jobsAuth, jobsRoutes)
+  app.use('/customers', customersRoutes)
+  app.use('/inbox', inboxAuth, inboxRoutes)
+}
 app.use('/crm-api', crmAuth, crmRoutes)
 
 // ── 404 ────────────────────────────────────────────────────────────────

@@ -1,14 +1,27 @@
 import 'dotenv/config'
 import { z } from 'zod'
 
+// Modo somente-leitura para ambientes de Preview: dispensa integrações
+// operacionais (Meta/Nuvemshop/admin/jobs) no boot, exigindo apenas o
+// necessário para servir dados reais via /crm-api. Lido diretamente de
+// process.env porque precisa decidir o formato do schema abaixo.
+const isPreviewReadOnly = process.env.CRM_PREVIEW_READONLY === 'true'
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().default(3000),
   APP_BASE_URL: z.string().default(''),
 
-  DATABASE_URL: z.string().min(1, 'DATABASE_URL é obrigatória'),
+  CRM_PREVIEW_READONLY: z.string().default('false').transform((v) => v === 'true'),
 
-  NUVEMSHOP_STORE_ID: z.string().min(1, 'NUVEMSHOP_STORE_ID é obrigatório'),
+  DATABASE_URL: z.string().min(1, 'DATABASE_URL é obrigatória'),
+  DIRECT_URL: isPreviewReadOnly
+    ? z.string().min(1, 'DIRECT_URL é obrigatória em CRM_PREVIEW_READONLY')
+    : z.string().default(''),
+
+  NUVEMSHOP_STORE_ID: isPreviewReadOnly
+    ? z.string().default('')
+    : z.string().min(1, 'NUVEMSHOP_STORE_ID é obrigatório'),
   NUVEMSHOP_ACCESS_TOKEN: z.string().default(''),
   NUVEMSHOP_CLIENT_ID: z.string().default(''),
   NUVEMSHOP_CLIENT_SECRET: z.string().default(''),
@@ -16,17 +29,27 @@ const envSchema = z.object({
   NUVEMSHOP_API_VERSION: z.string().default('v1'),
   WEBHOOK_SECRET: z.string().default(''),
 
-  META_ACCESS_TOKEN: z.string().min(1, 'META_ACCESS_TOKEN é obrigatório'),
-  META_PHONE_NUMBER_ID: z.string().min(1, 'META_PHONE_NUMBER_ID é obrigatório'),
+  META_ACCESS_TOKEN: isPreviewReadOnly
+    ? z.string().default('')
+    : z.string().min(1, 'META_ACCESS_TOKEN é obrigatório'),
+  META_PHONE_NUMBER_ID: isPreviewReadOnly
+    ? z.string().default('')
+    : z.string().min(1, 'META_PHONE_NUMBER_ID é obrigatório'),
   META_API_VERSION: z.string().default('v20.0'),
   META_VERIFY_TOKEN: z.string().default(''),
   META_APP_SECRET: z.string().default(''),
   META_REQUEST_TIMEOUT_MS: z.coerce.number().default(8000),
 
-  ADMIN_SECRET: z.string().min(1, 'ADMIN_SECRET é obrigatório'),
-  JOBS_SECRET: z.string().min(1, 'JOBS_SECRET é obrigatório'),
+  ADMIN_SECRET: isPreviewReadOnly
+    ? z.string().default('')
+    : z.string().min(1, 'ADMIN_SECRET é obrigatório'),
+  JOBS_SECRET: isPreviewReadOnly
+    ? z.string().default('')
+    : z.string().min(1, 'JOBS_SECRET é obrigatório'),
   INBOX_ADMIN_SECRET: z.string().default(''),
-  CRM_READ_SECRET: z.string().default(''),
+  CRM_READ_SECRET: isPreviewReadOnly
+    ? z.string().min(1, 'CRM_READ_SECRET é obrigatória em CRM_PREVIEW_READONLY')
+    : z.string().default(''),
   INBOX_SEND_DRY_RUN: z.string().default('false').transform((v) => v === 'true'),
 
   ORDER_CONFIRMATION_TEMPLATE: z.string().default('confirmacao_pedido_drosa'),

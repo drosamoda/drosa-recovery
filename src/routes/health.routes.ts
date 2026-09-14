@@ -27,17 +27,20 @@ router.get('/deep', async (_req: Request, res: Response) => {
     overall = 'degraded'
   }
 
-  // Verificar variáveis obrigatórias
-  const requiredVars = [
-    'DATABASE_URL',
-    'NUVEMSHOP_STORE_ID',
-    'NUVEMSHOP_ACCESS_TOKEN',
-    'META_ACCESS_TOKEN',
-    'META_PHONE_NUMBER_ID',
-    'ADMIN_SECRET',
-    'JOBS_SECRET',
-    'CRM_READ_SECRET',
-  ]
+  // Verificar variáveis obrigatórias — em modo Preview somente-leitura,
+  // integrações operacionais (Meta/Nuvemshop/admin/jobs) não são exigidas.
+  const requiredVars = env.CRM_PREVIEW_READONLY
+    ? ['DATABASE_URL', 'DIRECT_URL', 'CRM_READ_SECRET']
+    : [
+        'DATABASE_URL',
+        'NUVEMSHOP_STORE_ID',
+        'NUVEMSHOP_ACCESS_TOKEN',
+        'META_ACCESS_TOKEN',
+        'META_PHONE_NUMBER_ID',
+        'ADMIN_SECRET',
+        'JOBS_SECRET',
+        'CRM_READ_SECRET',
+      ]
   const missingVars = requiredVars.filter((v) => !process.env[v])
   checks.env_vars = missingVars.length === 0 ? 'ok' : 'error'
   if (missingVars.length > 0) overall = 'degraded'
@@ -48,6 +51,7 @@ router.get('/deep', async (_req: Request, res: Response) => {
     service: 'drosa-recovery',
     version: '1.0.0',
     environment: env.NODE_ENV,
+    readOnly: env.CRM_PREVIEW_READONLY,
     timestamp: new Date().toISOString(),
     checks,
   })
