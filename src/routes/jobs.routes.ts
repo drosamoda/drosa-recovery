@@ -16,6 +16,49 @@ import { automationHealth } from '../jobs/automationHealth'
 import { retryInboxMirrors } from '../jobs/retryInboxMirrors'
 import { remarketingPreview, remarketingSend, segmentNames, Segment } from '../services/remarketingService'
 
+type UpstreamErrorLike = {
+  code?: unknown
+  response?: {
+    status?: unknown
+  }
+}
+
+const NUVEMSHOP_NETWORK_ERROR_CODES = new Set([
+  'ECONNABORTED',
+  'ETIMEDOUT',
+  'ECONNRESET',
+  'EAI_AGAIN',
+  'ERR_NETWORK',
+  'ERR_BAD_RESPONSE',
+  'ERR_BAD_REQUEST',
+])
+
+function serializeNuvemshopBackfillError(error: unknown): {
+  error: 'nuvemshop_orders_backfill_failed'
+  upstreamStatus: number | null
+  code?: string
+} | null {
+  if (!error || typeof error !== 'object') return null
+
+  const candidate = error as UpstreamErrorLike
+  const upstreamStatus = typeof candidate.response?.status === 'number'
+    ? candidate.response.status
+    : null
+  const code = typeof candidate.code === 'string' && candidate.code
+    ? candidate.code
+    : null
+
+  if (upstreamStatus === null && (!code || !NUVEMSHOP_NETWORK_ERROR_CODES.has(code))) {
+    return null
+  }
+
+  return {
+    error: 'nuvemshop_orders_backfill_failed',
+    upstreamStatus,
+    ...(code ? { code } : {}),
+  }
+}
+
 const router = Router()
 router.post('/remarketing-preview', async (req: Request, res: Response) => {
   const segment = req.body?.segment ?? 'all'
@@ -106,7 +149,14 @@ router.post('/backfill-nuvemshop-orders', async (req: Request, res: Response) =>
     res.status(400).json({ error: 'invalid_backfill_period' })
     return
   }
-  res.json(await runBackfillNuvemshopOrders({ from, to, scheduleMessages: false }))
+
+  try {
+    res.json(await runBackfillNuvemshopOrders({ from, to, scheduleMessages: false }))
+  } catch (error) {
+    const serialized = serializeNuvemshopBackfillError(error)
+    if (!serialized) throw error
+    res.status(502).json(serialized)
+  }
 })
 
 // POST /jobs/backfill-inbox-contacts
