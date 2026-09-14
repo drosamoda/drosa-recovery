@@ -128,31 +128,58 @@ describe('nuvemshopService authentication', () => {
   })
 
   it('paginates order backfill with the requested source date bounds', async () => {
-    const firstPage = Array.from({ length: 200 }, (_, index) => ({ id: index + 1 }))
+    const firstPage = Array.from({ length: 50 }, (_, index) => ({ id: index + 1 }))
     mocks.get
       .mockResolvedValueOnce({ data: firstPage })
-      .mockResolvedValueOnce({ data: [{ id: 201 }] })
+      .mockResolvedValueOnce({ data: [{ id: 51 }] })
 
     const createdAtMin = new Date('2026-05-06T00:00:00.000Z')
     const createdAtMax = new Date('2026-09-14T23:59:59.000Z')
     const result = await nuvemshopService.fetchOrders({ createdAtMin, createdAtMax })
 
-    expect(result).toHaveLength(201)
+    expect(result).toHaveLength(51)
     expect(mocks.get).toHaveBeenNthCalledWith(1, '/orders', {
       params: {
-        per_page: 200,
+        per_page: 50,
         page: 1,
         created_at_min: createdAtMin.toISOString(),
         created_at_max: createdAtMax.toISOString(),
       },
+      timeout: 30000,
     })
     expect(mocks.get).toHaveBeenNthCalledWith(2, '/orders', {
       params: {
-        per_page: 200,
+        per_page: 50,
         page: 2,
         created_at_min: createdAtMin.toISOString(),
         created_at_max: createdAtMax.toISOString(),
       },
+      timeout: 30000,
     })
+  })
+
+  it('retries transient order page failures without duplicating orders', async () => {
+    const timeout = Object.assign(new Error('timeout'), { code: 'ECONNABORTED' })
+    mocks.get.mockRejectedValueOnce(timeout).mockResolvedValueOnce({ data: [{ id: 1 }] })
+
+    const result = await nuvemshopService.fetchOrders({
+      createdAtMin: new Date('2026-05-06T00:00:00.000Z'),
+      createdAtMax: new Date('2026-09-14T23:59:59.000Z'),
+    })
+
+    expect(result).toEqual([{ id: 1 }])
+    expect(mocks.get).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps permanent order API failures visible', async () => {
+    mocks.get.mockRejectedValueOnce(Object.assign(new Error('unauthorized'), {
+      response: { status: 401 },
+    }))
+
+    await expect(nuvemshopService.fetchOrders({
+      createdAtMin: new Date('2026-05-06T00:00:00.000Z'),
+      createdAtMax: new Date('2026-09-14T23:59:59.000Z'),
+    })).rejects.toThrow('unauthorized')
+    expect(mocks.get).toHaveBeenCalledTimes(1)
   })
 })
