@@ -26,6 +26,8 @@ describe('CRM operational UI', () => {
       expect(js).toContain(`${area}:`)
     }
     expect(js).toContain('pageSize')
+    expect(js).toContain("['journey','Jornada'")
+    expect(js).toContain("api('journey?'+qs)")
     expect(js).toContain('x-crm-read-secret')
     expect(js).not.toContain('x-inbox-admin-secret')
     expect(js).toContain("sessionStorage.removeItem('crmSecret')")
@@ -40,6 +42,11 @@ describe('CRM operational UI', () => {
       .set('x-crm-read-secret', env.CRM_READ_SECRET)
 
     expect(response.status).toBe(404)
+  })
+
+  it('keeps the customer journey behind CRM authentication and read-only methods', async () => {
+    expect((await request(app).get('/crm-api/journey')).status).toBe(401)
+    expect((await request(app).post('/crm-api/journey').set('x-crm-read-secret', env.CRM_READ_SECRET)).status).toBe(404)
   })
 
   it('accepts only the dedicated CRM read secret', async () => {
