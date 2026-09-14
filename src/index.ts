@@ -135,7 +135,7 @@ if (env.NODE_ENV !== 'test') {
 
     // ── Cron jobs internos ────────────────────────────────────────────
     // process-messages: a cada 1 minuto
-    cron.schedule(`*/${env.CRON_PROCESS_MESSAGES_INTERVAL} * * * *`, async () => {
+    if (env.CRON_PROCESS_MESSAGES_ENABLED) cron.schedule(`*/${env.CRON_PROCESS_MESSAGES_INTERVAL} * * * *`, async () => {
       try {
         const result = await runProcessMessages()
         if (result.found > 0) {
@@ -147,7 +147,7 @@ if (env.NODE_ENV !== 'test') {
     })
 
     // sync-abandoned-checkouts: a cada 15 minutos
-    cron.schedule(`*/${env.CRON_ABANDONED_CART_INTERVAL} * * * *`, async () => {
+    if (env.CRON_ABANDONED_CART_ENABLED) cron.schedule(`*/${env.CRON_ABANDONED_CART_INTERVAL} * * * *`, async () => {
       try {
         const result = await runSyncAbandonedCheckouts()
         if (result.found > 0) {
@@ -159,7 +159,7 @@ if (env.NODE_ENV !== 'test') {
     })
 
     // sync-boleto-expiring: a cada CRON_BOLETO_EXPIRING_INTERVAL minutos (padrão 60)
-    cron.schedule(`*/${env.CRON_BOLETO_EXPIRING_INTERVAL} * * * *`, async () => {
+    if (env.CRON_BOLETO_EXPIRING_ENABLED) cron.schedule(`*/${env.CRON_BOLETO_EXPIRING_INTERVAL} * * * *`, async () => {
       try {
         const result = await runSyncBoletoExpiring()
         if (result.found > 0) {
@@ -171,9 +171,9 @@ if (env.NODE_ENV !== 'test') {
     })
 
     logger.info('[cron] jobs agendados', {
-      processMessages: `a cada ${env.CRON_PROCESS_MESSAGES_INTERVAL} min`,
-      syncAbandonedCheckouts: `a cada ${env.CRON_ABANDONED_CART_INTERVAL} min`,
-      syncBoletoExpiring: `a cada ${env.CRON_BOLETO_EXPIRING_INTERVAL} min`,
+      processMessages: env.CRON_PROCESS_MESSAGES_ENABLED ? `a cada ${env.CRON_PROCESS_MESSAGES_INTERVAL} min` : false,
+      syncAbandonedCheckouts: env.CRON_ABANDONED_CART_ENABLED ? `a cada ${env.CRON_ABANDONED_CART_INTERVAL} min` : false,
+      syncBoletoExpiring: env.CRON_BOLETO_EXPIRING_ENABLED ? `a cada ${env.CRON_BOLETO_EXPIRING_INTERVAL} min` : false,
     })
   })
 }

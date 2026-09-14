@@ -67,9 +67,22 @@ vi.mock('../../config/prisma', () => ({
       }),
       findFirst: vi.fn().mockResolvedValue(null),
     },
+    abandonedCheckout: {
+      findUnique: vi.fn().mockResolvedValue({
+        customerName: 'Maria Silva',
+        customerEmail: 'maria@example.com',
+        customerPhone: '5531998021418',
+        normalizedPhone: '5531998021418',
+        abandonedCheckoutUrl: 'https://www.drosamoda.com.br/checkout/test',
+        firstSeenAt: new Date(Date.now() - 3600000),
+        sourceCreatedAt: new Date(Date.now() - 3600000),
+        status: 'abandoned',
+      }),
+    },
     $transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn({
       messageLog: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     })),
+    $queryRaw: vi.fn().mockResolvedValue([{ acquired: true }]),
   },
 }))
 
@@ -126,9 +139,15 @@ describe('POST /jobs/process-messages', () => {
       id: 'order-001', customerName: 'Maria Silva', orderNumber: '1001', total: '149.90', orderUrl: 'https://example.com',
     } as never)
     vi.mocked(prisma.order.findFirst).mockResolvedValue(null)
+    vi.mocked(prisma.abandonedCheckout.findUnique).mockResolvedValue({
+      customerName: 'Maria Silva', customerEmail: 'maria@example.com', customerPhone: '5531998021418',
+      normalizedPhone: '5531998021418', abandonedCheckoutUrl: 'https://www.drosamoda.com.br/checkout/test',
+      firstSeenAt: new Date(Date.now() - 3600000), sourceCreatedAt: new Date(Date.now() - 3600000), status: 'abandoned',
+    } as never)
     vi.mocked(prisma.$transaction).mockImplementation((async (fn: (tx: unknown) => Promise<unknown>) => fn({
       messageLog: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     })) as never)
+    vi.mocked(prisma.$queryRaw).mockResolvedValue([{ acquired: true }] as never)
     // Restaura whatsappService mock padrão
     const { whatsappService } = await import('../../services/whatsappService')
     vi.mocked(whatsappService.sendTemplateMessage).mockResolvedValue({
@@ -348,6 +367,46 @@ describe('POST /jobs/process-messages', () => {
 
     expect(res.status).toBe(200)
     expect(typeof res.body.failed).toBe('number')
+  })
+
+  it('allowlist processa apenas o template permitido e mantém os demais pendentes', async () => {
+    const { whatsappService } = await import('../../services/whatsappService')
+    const { runProcessMessages } = await import('../../jobs/processMessages')
+    const original = env.AUTOMATION_ALLOWED_TEMPLATES
+    env.AUTOMATION_ALLOWED_TEMPLATES = ['carrinho_abandonado_drosa_v2']
+    vi.mocked(prisma.messageLog.findMany).mockImplementation((async (args: unknown) => {
+      const where = (args as { where?: { templateName?: unknown } } | undefined)?.where
+      return where?.templateName ? [] : [pendingMsg]
+    }) as never)
+
+    const result = await runProcessMessages()
+
+    env.AUTOMATION_ALLOWED_TEMPLATES = original
+    expect(result.found).toBe(0)
+    expect(whatsappService.sendTemplateMessage).not.toHaveBeenCalled()
+    expect(prisma.messageLog.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('limite por execução libera carrinhos excedentes de volta para pending', async () => {
+    const { whatsappService } = await import('../../services/whatsappService')
+    const { runProcessMessages } = await import('../../jobs/processMessages')
+    const originalCartEnabled = env.ABANDONED_CART_ENABLED
+    const originalDryRun = env.WHATSAPP_DRY_RUN
+    env.ABANDONED_CART_ENABLED = true
+    env.WHATSAPP_DRY_RUN = false
+    const carts = [1, 2, 3].map((n) => ({ ...pendingMsg, id: `checkout-${n}`, entityType: 'abandoned_checkout', entityId: `checkout-${n}`, templateName: 'carrinho_abandonado_drosa_v2' }))
+    vi.mocked(prisma.messageLog.findMany).mockResolvedValue(carts as never)
+    vi.mocked(prisma.whatsappTemplate.findFirst).mockResolvedValue({ id: 'tpl-cart', metaTemplateName: 'carrinho_abandonado_drosa_v2', active: true, languageCode: 'pt_BR', eventType: 'abandoned_checkout', messagePreview: 'Oi [nome_cliente] [link_checkout]' } as never)
+    vi.mocked(prisma.automationRule.findFirst).mockResolvedValue({ id: 'rule-cart', templateName: 'carrinho_abandonado_drosa_v2', active: true, eventType: 'abandoned_checkout' } as never)
+
+    const result = await runProcessMessages()
+
+    env.ABANDONED_CART_ENABLED = originalCartEnabled
+    env.WHATSAPP_DRY_RUN = originalDryRun
+    expect(result.sent).toBe(1)
+    expect(whatsappService.sendTemplateMessage).toHaveBeenCalledTimes(1)
+    expect(prisma.messageLog.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'checkout-2' }, data: expect.objectContaining({ status: 'pending', claimOwner: null }) }))
+    expect(prisma.messageLog.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'checkout-3' }, data: expect.objectContaining({ status: 'pending', claimOwner: null }) }))
   })
 })
 
