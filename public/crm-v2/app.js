@@ -1,34 +1,57 @@
-/* D'Rosa CRM v2 — operação somente leitura sobre /crm-api (backend intocado nesta missão).
-   Zero dependências externas, zero build step — mesma filosofia de public/crm e public/inbox.
-   Nenhum dado é inventado: onde o /crm-api real retorna null/NOT_AVAILABLE, a tela mostra isso
-   honestamente (nunca um zero ou um número calculado à parte no cliente). */
+/* D'Rosa CRM v2 — central operacional somente-leitura sobre /crm-api (backend intocado nesta
+   missão). Zero dependências externas, zero build step — mesma filosofia de public/crm e
+   public/inbox. Nenhum dado é inventado: onde o /crm-api real retorna null/NOT_AVAILABLE, a tela
+   mostra isso honestamente (nunca um zero ou um número calculado à parte no cliente).
 
-// ── Navegação: grupos + telas ────────────────────────────────────────────────────────────────
-const GROUPS = [
-  { key: 'overview', label: 'Visão Geral', views: [['dashboard', 'Dashboard']] },
-  { key: 'crm', label: 'CRM', views: [['customers', 'Clientes'], ['conversations', 'Conversas']] },
-  { key: 'messaging', label: 'Mensageria', views: [['messages', 'Envios'], ['templates', 'Templates'], ['consents', 'Consentimentos']] },
-  { key: 'recovery', label: 'Recuperação', views: [['checkouts', 'Carrinho'], ['pix', 'Pix'], ['boleto', 'Boleto'], ['remarketing', 'Remarketing']] },
-  { key: 'ops', label: 'Operação', views: [['automations', 'Automações'], ['health', 'Saúde'], ['audit', 'Auditoria']] },
+   Arquitetura de navegação: 7 áreas operacionais principais (Dashboard, Envios, Cliente 360,
+   Conversas, Carrinho, Automações, Saúde). Áreas de apoio (Templates, Consentimentos, Pix,
+   Boleto, Remarketing, Auditoria) deixam de competir como destinos de primeiro nível e viram
+   abas locais dentro da área correspondente — mesmos endpoints, mesmos dados, sem nenhuma
+   remoção de contrato de API. */
+
+// ── Ícones (SVG inline, sem dependência de ícone externo) ──────────────────────────────────────
+const ICONS = {
+  dashboard: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>',
+  messages: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7Z"/></svg>',
+  customers: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>',
+  conversations: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.9 8.4A8.6 8.6 0 0 1 8 19l-5 1 1-4.4A8.4 8.4 0 1 1 21 11.5Z"/></svg>',
+  checkouts: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8h12l-1 12H7L6 8Z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg>',
+  automations: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/></svg>',
+  health: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg>',
+  back: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5m6-7-7 7 7 7"/></svg>',
+  order: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8h12l-1 12H7L6 8Z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg>',
+  send: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7Z"/></svg>',
+  chat: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.9 8.4A8.6 8.6 0 0 1 8 19l-5 1 1-4.4A8.4 8.4 0 1 1 21 11.5Z"/></svg>',
+  shield: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.4 8.7 8 11 4.6-2.3 8-6 8-11V5l-8-3Z"/></svg>',
+}
+
+// ── Navegação: 7 áreas principais + abas locais (áreas de apoio reaproveitam os mesmos dados) ──
+const NAV = [
+  { key: 'dashboard', label: 'Dashboard', mobile: 'Painel', tabs: [['dashboard', 'Dashboard']] },
+  { key: 'messages', label: 'Envios', mobile: 'Envios', tabs: [['messages', 'Mensagens'], ['templates', 'Templates']] },
+  { key: 'customers', label: 'Cliente 360', mobile: 'Clientes', tabs: [['customers', 'Clientes'], ['consents', 'Consentimentos']] },
+  { key: 'conversations', label: 'Conversas', mobile: 'Conversas', tabs: [['conversations', 'Conversas']] },
+  { key: 'checkouts', label: 'Carrinho', mobile: 'Carrinho', tabs: [['checkouts', 'Abandonados'], ['pix', 'Pix'], ['boleto', 'Boleto'], ['remarketing', 'Remarketing']] },
+  { key: 'automations', label: 'Automações', mobile: 'Fluxos', tabs: [['automations', 'Automações']] },
+  { key: 'health', label: 'Saúde', mobile: 'Saúde', tabs: [['health', 'Visão geral'], ['audit', 'Auditoria']] },
 ]
-const VIEW_INDEX = {}
-const VIEW_TO_GROUP = {}
-GROUPS.forEach(g => g.views.forEach(([key, label]) => { VIEW_INDEX[key] = label; VIEW_TO_GROUP[key] = g.key }))
-const VIEW_META = {
+const TAB_META = {
   dashboard: 'O que está acontecendo agora.',
+  messages: 'Central operacional das mensagens e seus estados reais no provedor.',
+  templates: 'Contratos locais de template e uso observado.',
   customers: 'Identidade, pedidos e políticas de contato.',
+  consents: 'Consentimento é distinto de opt-out e de suppression.',
   conversations: 'Inbox operacional em modo somente leitura.',
-  messages: 'Central de mensagens e estados reais do provedor.',
-  checkouts: 'Elegibilidade calculada pelas regras já existentes.',
-  pix: 'Pedidos Pix e falhas de mensagem observadas.',
-  boleto: 'Pedidos por boleto e falhas de mensagem observadas.',
+  checkouts: 'Elegibilidade calculada pelas regras já existentes — nunca recalculada aqui.',
+  pix: 'Pedidos Pix pendentes e falhas de mensagem observadas.',
+  boleto: 'Pedidos por boleto pendentes e falhas de mensagem observadas.',
   remarketing: 'Execuções, públicos e bloqueios já existentes.',
   automations: 'Regra configurada versus liberação real em runtime.',
-  templates: 'Contratos locais de template e uso observado.',
-  consents: 'Consentimento, opt-out e suppression são conceitos distintos.',
   health: 'Evidência real e freshness das integrações.',
   audit: 'Eventos técnicos comprovados — nunca um ledger completo fingido.',
 }
+const TAB_TO_SECTION = {}
+NAV.forEach(s => s.tabs.forEach(([k]) => { TAB_TO_SECTION[k] = s.key }))
 
 // ── Humanização (nunca expor enum cru na UI principal) ──────────────────────────────────────
 const MESSAGE_STATUS = { pending: ['Pendente', 'neutral'], processing: ['Processando', 'neutral'], sent: ['Enviada', 'brand'], delivered: ['Entregue', 'success'], read: ['Lida', 'success'], failed: ['Falhou', 'danger'], skipped: ['Ignorada', 'neutral'], unknown: ['Status incerto', 'warning'] }
@@ -40,11 +63,9 @@ const CONVERSATION_STATUS = { open: ['Aberta', 'brand'], pending: ['Pendente', '
 const REMARKETING_SEGMENT = { abandoned_cart: 'Carrinho abandonado', pix_pending: 'Pix pendente', boleto_pending: 'Boleto pendente', recent_customer: 'Cliente recente', inactive_customer: 'Cliente inativo', vip_customer: 'VIP', engaged_no_purchase: 'Engajado sem compra' }
 const REMARKETING_MODE = { preview: 'Simulação', send: 'Envio' }
 const REMARKETING_RUN_STATUS = { running: ['Em execução', 'brand'], completed: ['Concluído', 'success'], failed: ['Falhou', 'danger'] }
-const REMARKETING_RECIPIENT_STATUS = { eligible: 'Elegível', suppressed: 'Suprimido', queued: 'Na fila', sent: 'Enviado', failed: 'Falhou' }
 const TEMPLATE_CATEGORY = { utility: 'Utilidade', marketing: 'Marketing', authentication: 'Autenticação' }
 const EVENT_TYPE = { order_created: 'Pedido criado', abandoned_checkout: 'Carrinho abandonado' }
 const ENTITY_TYPE = { order: 'Pedido', abandoned_checkout: 'Carrinho abandonado' }
-const MIRROR_STATUS = { pending: ['Pendente', 'neutral'], processing: ['Processando', 'neutral'], mirrored: ['Espelhado', 'success'], failed: ['Falhou', 'danger'] }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id)
@@ -56,18 +77,26 @@ function dt(v) { if (!v) return '—'; const d = new Date(v); return isNaN(d) ? 
 function dOnly(v) { if (!v) return '—'; const d = new Date(v); return isNaN(d) ? '—' : d.toLocaleDateString('pt-BR') }
 function timeOnly(v) { if (!v) return '—'; const d = new Date(v); return isNaN(d) ? '—' : d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) }
 function pill(label, tone) { return `<span class="pill ${tone}"><span class="dot"></span>${esc(label)}</span>` }
-function statusPill(status, dict) { const [label, tone] = dict[status] || [status || '—', 'neutral']; return pill(label, tone) }
+function statusPill(status, dict) { const entry = dict[status]; if (!entry) return pill(status || 'Status incerto', 'warning'); const [label, tone] = entry; return pill(label, tone) }
 function boolLabel(v) { return v === true ? 'Sim' : v === false ? 'Não' : '—' }
 function initials(name) { if (!name) return '?'; const parts = String(name).trim().split(/\s+/); return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase() || '?' }
+function emptyState(title, hint) { return `<div class="empty-state"><div class="glyph">${ICONS.checkouts}</div><h3>${esc(title)}</h3><p>${esc(hint || '')}</p></div>` }
 
 // ── Estado + autenticação ────────────────────────────────────────────────────────────────────
-const state = { group: 'overview', view: 'dashboard', page: 1, secret: sessionStorage.getItem('crmV2Secret') || '', search: '', period: 'today', sub: null }
-$('secret').value = state.secret
-$('connect').onclick = () => { state.secret = $('secret').value.trim(); sessionStorage.setItem('crmV2Secret', state.secret); render() }
-$('disconnect').onclick = () => { state.secret = ''; sessionStorage.removeItem('crmV2Secret'); $('secret').value = ''; state.search = ''; state.page = 1; closePanel(); render() }
-$('closePanel').onclick = $('backdrop').onclick = closePanel
-function closePanel() { $('panel').classList.add('hidden'); $('backdrop').classList.add('hidden') }
+const state = { section: 'dashboard', tab: 'dashboard', page: 1, secret: sessionStorage.getItem('crmV2Secret') || '', search: '', period: 'today', msgStatus: '', customerId: null, customerTab: 'overview', convoId: null, mobileThreadOpen: false }
+
+function openAuthModal() { $('secret').value = state.secret; $('authModal').classList.remove('hidden'); $('backdrop').classList.remove('hidden'); $('secret').focus() }
+function closeAuthModal() { $('authModal').classList.add('hidden'); $('backdrop').classList.add('hidden') }
+$('connToggle').onclick = () => { if (state.secret) { disconnect() } else { openAuthModal() } }
+$('mtAuthBtn').onclick = () => { if (state.secret) { disconnect() } else { openAuthModal() } }
+$('cancelAuth').onclick = closeAuthModal
+$('connect').onclick = () => { state.secret = $('secret').value.trim(); sessionStorage.setItem('crmV2Secret', state.secret); closeAuthModal(); render() }
+$('secret').onkeydown = e => { if (e.key === 'Enter') $('connect').click() }
+function disconnect() { state.secret = ''; sessionStorage.removeItem('crmV2Secret'); state.search = ''; state.page = 1; state.customerId = null; closePanel(); render() }
+$('closePanel').onclick = closePanel
+function closePanel() { $('panel').classList.add('hidden'); if ($('authModal').classList.contains('hidden')) $('backdrop').classList.add('hidden') }
 function openPanel(html) { $('panelContent').innerHTML = html; $('panel').classList.remove('hidden'); $('backdrop').classList.remove('hidden') }
+$('backdrop').onclick = () => { closePanel(); closeAuthModal() }
 
 async function api(path) {
   const r = await fetch('/crm-api/' + path, { headers: { 'x-crm-read-secret': state.secret } })
@@ -76,54 +105,100 @@ async function api(path) {
   return r.json()
 }
 
-// ── Navegação: render dos dois níveis ────────────────────────────────────────────────────────
+// ── Navegação: sidebar (desktop) + tabs de seção + barra inferior (mobile) ─────────────────────
 function renderNav() {
-  $('groupNav').innerHTML = GROUPS.map(g => `<button data-group="${g.key}" class="${g.key === state.group ? 'active' : ''}">${esc(g.label)}</button>`).join('')
-  const group = GROUPS.find(g => g.key === state.group)
-  const showSub = group.views.length > 1
-  $('subNav').classList.toggle('empty', !showSub)
-  $('subNav').innerHTML = showSub ? group.views.map(([key, label]) => `<button data-view="${key}" class="${key === state.view ? 'active' : ''}">${esc(label)}</button>`).join('') : ''
-  $('pageTitle').textContent = VIEW_INDEX[state.view]
-  $('pageSubtitle').textContent = VIEW_META[state.view]
-  $('connection').textContent = state.secret ? 'Autenticado (somente leitura)' : 'Desconectado'
+  const section = NAV.find(s => s.key === state.section)
+  $('sideNav').innerHTML = NAV.map(s => `<button data-section="${s.key}" class="${s.key === state.section ? 'active' : ''}">${ICONS[s.key]}<span>${esc(s.label)}</span></button>`).join('')
+  $('bottomTabs').innerHTML = NAV.map(s => `<button data-section="${s.key}" class="${s.key === state.section ? 'active' : ''}">${ICONS[s.key]}<span>${esc(s.mobile)}</span></button>`).join('')
+
+  const showTabs = section.tabs.length > 1 && !(state.section === 'customers' && state.customerId)
+  $('sectionTabs').classList.toggle('empty', !showTabs)
+  $('sectionTabs').innerHTML = showTabs ? section.tabs.map(([key, label]) => `<button data-tab="${key}" class="${key === state.tab ? 'active' : ''}">${esc(label)}</button>`).join('') : ''
+
+  const titleLabel = (state.section === 'customers' && state.customerId) ? 'Cliente 360' : section.label
+  $('pageTitle').textContent = titleLabel
+  $('pageSubtitle').textContent = TAB_META[state.tab] || ''
+  $('mtTitle').textContent = titleLabel
+
+  const connected = Boolean(state.secret)
+  $('connPill').classList.toggle('on', connected)
+  $('connLabel').textContent = connected ? 'Conectado' : 'Não conectado'
+  $('connToggle').textContent = connected ? 'Sair' : 'Conectar'
+  $('mtConn').classList.toggle('on', connected)
 }
-$('groupNav').onclick = e => { const b = e.target.closest('[data-group]'); if (!b) return; state.group = b.dataset.group; state.view = GROUPS.find(g => g.key === state.group).views[0][0]; state.page = 1; state.sub = null; render() }
-$('subNav').onclick = e => { const b = e.target.closest('[data-view]'); if (!b) return; state.view = b.dataset.view; state.page = 1; state.sub = null; render() }
+$('sideNav').onclick = e => { const b = e.target.closest('[data-section]'); if (!b) return; selectSection(b.dataset.section) }
+$('bottomTabs').onclick = e => { const b = e.target.closest('[data-section]'); if (!b) return; selectSection(b.dataset.section) }
+$('sectionTabs').onclick = e => { const b = e.target.closest('[data-tab]'); if (!b) return; state.tab = b.dataset.tab; state.page = 1; load() }
+function selectSection(key) {
+  state.section = key
+  state.tab = NAV.find(s => s.key === key).tabs[0][0]
+  state.page = 1
+  if (key !== 'customers') state.customerId = null
+  render()
+}
 
 // ── Router ───────────────────────────────────────────────────────────────────────────────────
 async function render() {
   renderNav()
-  if (!state.secret) { $('toolbar').innerHTML = ''; $('content').innerHTML = `<div class="gate"><h2>Conectar ao CRM</h2><p>Informe o segredo de leitura para consultar os dados operacionais. Este acesso é somente leitura — nenhuma ação de envio ou alteração fica disponível aqui.</p></div>`; return }
+  if (!state.secret) {
+    $('toolbar').innerHTML = ''
+    $('content').innerHTML = `<div class="gate-wrap"><div class="gate"><div class="gate-mark">DR</div><h2>Conectar ao CRM</h2><p>Acesso somente leitura aos dados operacionais da D&rsquo;Rosa. Nenhuma ação de envio ou alteração fica disponível aqui.</p><button class="btn btn-primary" id="gateConnect">Conectar</button></div></div>`
+    $('gateConnect').onclick = openAuthModal
+    return
+  }
   await load()
 }
 async function load() {
+  renderNav()
   renderToolbar()
   $('content').innerHTML = '<div class="skeleton">' + Array.from({ length: 6 }).map(() => '<div class="sk-row"></div>').join('') + '</div>'
   try {
-    const loaders = { dashboard: renderDashboard, customers: () => state.sub ? renderCustomer360(state.sub) : renderCustomers(), conversations: renderConversations, messages: renderMessages, checkouts: renderCheckouts, pix: () => renderPayments('pix'), boleto: () => renderPayments('boleto'), remarketing: renderRemarketing, automations: renderAutomations, templates: renderTemplates, consents: renderConsents, health: renderHealth, audit: renderAudit }
-    await loaders[state.view]()
+    if (state.section === 'customers' && state.customerId) { await renderCustomer360(state.customerId); return }
+    await AREAS[state.tab]()
   } catch (e) {
-    $('content').innerHTML = `<div class="error-state"><h3>Não foi possível carregar esta tela</h3><p>${esc(e.message)}</p><button class="btn btn-ghost" id="retryBtn">Tentar de novo</button></div>`
+    $('content').innerHTML = `<div class="error-state"><div class="glyph">!</div><h3>Não foi possível carregar esta tela</h3><p>${esc(e.message)}</p><button class="btn btn-ghost" id="retryBtn">Tentar de novo</button></div>`
     const btn = $('retryBtn'); if (btn) btn.onclick = load
   }
 }
 function renderToolbar() {
-  if (state.view === 'dashboard') { $('toolbar').innerHTML = `<div class="seg" id="periodSeg">${[['today', 'Hoje'], ['7d', '7 dias'], ['30d', '30 dias']].map(([k, l]) => `<button data-p="${k}" class="${state.period === k ? 'active' : ''}">${l}</button>`).join('')}</div>`; $('periodSeg').onclick = e => { const b = e.target.closest('[data-p]'); if (!b) return; state.period = b.dataset.p; load() }; return }
-  if (['customers', 'conversations', 'messages'].includes(state.view) && !state.sub) { $('toolbar').innerHTML = `<input type="search" id="searchInput" placeholder="Buscar por nome ou telefone" value="${esc(state.search)}"><button class="btn btn-ghost btn-sm" id="searchBtn">Buscar</button>`; $('searchBtn').onclick = () => { state.search = $('searchInput').value.trim(); state.page = 1; load() }; $('searchInput').onkeydown = e => { if (e.key === 'Enter') $('searchBtn').click() }; return }
+  if (state.tab === 'dashboard') { $('toolbar').innerHTML = `<div class="seg" id="periodSeg">${[['today', 'Hoje'], ['7d', '7 dias'], ['30d', '30 dias']].map(([k, l]) => `<button data-p="${k}" class="${state.period === k ? 'active' : ''}">${l}</button>`).join('')}</div>`; $('periodSeg').onclick = e => { const b = e.target.closest('[data-p]'); if (!b) return; state.period = b.dataset.p; load() }; return }
+  if (state.tab === 'messages') {
+    $('toolbar').innerHTML = `<select id="statusFilter"><option value="">Todos os status</option>${Object.entries(MESSAGE_STATUS).map(([k, [l]]) => `<option value="${k}" ${state.msgStatus === k ? 'selected' : ''}>${l}</option>`).join('')}</select><input type="search" id="searchInput" placeholder="Buscar por nome ou telefone" value="${esc(state.search)}"><button class="btn btn-ghost btn-sm" id="searchBtn">Buscar</button>`
+    $('statusFilter').onchange = () => { state.msgStatus = $('statusFilter').value; state.page = 1; load() }
+    $('searchBtn').onclick = () => { state.search = $('searchInput').value.trim(); state.page = 1; load() }
+    $('searchInput').onkeydown = e => { if (e.key === 'Enter') $('searchBtn').click() }
+    return
+  }
+  if (['customers', 'conversations'].includes(state.tab) && !state.customerId) { $('toolbar').innerHTML = `<input type="search" id="searchInput" placeholder="Buscar por nome ou telefone" value="${esc(state.search)}"><button class="btn btn-ghost btn-sm" id="searchBtn">Buscar</button>`; $('searchBtn').onclick = () => { state.search = $('searchInput').value.trim(); state.page = 1; load() }; $('searchInput').onkeydown = e => { if (e.key === 'Enter') $('searchBtn').click() }; return }
   $('toolbar').innerHTML = ''
 }
 
 // ── Tabela genérica reutilizável ─────────────────────────────────────────────────────────────
-function renderTable({ rows, columns, pagination, onRowClick, rowClass }) {
+function renderTable({ rows, columns, pagination, onRowClick, rowClass, cardTitle, cardMeta }) {
   const cols = columns
-  const body = rows.length ? rows.map(r => `<tr class="${rowClass ? rowClass(r) : ''}" data-id="${esc(r.id)}">${cols.map(c => `<td>${c.render ? c.render(r) : fmtValue(r[c.key])}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${cols.length}" class="cell-muted">Nenhum registro encontrado.</td></tr>`
-  const html = `<div class="panel"><div class="panel-head"><b>${rows.length} nesta página</b><span>${pagination ? num(pagination.total) + ' no total' : ''}</span></div><div class="table-wrap"><table><thead><tr>${cols.map(c => `<th>${esc(c.label)}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></div>${pager(pagination)}</div>`
-  return { html, wire: (container) => { if (onRowClick) container.querySelectorAll('tr[data-id]').forEach(tr => tr.onclick = () => onRowClick(tr.dataset.id)); wirePager() } }
+  const cls = c => c.hideMobile ? ' class="col-hide-mobile"' : ''
+  const body = rows.length ? rows.map(r => `<tr class="${rowClass ? rowClass(r) : ''}" data-id="${esc(r.id)}">${cols.map(c => `<td${cls(c)}>${c.render ? c.render(r) : fmtValue(r[c.key])}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${cols.length}" class="cell-muted">Nenhum registro encontrado.</td></tr>`
+  const table = `<div class="table-wrap"><table><thead><tr>${cols.map(c => `<th${cls(c)}>${esc(c.label)}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></div>`
+  const cards = cardTitle ? renderMobileCards(rows, columns, cardTitle, cardMeta, rowClass) : ''
+  const html = `<div class="panel"><div class="panel-head"><b>${rows.length} nesta página</b><span>${pagination ? num(pagination.total) + ' no total' : ''}</span></div>${table}${cards}${pager(pagination)}</div>`
+  return { html, wire: (container) => { if (onRowClick) container.querySelectorAll('[data-id]').forEach(el => el.onclick = () => onRowClick(el.dataset.id)); wirePager() } }
+}
+function renderMobileCards(rows, columns, titleCol, metaCol, rowClass) {
+  if (!rows.length) return ''
+  const lineCols = columns.filter(c => c !== titleCol && c !== metaCol && !c.hideMobile)
+  return `<div class="mobile-cards">${rows.map(r => `<div class="mcard ${rowClass ? rowClass(r) : ''}" data-id="${esc(r.id)}">
+    <div class="mcard-top"><span class="mcard-title">${titleCol.render ? titleCol.render(r) : fmtValue(r[titleCol.key])}</span>${metaCol ? `<span class="mcard-meta">${metaCol.render ? metaCol.render(r) : fmtValue(r[metaCol.key])}</span>` : ''}</div>
+    <div class="mcard-lines">${lineCols.map(c => `<span class="mcard-line"><span class="mcard-label">${esc(c.label)}</span>${c.render ? c.render(r) : fmtValue(r[c.key])}</span>`).join('')}</div>
+  </div>`).join('')}</div>`
 }
 function pager(p) { return p ? `<div class="pagination"><span>Página ${p.page} de ${p.pages || 1}</span><button id="prevPage" ${p.page <= 1 ? 'disabled' : ''}>Anterior</button><button id="nextPage" ${p.page >= p.pages ? 'disabled' : ''}>Próxima</button></div>` : '' }
 function wirePager() { const prev = $('prevPage'), next = $('nextPage'); if (prev) prev.onclick = () => { state.page--; load() }; if (next) next.onclick = () => { state.page++; load() } }
+function narrativeList(rows, mapRow, emptyLabel) {
+  if (!rows.length) return `<div class="panel"><div style="padding:32px;text-align:center" class="cell-muted">${esc(emptyLabel || 'Nenhum registro.')}</div></div>`
+  return `<div class="panel">${rows.map(r => { const v = mapRow(r); return `<div class="narrative-row"><span class="icon">${ICONS[v.icon] || ICONS.order}</span><div class="body"><div><b>${v.title}</b>${v.badge ? ' ' + v.badge : ''}</div>${v.sub ? `<div class="sub">${v.sub}</div>` : ''}</div>${v.time ? `<time>${v.time}</time>` : ''}</div>` }).join('')}</div>`
+}
 
-// ── DASHBOARD ────────────────────────────────────────────────────────────────────────────────
+// ── ÁREA: DASHBOARD ──────────────────────────────────────────────────────────────────────────
 async function renderDashboard() {
   const [d, health] = await Promise.all([api('dashboard?period=' + state.period), api('health').catch(() => null)])
   const m = d.messages || {}
@@ -134,16 +209,17 @@ async function renderDashboard() {
       <div class="kpi-hero-figure"><span class="n">${num(m.total)}</span><span class="l">Mensagens criadas no período</span></div>
       <div class="kpi-chain">
         <div class="kpi-chain-row"><span class="arrow">↳</span> Enviadas <b>${num(m.sent)}</b></div>
-        <div class="kpi-chain-row muted"><span class="arrow">↳</span> Entregues <b>${fmtValue(m.delivered)}</b><span style="font-size:11px">(sem agregação disponível nesta janela)</span></div>
-        <div class="kpi-chain-row muted"><span class="arrow">↳</span> Lidas <b>${fmtValue(m.read)}</b><span style="font-size:11px">(sem agregação disponível nesta janela)</span></div>
+        <div class="kpi-chain-row muted"><span class="arrow">↳</span> Entregues <b>${fmtValue(m.delivered)}</b><span class="note">sem agregação disponível nesta janela</span></div>
+        <div class="kpi-chain-row muted"><span class="arrow">↳</span> Lidas <b>${fmtValue(m.read)}</b><span class="note">sem agregação disponível nesta janela</span></div>
       </div>
-    </div>
-    <div class="status-chip-row">${otherStatuses.map(k => `<span class="status-chip">${statusPill(k, MESSAGE_STATUS)}<span class="n">${num(m[k])}</span></span>`).join('') || '<span class="cell-muted">Sem outros status registrados no período.</span>'}</div>
-    <div class="status-chip-row">
-      <span class="status-chip">Clientes contatados <span class="n">${num(d.contactedCustomers)}</span></span>
-      <span class="status-chip">Mensagens recebidas <span class="n">${num(d.inboundMessages)}</span></span>
-      <span class="status-chip">Conversas com retorno <span class="n">${num(d.inboundConversations)}</span></span>
     </div>`
+  const alertsBody = health ? buildAlerts(health) : '<div class="alert-ok"><span class="dot"></span>Não foi possível carregar a Saúde para checar alertas agora.</div>'
+  const attn = `<div class="attn-card"><h2>Precisa de atenção</h2>${alertsBody}</div>`
+
+  const chips = `<div class="status-chip-row">${otherStatuses.map(k => `<span class="status-chip">${statusPill(k, MESSAGE_STATUS)}<span class="n">${num(m[k])}</span></span>`).join('') || '<span class="cell-muted">Sem outros status registrados no período.</span>'}
+    <span class="status-chip">Clientes contatados <span class="n">${num(d.contactedCustomers)}</span></span>
+    <span class="status-chip">Mensagens recebidas <span class="n">${num(d.inboundMessages)}</span></span>
+    <span class="status-chip">Conversas com retorno <span class="n">${num(d.inboundConversations)}</span></span></div>`
 
   const funnels = `
     <div class="section-block"><div class="section-block-head"><h2>Funis de recuperação</h2><span class="hint">Somente dados reais desta janela</span></div>
@@ -152,24 +228,21 @@ async function renderDashboard() {
           <div class="funnel-step"><span class="l">Detectados</span><span class="v">${num(d.abandonedCheckouts)}</span></div>
           <div class="funnel-step"><span class="l">Elegíveis (agregado)</span><span class="v cell-muted">${fmtValue(d.eligibleCheckouts)}</span></div>
           <div class="funnel-step"><span class="l">Convertidos</span><span class="v">${num(d.convertedCheckouts)}</span></div>
-        </div><p class="hint" style="margin-top:10px">Elegibilidade por item real em Carrinho →</p></div>
-        <div class="funnel-card"><h3>Pix pendente</h3><div class="funnel-steps"><div class="funnel-step"><span class="l">Pedidos pendentes</span><span class="v">${num(d.pixPending)}</span></div></div><p class="hint" style="margin-top:10px">Detalhamento por pedido em Pix →</p></div>
-        <div class="funnel-card"><h3>Boleto pendente</h3><div class="funnel-steps"><div class="funnel-step"><span class="l">Pedidos pendentes</span><span class="v">${num(d.boletoPending)}</span></div></div><p class="hint" style="margin-top:10px">Detalhamento por pedido em Boleto →</p></div>
+        </div><p class="funnel-hint">Elegibilidade por item real em Carrinho →</p></div>
+        <div class="funnel-card"><h3>Pix pendente</h3><div class="funnel-steps"><div class="funnel-step"><span class="l">Pedidos pendentes</span><span class="v">${num(d.pixPending)}</span></div></div><p class="funnel-hint">Detalhamento por pedido em Carrinho → Pix</p></div>
+        <div class="funnel-card"><h3>Boleto pendente</h3><div class="funnel-steps"><div class="funnel-step"><span class="l">Pedidos pendentes</span><span class="v">${num(d.boletoPending)}</span></div></div><p class="funnel-hint">Detalhamento por pedido em Carrinho → Boleto</p></div>
       </div>
     </div>`
-
-  const alerts = health ? buildAlerts(health) : '<div class="alert-ok"><span class="dot"></span>Não foi possível carregar a Saúde para checar alertas agora.</div>'
 
   let activity = ''
   try {
     const recent = await api('messages?page=1&pageSize=12')
     activity = `<div class="section-block"><div class="section-block-head"><h2>Atividade recente</h2><span class="hint">Últimas mensagens criadas, com o status atual real</span></div>
-      <div class="timeline-feed">${(recent.data || []).map(r => `<div class="timeline-feed-row"><time>${timeOnly(r.createdAt)}</time><div class="event"><b>${esc(r.template || 'Mensagem')}</b> para ${esc(r.customer || 'contato sem nome')} · ${statusPill(r.status, MESSAGE_STATUS)}</div></div>`).join('') || '<p class="cell-muted">Nenhuma mensagem criada ainda.</p>'}</div></div>`
+      <div class="timeline-feed">${(recent.data || []).map(r => `<div class="timeline-feed-row"><time>${timeOnly(r.createdAt)}</time><div class="event"><b>${esc(r.template || 'Mensagem')}</b> <span class="who">para ${esc(r.customer || 'contato sem nome')}</span></div>${statusPill(r.status, MESSAGE_STATUS)}</div>`).join('') || '<div style="padding:20px" class="cell-muted">Nenhuma mensagem criada ainda.</div>'}</div></div>`
   } catch { /* atividade recente é complementar — uma falha aqui não derruba o resto do dashboard */ }
 
-  $('content').innerHTML = hero + `<div class="section-block"><div class="section-block-head"><h2>Alertas</h2></div>${alerts}</div>` + funnels + activity
+  $('content').innerHTML = `<div class="dash-top">${hero}${attn}</div>` + chips + funnels + activity
 }
-
 function buildAlerts(h) {
   const rows = []
   if (!h.meta.configured) rows.push(['warning', 'Meta não está totalmente configurada'])
@@ -179,116 +252,35 @@ function buildAlerts(h) {
   if (h.nuvemshop.latestEvidence?.error) rows.push(['danger', 'Última evidência do webhook Nuvemshop veio com erro', h.nuvemshop.latestEvidence.error])
   if (h.nuvemshop.latestEvidence && isStale(h.nuvemshop.latestEvidence.createdAt)) rows.push(['warning', 'Webhook Nuvemshop sem evento novo há mais de 24h'])
   if (h.recoveryEngine.failed > 0) rows.push(['danger', 'Mensagens com falha aguardando revisão', null, h.recoveryEngine.failed])
-  if (h.recoveryEngine.unknown > 0) rows.push(['warning', 'Mensagens com status desconhecido (unknown)', null, h.recoveryEngine.unknown])
+  if (h.recoveryEngine.unknown > 0) rows.push(['warning', 'Mensagens com status desconhecido', null, h.recoveryEngine.unknown])
   if (h.inboxMirror.failed > 0) rows.push(['warning', 'Mensagens não espelhadas no inbox', null, h.inboxMirror.failed])
-  if (!rows.length) return '<div class="alert-ok"><span class="dot"></span>Operação normal — nenhuma anomalia crítica encontrada.</div>'
-  return '<div class="alerts-list">' + rows.map(([tone, label, detail, count]) => `<div class="alert-row ${tone === 'warning' ? 'warning' : ''}"><span class="dot"></span><b>${esc(label)}</b>${detail ? `<span class="cell-muted">· ${esc(detail)}</span>` : ''}${count !== undefined ? `<span class="count">${num(count)}</span>` : ''}</div>`).join('') + '</div>'
+  if (!rows.length) return '<div class="alert-ok"><span class="dot"></span>Nenhuma anomalia crítica encontrada agora.</div>'
+  return '<div class="alerts-list">' + rows.map(([tone, label, detail, count]) => `<div class="alert-row ${tone === 'warning' ? 'warning' : ''}"><span class="dot"></span><b>${esc(label)}</b>${detail ? `<span class="cell-muted"> · ${esc(detail)}</span>` : ''}${count !== undefined ? `<span class="count">${num(count)}</span>` : ''}</div>`).join('') + '</div>'
 }
 function isStale(createdAt) { if (!createdAt) return false; return (Date.now() - new Date(createdAt).getTime()) > 24 * 3600 * 1000 }
 
-// ── CLIENTES + 360 ───────────────────────────────────────────────────────────────────────────
-async function renderCustomers() {
-  const qs = new URLSearchParams({ page: String(state.page), pageSize: '25' }); if (state.search) qs.set('search', state.search)
-  const d = await api('customers?' + qs)
-  const columns = [
-    { label: 'Cliente', render: r => `<b>${esc(r.name || 'Sem nome')}</b>` },
-    { label: 'Telefone', render: r => `<span class="cell-mono">${fmtValue(r.phone)}</span>` },
-    { label: 'Última compra', render: r => dOnly(r.lastOrder) },
-    { label: 'Último contato', render: r => dOnly(r.lastContact) },
-    { label: 'Mensagens', render: r => num(r.messages) },
-    { label: 'Consentimento', render: r => statusPill(r.consent, CONSENT_STATUS) },
-    { label: 'Status', render: r => r.optOut ? pill('Opt-out', 'danger') : r.suppressed ? pill('Suprimido', 'danger') : pill('Normal', 'success') },
-  ]
-  const { html, wire } = renderTable({ rows: d.data, columns, pagination: d.pagination, onRowClick: id => { state.sub = id; state.page = 1; load() }, rowClass: () => 'clickable' })
-  $('content').innerHTML = html; wire($('content'))
-}
-
-async function renderCustomer360(id) {
-  const d = await api('customers/' + id)
-  const tab = state.customerTab || 'overview'
-  const tabs = [['overview', 'Visão geral'], ['orders', 'Pedidos'], ['messages', 'Mensagens'], ['conversations', 'Conversas'], ['checkouts', 'Carrinhos'], ['privacy', 'Privacidade']]
-  const head = `
-    <button class="btn btn-ghost btn-sm" id="backToList" style="margin-bottom:14px">← Clientes</button>
-    <div class="c360-head"><div>
-      <p class="eyebrow">CLIENTE</p>
-      <h1>${esc(d.name || 'Sem nome')}</h1>
-      <div class="c360-meta">
-        <span>Telefone <b>${fmtValue(d.phone)}</b></span>
-        <span>E-mail <b>${fmtValue(d.email)}</b></span>
-        <span>Opt-out <b>${boolLabel(d.optOut)}</b></span>
-        <span>Pedidos <b>${num(d.orders.length)}</b></span>
-        <span>Mensagens <b>${num(d.messages.length)}</b></span>
-        <span>Conversas <b>${num(d.conversations.length)}</b></span>
-      </div>
-    </div></div>
-    <div class="c360-tabs">${tabs.map(([k, l]) => `<button data-tab="${k}" class="${tab === k ? 'active' : ''}">${l}</button>`).join('')}</div>
-    <div id="c360Body"></div>`
-  $('content').innerHTML = head
-  $('backToList').onclick = () => { state.sub = null; load() }
-  $('.c360-tabs')
-  document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { state.customerTab = b.dataset.tab; load() })
-  $('c360Body').innerHTML = renderCustomer360Tab(tab, d)
-}
-function renderCustomer360Tab(tab, d) {
-  if (tab === 'overview') return `<div class="kv-grid" style="grid-template-columns:repeat(3,1fr)">
-      <div class="kv"><span>Última compra</span><b>${d.orders[0] ? dOnly(d.orders[0].date) : '—'}</b></div>
-      <div class="kv"><span>Último contato</span><b>${d.messages[0] ? dOnly(d.messages[0].createdAt) : '—'}</b></div>
-      <div class="kv"><span>Suprimido</span><b>${d.suppression ? 'Sim — ' + esc(d.suppression.reason || 'motivo não informado') : 'Não'}</b></div>
-      <div class="kv"><span>Consentimentos ativos</span><b>${num(d.consents.filter(c => c.consented && !c.revokedAt).length)}</b></div>
-      <div class="kv"><span>Carrinhos abandonados</span><b>${num(d.checkouts.length)}</b></div>
-      <div class="kv"><span>Opt-out</span><b>${boolLabel(d.optOut)}</b></div>
-    </div>`
-  if (tab === 'orders') return simpleList(d.orders, o => `<div class="row"><b>${esc(o.orderNumber || o.id)}</b><span>${money(o.total)}</span><span>${esc(o.paymentMethod || '—')}</span>${pill(o.paymentStatus || '—', 'neutral')}<time>${dOnly(o.date)}</time></div>`)
-  if (tab === 'messages') return simpleList(d.messages, m => `<div class="row"><b>${esc(m.templateName || 'Mensagem')}</b>${statusPill(m.status, MESSAGE_STATUS)}<span class="cell-muted">${esc(ENTITY_TYPE[m.entityType] || m.entityType || '')}</span><time>${dt(m.createdAt)}</time></div>`)
-  if (tab === 'conversations') return simpleList(d.conversations, c => `<div class="row">${statusPill(c.status, CONVERSATION_STATUS)}<time>Última mensagem: ${dt(c.lastMessageAt)}</time></div>`)
-  if (tab === 'checkouts') return simpleList(d.checkouts, c => `<div class="row"><b>${esc(c.checkout || c.id)}</b><span>${money(c.total)}</span>${statusPill(c.status, CHECKOUT_STATUS)}<time>${dOnly(c.date)}</time></div>`)
-  if (tab === 'privacy') return `<div class="section-block"><h2 style="font-size:13.5px;margin-bottom:10px">Consentimentos</h2>${simpleList(d.consents, c => `<div class="row"><b>${esc(c.scope)}</b>${pill(c.consented && !c.revokedAt ? 'Concedido' : 'Revogado', c.consented && !c.revokedAt ? 'success' : 'danger')}<span class="cell-muted">${esc(c.source || '—')}</span><time>${dOnly(c.consentedAt)}</time></div>`)}</div>
-    <div class="section-block"><h2 style="font-size:13.5px;margin-bottom:10px">Suppression</h2>${d.suppression ? `<div class="kv"><span>Motivo</span><b>${fmtValue(d.suppression.reason)}</b></div>` : '<p class="cell-muted">Nenhuma suppression registrada para este contato.</p>'}</div>`
-  return ''
-}
-function simpleList(rows, renderRow) { return `<div class="panel"><div class="table-wrap" style="padding:4px 0">${rows.length ? rows.map(r => `<div style="padding:10px 15px;border-bottom:1px solid var(--line);display:flex;gap:14px;align-items:center;font-size:12.5px">${renderRow(r)}</div>`).join('') : '<div style="padding:24px;text-align:center" class="cell-muted">Nenhum registro.</div>'}</div></div>` }
-
-// ── CONVERSAS (inbox 3 colunas) ──────────────────────────────────────────────────────────────
-async function renderConversations() {
-  const qs = new URLSearchParams({ page: String(state.page), pageSize: '30' }); if (state.search) qs.set('search', state.search)
-  const d = await api('conversations?' + qs)
-  const activeId = state.sub
-  const listHtml = (d.data || []).map(r => `<div class="inbox-list-row ${r.id === activeId ? 'active' : ''}" data-id="${esc(r.id)}"><div class="top"><span>${esc(r.contact || 'Sem nome')}</span><time>${dt(r.lastMessageAt)}</time></div><div class="preview">${esc(r.preview || '')}</div><div>${statusPill(r.status, CONVERSATION_STATUS)}</div></div>`).join('') || '<div class="inbox-empty">Nenhuma conversa encontrada.</div>'
-  $('content').innerHTML = `<div class="inbox-grid"><div class="inbox-list">${listHtml}</div><div class="inbox-thread" id="thread"><div class="inbox-empty">Selecione uma conversa</div></div><div class="inbox-context" id="threadContext"></div></div>`
-  document.querySelectorAll('.inbox-list-row[data-id]').forEach(row => row.onclick = () => { state.sub = row.dataset.id; loadConversationThread(row.dataset.id) })
-  if (activeId) loadConversationThread(activeId)
-}
-async function loadConversationThread(id) {
-  document.querySelectorAll('.inbox-list-row').forEach(r => r.classList.toggle('active', r.dataset.id === id))
-  $('thread').innerHTML = '<div class="skeleton" style="padding:16px"><div class="sk-row"></div><div class="sk-row"></div></div>'
-  try {
-    const c = await api('conversations/' + id)
-    const bubbles = (c.messages || []).map(m => `<div class="bubble ${m.direction === 'inbound' ? 'in' : 'out'}">${esc(m.body || `[${m.type}]`)}<time>${dt(m.timestamp || m.createdAt)}</time></div>`).join('') || '<div class="inbox-empty">Sem mensagens nesta conversa.</div>'
-    $('thread').innerHTML = `<div class="inbox-thread-head">${esc(c.contact?.name || 'Sem nome')} · ${statusPill(c.status, CONVERSATION_STATUS)}</div><div class="inbox-thread-body">${bubbles}</div>`
-    $('threadContext').innerHTML = `<p class="eyebrow">CONTATO</p><div class="kv" style="margin-bottom:10px"><span>Telefone</span><b>${fmtValue(c.contact?.phone)}</b></div><p class="cell-muted" style="font-size:11.5px">Painel somente leitura — sem opções de envio ou alteração de status a partir daqui.</p>`
-  } catch (e) { $('thread').innerHTML = `<div class="inbox-empty">${esc(e.message)}</div>` }
-}
-
-// ── ENVIOS (mensagens) ───────────────────────────────────────────────────────────────────────
-async function renderMessages() {
-  const qs = new URLSearchParams({ page: String(state.page), pageSize: '30' }); if (state.search) qs.set('search', state.search)
+// ── ÁREA: ENVIOS (mensagens) ─────────────────────────────────────────────────────────────────
+async function renderMessagesArea() {
+  const qs = new URLSearchParams({ page: String(state.page), pageSize: '30' }); if (state.search) qs.set('search', state.search); if (state.msgStatus) qs.set('status', state.msgStatus)
   const d = await api('messages?' + qs)
   const columns = [
     { label: 'Hora', render: r => dt(r.createdAt) },
     { label: 'Cliente', render: r => esc(r.customer || 'Sem nome') },
-    { label: 'Fluxo', render: r => esc(ENTITY_TYPE[r.entityType] || r.entityType || '—') },
-    { label: 'Template', render: r => `<span class="cell-mono">${fmtValue(r.template)}</span>` },
+    { label: 'Fluxo', hideMobile: true, render: r => esc(ENTITY_TYPE[r.entityType] || r.entityType || '—') },
+    { label: 'Template', hideMobile: true, render: r => `<span class="cell-mono">${fmtValue(r.template)}</span>` },
     { label: 'Status', render: r => statusPill(r.status, MESSAGE_STATUS) },
-    { label: 'Tentativas', render: r => num(r.attempts) },
-    { label: 'Motivo', render: r => r.failureCategory ? FAILURE_CATEGORY[r.failureCategory] || r.failureCategory : '<span class="cell-muted">—</span>' },
+    { label: 'Tentativas', hideMobile: true, render: r => num(r.attempts) },
+    { label: 'Motivo', hideMobile: true, render: r => r.failureCategory ? esc(FAILURE_CATEGORY[r.failureCategory] || r.failureCategory) : '<span class="cell-muted">—</span>' },
   ]
-  const { html, wire } = renderTable({ rows: d.data, columns, pagination: d.pagination, onRowClick: id => openMessageDetail(id), rowClass: () => 'clickable' })
-  $('content').innerHTML = html; wire($('content'))
+  const { html, wire } = renderTable({ rows: d.data, columns, pagination: d.pagination, onRowClick: id => openMessageDetail(id), rowClass: () => 'clickable', cardTitle: columns[1], cardMeta: columns[0] })
+  $('content').innerHTML = d.data.length ? html : emptyState('Nenhuma mensagem encontrada', 'Ajuste o filtro de status ou a busca para ver outros registros.')
+  if (d.data.length) wire($('content'))
 }
 async function openMessageDetail(id) {
   try {
     const m = await api('messages/' + id)
-    const steps = (m.timeline || []).map((s, i) => ({ criada: 'Criada', scheduled: 'Agendada', accepted: 'Meta aceitou', sent: 'Enviada', delivered: 'Entregue', read: 'Lida' }[s.stage] || s.stage)).map((label, i) => ({ label, at: m.timeline[i].at }))
+    const stageLabels = { created: 'Criada', scheduled: 'Agendada', accepted: 'Meta aceitou', sent: 'Enviada', delivered: 'Entregue', read: 'Lida' }
+    const steps = (m.timeline || []).map(s => ({ label: stageLabels[s.stage] || s.stage, at: s.at }))
     const failedAtEnd = m.status === 'failed' || m.status === 'unknown'
     const stepperHtml = steps.map((s, i) => `<div class="step ${i === steps.length - 1 ? (failedAtEnd ? 'failed' : 'current') : 'done'}"><span class="node"></span><div><div class="label">${esc(s.label)}</div><div class="time">${dt(s.at)}</div></div></div>`).join('')
     openPanel(`
@@ -308,8 +300,122 @@ async function openMessageDetail(id) {
   } catch (e) { alert(e.message) }
 }
 
-// ── CARRINHO (pipeline) ──────────────────────────────────────────────────────────────────────
-async function renderCheckouts() {
+// ── ÁREA: TEMPLATES (aba local de Envios) ────────────────────────────────────────────────────
+async function renderTemplatesArea() {
+  const d = await api('templates')
+  const rows = (d.data || []).map(r => `<div class="template-row">
+    <div><div class="name">${esc(r.metaTemplateName)}</div><div class="preview">${esc(r.messagePreview || '')}</div></div>
+    <div>${pill(TEMPLATE_CATEGORY[r.category] || r.category, 'neutral')} <span class="cell-muted" style="font-size:11px">${esc(r.languageCode)}</span></div>
+    <div>${pill(r.active ? 'Ativo' : 'Inativo', r.active ? 'success' : 'neutral')} <span class="cell-muted" style="font-size:11px">Status Meta: ${fmtValue(r.metaStatus)}</span></div>
+    <div class="stat"><b>${num(r.usageCount)}</b>usos<div style="margin-top:6px">${dOnly(r.lastUsedAt)}</div></div>
+  </div>`).join('')
+  $('content').innerHTML = rows ? `<div class="template-list">${rows}</div>` : emptyState('Nenhum template cadastrado')
+}
+
+// ── ÁREA: CLIENTES + CLIENTE 360 ─────────────────────────────────────────────────────────────
+async function renderCustomersArea() {
+  const qs = new URLSearchParams({ page: String(state.page), pageSize: '25' }); if (state.search) qs.set('search', state.search)
+  const d = await api('customers?' + qs)
+  const columns = [
+    { label: 'Cliente', render: r => `<div style="display:flex;align-items:center;gap:9px"><span class="c360-avatar" style="width:26px;height:26px;font-size:10px">${esc(initials(r.name))}</span><b>${esc(r.name || 'Sem nome')}</b></div>` },
+    { label: 'Telefone', hideMobile: true, render: r => `<span class="cell-mono">${fmtValue(r.phone)}</span>` },
+    { label: 'Última compra', hideMobile: true, render: r => dOnly(r.lastOrder) },
+    { label: 'Último contato', hideMobile: true, render: r => dOnly(r.lastContact) },
+    { label: 'Mensagens', hideMobile: true, render: r => num(r.messages) },
+    { label: 'Consentimento', render: r => statusPill(r.consent, CONSENT_STATUS) },
+    { label: 'Status', render: r => r.optOut ? pill('Opt-out', 'danger') : r.suppressed ? pill('Suprimido', 'danger') : pill('Normal', 'success') },
+  ]
+  const { html, wire } = renderTable({ rows: d.data, columns, pagination: d.pagination, onRowClick: id => { state.customerId = id; state.customerTab = 'overview'; state.page = 1; load() }, rowClass: () => 'clickable', cardTitle: columns[0], cardMeta: columns[6] })
+  $('content').innerHTML = d.data.length ? html : emptyState('Nenhum cliente encontrado', 'Ajuste a busca para ver outros registros.')
+  if (d.data.length) wire($('content'))
+}
+async function renderCustomer360(id) {
+  const d = await api('customers/' + id)
+  const tab = state.customerTab || 'overview'
+  const tabs = [['overview', 'Visão geral'], ['orders', 'Pedidos'], ['messages', 'Mensagens'], ['conversations', 'Conversas'], ['checkouts', 'Carrinhos'], ['privacy', 'Privacidade']]
+  const flags = []
+  if (d.optOut) flags.push(pill('Opt-out', 'danger'))
+  if (d.suppression) flags.push(pill('Suprimido', 'danger'))
+  if (!flags.length) flags.push(pill('Contato normal', 'success'))
+  $('content').innerHTML = `
+    <button class="btn btn-ghost btn-sm" id="backToList" style="margin-bottom:15px">${ICONS.back} Clientes</button>
+    <div class="c360-head"><div class="c360-avatar-row">
+      <span class="c360-avatar">${esc(initials(d.name))}</span>
+      <div><h1>${esc(d.name || 'Sem nome')}</h1>
+        <div class="c360-meta"><span>Telefone <b>${fmtValue(d.phone)}</b></span><span>E-mail <b>${fmtValue(d.email)}</b></span><span>Pedidos <b>${num(d.orders.length)}</b></span><span>Mensagens <b>${num(d.messages.length)}</b></span><span>Conversas <b>${num(d.conversations.length)}</b></span></div>
+      </div>
+    </div><div class="c360-flags">${flags.join('')}</div></div>
+    <div class="c360-tabs">${tabs.map(([k, l]) => `<button data-tab="${k}" class="${tab === k ? 'active' : ''}">${l}</button>`).join('')}</div>
+    <div id="c360Body"></div>`
+  $('backToList').onclick = () => { state.customerId = null; load() }
+  document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { state.customerTab = b.dataset.tab; load() })
+  $('c360Body').innerHTML = renderCustomer360Tab(tab, d)
+}
+function renderCustomer360Tab(tab, d) {
+  if (tab === 'overview') {
+    const lastOrder = d.orders[0], lastMsg = d.messages[0]
+    const summary = [
+      lastOrder ? `Última compra em <b>${dOnly(lastOrder.date)}</b> — ${money(lastOrder.total)} via ${esc(lastOrder.paymentMethod || 'método não informado')}.` : 'Nenhuma compra registrada para este cliente.',
+      lastMsg ? `Último contato via WhatsApp em <b>${dOnly(lastMsg.createdAt)}</b> — ${esc(lastMsg.templateName || 'mensagem')}, ${statusPill(lastMsg.status, MESSAGE_STATUS)}.` : 'Nenhuma mensagem registrada para este cliente.',
+      d.checkouts.length ? `${num(d.checkouts.length)} carrinho(s) abandonado(s) no histórico.` : 'Nenhum carrinho abandonado no histórico.',
+      d.suppression ? `Contato suprimido — ${esc(d.suppression.reason || 'motivo não informado')}.` : 'Sem suppression registrada para este contato.',
+    ]
+    return `<div class="panel" style="padding:4px 0 4px">${summary.map(s => `<div class="narrative-row"><span class="icon">${ICONS.chat}</span><div class="body">${s}</div></div>`).join('')}</div>
+      <div class="kv-grid" style="grid-template-columns:repeat(3,1fr);margin-top:16px">
+        <div class="kv"><span>Consentimentos ativos</span><b>${num(d.consents.filter(c => c.consented && !c.revokedAt).length)}</b></div>
+        <div class="kv"><span>Opt-out</span><b>${boolLabel(d.optOut)}</b></div>
+        <div class="kv"><span>Carrinhos no histórico</span><b>${num(d.checkouts.length)}</b></div>
+      </div>`
+  }
+  if (tab === 'orders') return narrativeList(d.orders, o => ({ icon: 'order', title: `${esc(o.orderNumber || o.id)} · ${money(o.total)}`, sub: `${esc(o.paymentMethod || 'método não informado')} · ${statusPill(o.paymentStatus || '—', { [o.paymentStatus]: [o.paymentStatus, ['paid', 'confirmed', 'authorized'].includes(String(o.paymentStatus)) ? 'success' : 'warning'] })}`, time: dOnly(o.date) }), 'Nenhum pedido registrado.')
+  if (tab === 'messages') return narrativeList(d.messages, m => ({ icon: 'send', title: esc(m.templateName || 'Mensagem'), sub: `${esc(ENTITY_TYPE[m.entityType] || m.entityType || '')} · ${statusPill(m.status, MESSAGE_STATUS)}`, time: dt(m.createdAt) }), 'Nenhuma mensagem registrada.')
+  if (tab === 'conversations') return narrativeList(d.conversations, c => ({ icon: 'chat', title: statusPill(c.status, CONVERSATION_STATUS), sub: `Última mensagem em ${dt(c.lastMessageAt)}` }), 'Nenhuma conversa registrada.')
+  if (tab === 'checkouts') return narrativeList(d.checkouts, c => ({ icon: 'order', title: `${esc(c.checkout || c.id)} · ${money(c.total)}`, sub: statusPill(c.status, CHECKOUT_STATUS), time: dOnly(c.date) }), 'Nenhum carrinho abandonado registrado.')
+  if (tab === 'privacy') return `<div class="section-block"><div class="section-block-head"><h2>Consentimentos</h2></div>${narrativeList(d.consents, c => ({ icon: 'shield', title: esc(c.scope), sub: pill(c.consented && !c.revokedAt ? 'Concedido' : 'Revogado', c.consented && !c.revokedAt ? 'success' : 'danger') + ' · ' + esc(c.source || 'origem não informada'), time: dOnly(c.consentedAt) }), 'Nenhum consentimento registrado.')}</div>
+    <div class="section-block"><div class="section-block-head"><h2>Suppression</h2></div>${d.suppression ? `<div class="kv"><span>Motivo</span><b>${fmtValue(d.suppression.reason)}</b></div>` : '<p class="cell-muted">Nenhuma suppression registrada para este contato.</p>'}</div>`
+  return ''
+}
+
+// ── ÁREA: CONSENTIMENTOS (aba local de Cliente 360) ──────────────────────────────────────────
+async function renderConsentsArea() {
+  const qs = new URLSearchParams({ page: String(state.page), pageSize: '30' })
+  const d = await api('consents?' + qs)
+  const columns = [
+    { label: 'Telefone', render: r => `<span class="cell-mono">${fmtValue(r.phone)}</span>` },
+    { label: 'Escopo', render: r => esc(r.scope) },
+    { label: 'Status', render: r => statusPill(r.status, CONSENT_STATUS) },
+    { label: 'Origem', render: r => esc(r.source || '—') },
+    { label: 'Concedido em', render: r => dOnly(r.consentedAt) },
+    { label: 'Revogado em', render: r => dOnly(r.revokedAt) },
+  ]
+  const { html, wire } = renderTable({ rows: d.data, columns, pagination: d.pagination })
+  $('content').innerHTML = `<div class="notice">Consentimento, opt-out e suppression são conceitos distintos: consentimento é a permissão explícita de contato por escopo; opt-out e suppression (ver Cliente 360) bloqueiam o contato independentemente do consentimento.</div>` + (d.data.length ? html : emptyState('Nenhum consentimento registrado')); if (d.data.length) wire($('content'))
+}
+
+// ── ÁREA: CONVERSAS (inbox 3 colunas) ────────────────────────────────────────────────────────
+async function renderConversationsArea() {
+  const qs = new URLSearchParams({ page: String(state.page), pageSize: '30' }); if (state.search) qs.set('search', state.search)
+  const d = await api('conversations?' + qs)
+  const activeId = state.convoId
+  const listHtml = (d.data || []).map(r => `<div class="inbox-list-row ${r.id === activeId ? 'active' : ''}" data-id="${esc(r.id)}"><div class="top"><span>${esc(r.contact || 'Sem nome')}</span><time>${dt(r.lastMessageAt)}</time></div><div class="preview">${esc(r.preview || '')}</div><div>${statusPill(r.status, CONVERSATION_STATUS)}</div></div>`).join('') || '<div class="inbox-empty">Nenhuma conversa encontrada.</div>'
+  $('content').innerHTML = `<div class="inbox-grid ${state.mobileThreadOpen ? 'inbox-view-thread' : 'inbox-view-list'}"><div class="inbox-list">${listHtml}</div><div class="inbox-thread" id="thread"><div class="inbox-empty">Selecione uma conversa para ver o histórico.</div></div><div class="inbox-context" id="threadContext"></div></div>`
+  document.querySelectorAll('.inbox-list-row[data-id]').forEach(row => row.onclick = () => { state.convoId = row.dataset.id; state.mobileThreadOpen = true; document.querySelector('.inbox-grid').classList.add('inbox-view-thread'); document.querySelector('.inbox-grid').classList.remove('inbox-view-list'); loadConversationThread(row.dataset.id) })
+  if (activeId) loadConversationThread(activeId)
+}
+async function loadConversationThread(id) {
+  document.querySelectorAll('.inbox-list-row').forEach(r => r.classList.toggle('active', r.dataset.id === id))
+  $('thread').innerHTML = '<div class="skeleton" style="padding:18px"><div class="sk-row"></div><div class="sk-row"></div></div>'
+  try {
+    const c = await api('conversations/' + id)
+    const bubbles = (c.messages || []).map(m => `<div class="bubble ${m.direction === 'inbound' ? 'in' : 'out'}">${esc(m.body || `[${m.type}]`)}<time>${dt(m.timestamp || m.createdAt)}</time></div>`).join('') || '<div class="inbox-empty">Sem mensagens nesta conversa.</div>'
+    $('thread').innerHTML = `<div class="inbox-thread-head"><button class="inbox-thread-back" id="threadBack">${ICONS.back}</button><span>${esc(c.contact?.name || 'Sem nome')}</span>${statusPill(c.status, CONVERSATION_STATUS)}</div><div class="inbox-thread-body">${bubbles}</div>`
+    $('threadBack').onclick = () => { state.mobileThreadOpen = false; document.querySelector('.inbox-grid').classList.add('inbox-view-list'); document.querySelector('.inbox-grid').classList.remove('inbox-view-thread') }
+    $('threadContext').innerHTML = `<p class="eyebrow">CONTATO</p><div class="kv" style="margin-bottom:11px"><span>Telefone</span><b>${fmtValue(c.contact?.phone)}</b></div><p class="cell-muted" style="font-size:11.5px;line-height:1.6">Painel somente leitura — sem opções de envio ou alteração de status a partir daqui.</p>`
+  } catch (e) { $('thread').innerHTML = `<div class="inbox-empty">${esc(e.message)}</div>` }
+}
+
+// ── ÁREA: CARRINHO (pipeline) ─────────────────────────────────────────────────────────────────
+async function renderCheckoutsArea() {
   const qs = new URLSearchParams({ page: String(state.page), pageSize: '25' })
   const d = await api('checkouts?' + qs)
   const rows = d.data || []
@@ -322,15 +428,15 @@ async function renderCheckouts() {
   </div>`
   const columns = [
     { label: 'Cliente', render: r => `<b>${esc(r.customer || 'Sem nome')}</b>` },
-    { label: 'Itens', render: r => `<span title="${esc(r.products || '')}">${fmtValue(r.products)}</span>` },
+    { label: 'Itens', hideMobile: true, render: r => `<span title="${esc(r.products || '')}">${fmtValue(r.products)}</span>` },
     { label: 'Valor', render: r => money(r.total) },
-    { label: 'Abandono', render: r => dt(r.date) },
+    { label: 'Abandono', hideMobile: true, render: r => dt(r.date) },
     { label: 'Elegibilidade', render: r => r.eligible === true ? pill('Elegível agora', 'success') : r.eligible === false ? pill(((r.blockers || [])[0] && (CHECKOUT_BLOCKERS[r.blockers[0]] || r.blockers[0])) || 'Bloqueado', 'warning') : pill('Não avaliado', 'neutral') },
-    { label: 'Mensagem', render: r => r.message ? statusPill(r.message.status, MESSAGE_STATUS) : '<span class="cell-muted">Nenhuma ainda</span>' },
+    { label: 'Mensagem', hideMobile: true, render: r => r.message ? statusPill(r.message.status, MESSAGE_STATUS) : '<span class="cell-muted">Nenhuma ainda</span>' },
     { label: 'Status', render: r => statusPill(r.status, CHECKOUT_STATUS) },
   ]
-  const { html, wire } = renderTable({ rows, columns, pagination: d.pagination, onRowClick: id => openCheckoutDetail(rows.find(r => r.id === id)), rowClass: () => 'clickable' })
-  $('content').innerHTML = pipeline + html; wire($('content'))
+  const { html, wire } = renderTable({ rows, columns, pagination: d.pagination, onRowClick: id => openCheckoutDetail(rows.find(r => r.id === id)), rowClass: () => 'clickable', cardTitle: columns[0], cardMeta: columns[2] })
+  $('content').innerHTML = pipeline + (rows.length ? html : emptyState('Nenhum carrinho abandonado nesta página')); if (rows.length) wire($('content'))
 }
 function openCheckoutDetail(r) {
   if (!r) return
@@ -342,8 +448,8 @@ function openCheckoutDetail(r) {
     <details class="tech-toggle"><summary>Dados técnicos</summary><div class="tech-kv"><span>Checkout ID</span><b>${fmtValue(r.checkout)}</b><span>Converted order</span><b>${fmtValue(r.convertedOrderId)}</b><span>Converted at</span><b>${dt(r.convertedAt)}</b></div></details>`)
 }
 
-// ── PIX / BOLETO ─────────────────────────────────────────────────────────────────────────────
-async function renderPayments(method) {
+// ── ÁREAS: PIX / BOLETO (abas locais de Carrinho) ────────────────────────────────────────────
+async function renderPaymentsArea(method) {
   const qs = new URLSearchParams({ page: String(state.page), pageSize: '25' })
   const d = await api('payments/' + method + '?' + qs)
   const rows = d.data || []
@@ -362,11 +468,11 @@ async function renderPayments(method) {
     { label: 'Falha', render: r => r.error ? esc(FAILURE_CATEGORY[r.error.category] || r.error.category || '—') : '<span class="cell-muted">—</span>' },
   ]
   const { html, wire } = renderTable({ rows, columns, pagination: d.pagination })
-  $('content').innerHTML = summary + html; wire($('content'))
+  $('content').innerHTML = summary + (rows.length ? html : emptyState('Nenhum pedido pendente encontrado')); if (rows.length) wire($('content'))
 }
 
-// ── REMARKETING ──────────────────────────────────────────────────────────────────────────────
-async function renderRemarketing() {
+// ── ÁREA: REMARKETING (aba local de Carrinho) ────────────────────────────────────────────────
+async function renderRemarketingArea() {
   const qs = new URLSearchParams({ page: String(state.page), pageSize: '25' })
   const d = await api('remarketing?' + qs)
   const rows = d.data || []
@@ -397,11 +503,11 @@ async function renderRemarketing() {
     { label: 'Início', render: r => dt(r.startedAt) },
   ]
   const { html, wire } = renderTable({ rows, columns, pagination: d.pagination })
-  $('content').innerHTML = runtime + `<div class="segment-row">${segCards}</div>` + html; wire($('content'))
+  $('content').innerHTML = runtime + `<div class="segment-row">${segCards}</div>` + (rows.length ? html : emptyState('Nenhuma execução de remarketing registrada')); if (rows.length) wire($('content'))
 }
 
-// ── AUTOMAÇÕES (fluxo) ───────────────────────────────────────────────────────────────────────
-async function renderAutomations() {
+// ── ÁREA: AUTOMAÇÕES (regra vs. runtime) ─────────────────────────────────────────────────────
+async function renderAutomationsArea() {
   const d = await api('automations')
   const cards = (d.data || []).map(r => {
     const nodes = [`Trigger — ${EVENT_TYPE[r.eventType] || r.eventType}`, r.delayMinutes ? `Esperar ${r.delayMinutes} min` : null, r.stopIfOrderExists ? 'Verificar se já existe pedido' : null, `Template — ${r.templateName}`, 'WhatsApp'].filter(Boolean)
@@ -420,55 +526,27 @@ async function renderAutomations() {
         </div>
       </div></div>`
   }).join('')
-  $('content').innerHTML = cards || '<div class="empty-state"><h3>Nenhuma automação configurada</h3></div>'
+  $('content').innerHTML = cards || emptyState('Nenhuma automação configurada')
 }
 
-// ── TEMPLATES ────────────────────────────────────────────────────────────────────────────────
-async function renderTemplates() {
-  const d = await api('templates')
-  const rows = (d.data || []).map(r => `<div class="template-row">
-    <div><div class="name">${esc(r.metaTemplateName)}</div><div class="preview">${esc(r.messagePreview || '')}</div></div>
-    <div>${pill(TEMPLATE_CATEGORY[r.category] || r.category, 'neutral')} <span class="cell-muted" style="font-size:11px">${esc(r.languageCode)}</span></div>
-    <div>${pill(r.active ? 'Ativo' : 'Inativo', r.active ? 'success' : 'neutral')} <span class="cell-muted" style="font-size:11px">Status Meta: ${fmtValue(r.metaStatus)}</span></div>
-    <div class="stat"><b>${num(r.usageCount)}</b>usos<div style="margin-top:6px">${dOnly(r.lastUsedAt)}</div></div>
-  </div>`).join('')
-  $('content').innerHTML = `<div class="template-list">${rows || '<div class="empty-state"><h3>Nenhum template cadastrado</h3></div>'}</div>`
-}
-
-// ── CONSENTIMENTOS ───────────────────────────────────────────────────────────────────────────
-async function renderConsents() {
-  const qs = new URLSearchParams({ page: String(state.page), pageSize: '30' })
-  const d = await api('consents?' + qs)
-  const columns = [
-    { label: 'Telefone', render: r => `<span class="cell-mono">${fmtValue(r.phone)}</span>` },
-    { label: 'Escopo', render: r => esc(r.scope) },
-    { label: 'Status', render: r => statusPill(r.status, CONSENT_STATUS) },
-    { label: 'Origem', render: r => esc(r.source || '—') },
-    { label: 'Concedido em', render: r => dOnly(r.consentedAt) },
-    { label: 'Revogado em', render: r => dOnly(r.revokedAt) },
-  ]
-  const { html, wire } = renderTable({ rows: d.data, columns, pagination: d.pagination })
-  $('content').innerHTML = `<div class="notice">Consentimento, opt-out e suppression são conceitos distintos: consentimento é a permissão explícita de contato por escopo; opt-out e suppression (ver Clientes) bloqueiam o contato independentemente do consentimento.</div>` + html; wire($('content'))
-}
-
-// ── SAÚDE ────────────────────────────────────────────────────────────────────────────────────
-async function renderHealth() {
+// ── ÁREA: SAÚDE ──────────────────────────────────────────────────────────────────────────────
+async function renderHealthArea() {
   const h = await api('health')
-  function tile(name, ok, note) { return `<div class="health-tile"><div class="name">${esc(name)}</div>${pill(ok ? 'Operacional' : 'Sem evidência recente', ok ? 'success' : 'warning')}<p class="cell-muted" style="margin-top:8px;font-size:11.5px">${note}</p></div>` }
+  function tile(name, ok, note) { return `<div class="health-tile"><div class="name">${esc(name)}</div>${pill(ok ? 'Última verificação bem-sucedida' : 'Sem confirmação recente', ok ? 'success' : 'warning')}<p class="cell-muted" style="margin-top:9px;font-size:11.5px">${note}</p></div>` }
   const metaOk = h.meta.configured && h.meta.latestEvidence && !h.meta.latestEvidence.error && !isStale(h.meta.latestEvidence.createdAt)
   const nuvemOk = h.nuvemshop.configured && h.nuvemshop.latestEvidence && !h.nuvemshop.latestEvidence.error && !isStale(h.nuvemshop.latestEvidence.createdAt)
   const recoveryOk = h.recoveryEngine.failed === 0 && h.recoveryEngine.unknown === 0
   const mirrorOk = h.inboxMirror.failed === 0
   const board = `<div class="health-board">
-    ${tile('Meta', metaOk, h.meta.latestEvidence ? `Última evidência: ${dt(h.meta.latestEvidence.createdAt)}` : 'Nenhuma evidência registrada')}
+    ${tile('Meta / WhatsApp', metaOk, h.meta.latestEvidence ? `Última evidência: ${dt(h.meta.latestEvidence.createdAt)}` : 'Nenhuma evidência registrada')}
     ${tile('Nuvemshop', nuvemOk, h.nuvemshop.latestEvidence ? `Última evidência: ${dt(h.nuvemshop.latestEvidence.createdAt)}` : 'Nenhuma evidência registrada')}
-    ${tile('Recovery Engine', recoveryOk, `${num(h.recoveryEngine.pending)} pendentes · ${num(h.recoveryEngine.processing)} processando`)}
-    ${tile('Inbox Mirror', mirrorOk, h.inboxMirror.latestSuccess ? `Último espelhamento: ${dt(h.inboxMirror.latestSuccess)}` : 'Nenhum espelhamento bem-sucedido registrado')}
+    ${tile('Motor de recuperação', recoveryOk, `${num(h.recoveryEngine.pending)} pendentes · ${num(h.recoveryEngine.processing)} processando`)}
+    ${tile('Espelhamento no inbox', mirrorOk, h.inboxMirror.latestSuccess ? `Último espelhamento: ${dt(h.inboxMirror.latestSuccess)}` : 'Nenhum espelhamento bem-sucedido registrado')}
   </div>`
   const details = `<div class="health-detail-grid">
-    <div class="panel"><div class="panel-head"><b>Recovery Engine</b></div><div style="padding:14px 16px"><div class="kv-grid"><div class="kv"><span>Pendentes</span><b>${num(h.recoveryEngine.pending)}</b></div><div class="kv"><span>Processando</span><b>${num(h.recoveryEngine.processing)}</b></div><div class="kv"><span>Falhas</span><b>${num(h.recoveryEngine.failed)}</b></div><div class="kv"><span>Unknown</span><b>${num(h.recoveryEngine.unknown)}</b></div></div><div class="kv" style="margin-top:8px"><span>Pendente mais antigo</span><b>${dt(h.recoveryEngine.oldestPending)}</b></div></div></div>
-    <div class="panel"><div class="panel-head"><b>Inbox Mirror</b></div><div style="padding:14px 16px"><div class="kv-grid"><div class="kv"><span>Falhas</span><b>${num(h.inboxMirror.failed)}</b></div><div class="kv"><span>Último sucesso</span><b>${dt(h.inboxMirror.latestSuccess)}</b></div></div></div></div>
-    <div class="panel"><div class="panel-head"><b>Runtime</b></div><div style="padding:14px 16px" class="kv-grid">
+    <div class="panel"><div class="panel-head"><b>Motor de recuperação</b></div><div style="padding:15px 17px"><div class="kv-grid"><div class="kv"><span>Pendentes</span><b>${num(h.recoveryEngine.pending)}</b></div><div class="kv"><span>Processando</span><b>${num(h.recoveryEngine.processing)}</b></div><div class="kv"><span>Falhas</span><b>${num(h.recoveryEngine.failed)}</b></div><div class="kv"><span>Status incerto</span><b>${num(h.recoveryEngine.unknown)}</b></div></div><div class="kv" style="margin-top:8px"><span>Pendente mais antigo</span><b>${dt(h.recoveryEngine.oldestPending)}</b></div></div></div>
+    <div class="panel"><div class="panel-head"><b>Espelhamento no inbox</b></div><div style="padding:15px 17px"><div class="kv-grid"><div class="kv"><span>Falhas</span><b>${num(h.inboxMirror.failed)}</b></div><div class="kv"><span>Último sucesso</span><b>${dt(h.inboxMirror.latestSuccess)}</b></div></div></div></div>
+    <div class="panel"><div class="panel-head"><b>Runtime</b></div><div style="padding:15px 17px" class="kv-grid">
       <div class="kv"><span>Cron interno</span><b>${boolLabel(h.runtime.cron)}</b></div>
       <div class="kv"><span>Envio de automação</span><b>${boolLabel(h.runtime.automationSend)}</b></div>
       <div class="kv"><span>Carrinho abandonado</span><b>${boolLabel(h.runtime.abandonedCart)}</b></div>
@@ -480,8 +558,8 @@ async function renderHealth() {
   $('content').innerHTML = board + details
 }
 
-// ── AUDITORIA ────────────────────────────────────────────────────────────────────────────────
-async function renderAudit() {
+// ── ÁREA: AUDITORIA (aba local de Saúde) ─────────────────────────────────────────────────────
+async function renderAuditArea() {
   const qs = new URLSearchParams({ page: String(state.page), pageSize: '30' })
   const d = await api('audit?' + qs)
   const notice = d.fullAuditLog?.status === 'NOT_AVAILABLE' ? `<div class="notice">Ledger de auditoria completo indisponível — faltam ator, estado anterior, estado posterior e motivo (${(d.fullAuditLog.missing || []).join(', ')}). Os eventos técnicos abaixo são reais e comprovados, mas não substituem um ledger completo.</div>` : ''
@@ -494,7 +572,24 @@ async function renderAudit() {
     { label: 'Erro', render: r => r.error ? esc(r.error) : '<span class="cell-muted">—</span>' },
   ]
   const { html, wire } = renderTable({ rows: d.data, columns, pagination: d.pagination })
-  $('content').innerHTML = notice + html; wire($('content'))
+  $('content').innerHTML = notice + (d.data.length ? html : emptyState('Nenhum evento técnico registrado')); if (d.data.length) wire($('content'))
+}
+
+// ── Registro de áreas (mesmo dado, 13 áreas reais mapeadas para 7 destinos principais) ───────
+const AREAS = {
+  dashboard: renderDashboard,
+  messages: renderMessagesArea,
+  templates: renderTemplatesArea,
+  customers: renderCustomersArea,
+  consents: renderConsentsArea,
+  conversations: renderConversationsArea,
+  checkouts: renderCheckoutsArea,
+  pix: () => renderPaymentsArea('pix'),
+  boleto: () => renderPaymentsArea('boleto'),
+  remarketing: renderRemarketingArea,
+  automations: renderAutomationsArea,
+  health: renderHealthArea,
+  audit: renderAuditArea,
 }
 
 render()
