@@ -34,6 +34,21 @@ vi.mock('../../helpers/dateService', () => ({
 
 import { nuvemshopService } from '../../services/nuvemshopService'
 
+const createdAtMin = new Date('2026-05-06T00:00:00.000Z')
+const createdAtMax = new Date('2026-05-13T00:00:00.000Z')
+
+function emptyRange404() {
+  return Object.assign(new Error('Request failed with status code 404'), {
+    response: {
+      status: 404,
+      data: {
+        message: 'Not Found',
+        description: 'Last page is 0',
+      },
+    },
+  })
+}
+
 describe('nuvemshopService empty historical order ranges', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -41,24 +56,46 @@ describe('nuvemshopService empty historical order ranges', () => {
   })
 
   it('treats the exact Nuvemshop page-1 404 Last page is 0 response as an empty range', async () => {
-    const emptyRange404 = Object.assign(new Error('Request failed with status code 404'), {
+    mocks.get.mockRejectedValueOnce(emptyRange404())
+
+    const result = await nuvemshopService.fetchOrders({ createdAtMin, createdAtMax })
+
+    expect(result).toEqual([])
+    expect(mocks.get).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps a generic page-1 404 fail-closed', async () => {
+    const generic404 = Object.assign(new Error('Request failed with status code 404'), {
       response: {
         status: 404,
         data: {
           message: 'Not Found',
-          description: 'Last page is 0',
+          description: 'Order endpoint not found',
         },
       },
     })
 
-    mocks.get.mockRejectedValueOnce(emptyRange404)
+    mocks.get.mockRejectedValueOnce(generic404)
 
-    const result = await nuvemshopService.fetchOrders({
-      createdAtMin: new Date('2026-05-06T00:00:00.000Z'),
-      createdAtMax: new Date('2026-05-13T00:00:00.000Z'),
-    })
-
-    expect(result).toEqual([])
+    await expect(nuvemshopService.fetchOrders({ createdAtMin, createdAtMax })).rejects.toThrow(
+      'Request failed with status code 404'
+    )
     expect(mocks.get).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not treat the exact Last page is 0 response as empty after page 1', async () => {
+    mocks.get
+      .mockResolvedValueOnce({
+        data: Array.from({ length: 50 }, (_, index) => ({ id: index + 1 })),
+        headers: {
+          link: '<https://api.nuvemshop.com.br/v1/7716231/orders?page=2>; rel="next"',
+        },
+      })
+      .mockRejectedValueOnce(emptyRange404())
+
+    await expect(nuvemshopService.fetchOrders({ createdAtMin, createdAtMax })).rejects.toThrow(
+      'Request failed with status code 404'
+    )
+    expect(mocks.get).toHaveBeenCalledTimes(2)
   })
 })
