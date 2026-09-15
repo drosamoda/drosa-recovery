@@ -83,7 +83,17 @@ function initials(name) { if (!name) return '?'; const parts = String(name).trim
 function emptyState(title, hint) { return `<div class="empty-state"><div class="glyph">${ICONS.checkouts}</div><h3>${esc(title)}</h3><p>${esc(hint || '')}</p></div>` }
 
 // ── Estado + autenticação ────────────────────────────────────────────────────────────────────
-const state = { section: 'dashboard', tab: 'dashboard', page: 1, secret: sessionStorage.getItem('crmV2Secret') || '', search: '', period: 'today', msgStatus: '', customerId: null, customerTab: 'overview', convoId: null, mobileThreadOpen: false }
+// connStatus é a verdade real da conexão (nunca apenas "existe um segredo salvo"): idle (sem
+// segredo) → checking (testando contra o backend agora) → online (última chamada real teve
+// sucesso) → offline (última chamada real falhou, mesmo com segredo válido salvo).
+const state = { section: 'dashboard', tab: 'dashboard', page: 1, secret: sessionStorage.getItem('crmV2Secret') || '', search: '', period: 'today', msgStatus: '', customerId: null, customerTab: 'overview', convoId: null, mobileThreadOpen: false, connStatus: 'idle' }
+
+// Token monotônico de renderização: cada load() incrementa e captura sua própria geração.
+// Uma resposta só pode escrever no DOM se sua geração ainda for a atual — isso é o que impede
+// uma tela lenta (ex.: Carrinho) de sobrescrever uma tela mais nova (ex.: Automações) quando
+// finalmente resolve depois que o usuário já navegou para outro lugar.
+let renderGen = 0
+let activeController = null
 
 function openAuthModal() { $('secret').value = state.secret; $('authModal').classList.remove('hidden'); $('backdrop').classList.remove('hidden'); $('secret').focus() }
 function closeAuthModal() { $('authModal').classList.add('hidden'); $('backdrop').classList.add('hidden') }
@@ -92,16 +102,27 @@ $('mtAuthBtn').onclick = () => { if (state.secret) { disconnect() } else { openA
 $('cancelAuth').onclick = closeAuthModal
 $('connect').onclick = () => { state.secret = $('secret').value.trim(); sessionStorage.setItem('crmV2Secret', state.secret); closeAuthModal(); render() }
 $('secret').onkeydown = e => { if (e.key === 'Enter') $('connect').click() }
-function disconnect() { state.secret = ''; sessionStorage.removeItem('crmV2Secret'); state.search = ''; state.page = 1; state.customerId = null; closePanel(); render() }
+function disconnect() { state.secret = ''; state.connStatus = 'idle'; sessionStorage.removeItem('crmV2Secret'); state.search = ''; state.page = 1; state.customerId = null; closePanel(); render() }
 $('closePanel').onclick = closePanel
 function closePanel() { $('panel').classList.add('hidden'); if ($('authModal').classList.contains('hidden')) $('backdrop').classList.add('hidden') }
 function openPanel(html) { $('panelContent').innerHTML = html; $('panel').classList.remove('hidden'); $('backdrop').classList.remove('hidden') }
 $('backdrop').onclick = () => { closePanel(); closeAuthModal() }
 
-async function api(path) {
-  const r = await fetch('/crm-api/' + path, { headers: { 'x-crm-read-secret': state.secret } })
-  if (r.status === 401) throw new Error('Segredo de leitura inválido ou ausente.')
-  if (!r.ok) throw new Error('Falha ao carregar dados reais desta tela.')
+class ApiError extends Error {
+  constructor(message, meta) { super(message); this.name = 'ApiError'; this.status = meta.status; this.endpoint = meta.endpoint }
+}
+async function api(path, signal) {
+  const endpoint = '/crm-api/' + path
+  let r
+  try {
+    r = await fetch(endpoint, { headers: { 'x-crm-read-secret': state.secret }, signal })
+  } catch (e) {
+    if (e.name === 'AbortError') throw e
+    throw new ApiError(`Falha de rede · ${endpoint}`, { status: 0, endpoint })
+  }
+  const requestId = r.headers.get('x-vercel-id')
+  if (r.status === 401) throw new ApiError('Segredo de leitura inválido ou ausente.', { status: 401, endpoint })
+  if (!r.ok) throw new ApiError(`Falha ao carregar · HTTP ${r.status} · ${endpoint}${requestId ? ' · ID: ' + requestId.split('::').pop() : ''}`, { status: r.status, endpoint })
   return r.json()
 }
 
@@ -120,11 +141,18 @@ function renderNav() {
   $('pageSubtitle').textContent = TAB_META[state.tab] || ''
   $('mtTitle').textContent = titleLabel
 
-  const connected = Boolean(state.secret)
-  $('connPill').classList.toggle('on', connected)
-  $('connLabel').textContent = connected ? 'Conectado' : 'Não conectado'
-  $('connToggle').textContent = connected ? 'Sair' : 'Conectar'
-  $('mtConn').classList.toggle('on', connected)
+  // "Conectado" só é exibido depois de uma chamada real bem-sucedida ao backend (state.connStatus),
+  // nunca apenas por existir um segredo salvo — ver api() e load().
+  const hasSecret = Boolean(state.secret)
+  const online = hasSecret && state.connStatus === 'online'
+  const errored = hasSecret && state.connStatus === 'offline'
+  const label = !hasSecret ? 'Não conectado' : state.connStatus === 'checking' ? 'Conectando…' : online ? 'Conectado' : errored ? 'Erro de conexão' : 'Conectando…'
+  $('connPill').classList.toggle('on', online)
+  $('connPill').classList.toggle('error', errored)
+  $('connLabel').textContent = label
+  $('connToggle').textContent = hasSecret ? 'Sair' : 'Conectar'
+  $('mtConn').classList.toggle('on', online)
+  $('mtConn').classList.toggle('error', errored)
 }
 $('sideNav').onclick = e => { const b = e.target.closest('[data-section]'); if (!b) return; selectSection(b.dataset.section) }
 $('bottomTabs').onclick = e => { const b = e.target.closest('[data-section]'); if (!b) return; selectSection(b.dataset.section) }
@@ -149,13 +177,27 @@ async function render() {
   await load()
 }
 async function load() {
+  // Nova geração de render: aborta qualquer chamada anterior ainda em voo e assume o direito
+  // exclusivo de escrever em #content — uma resposta tardia de uma navegação anterior (ex.:
+  // Carrinho lento) nunca mais consegue pintar por cima da tela atual (ex.: Automações).
+  const myGen = ++renderGen
+  if (activeController) activeController.abort()
+  const controller = new AbortController()
+  activeController = controller
+  state.connStatus = 'checking'
   renderNav()
   renderToolbar()
   $('content').innerHTML = '<div class="skeleton">' + Array.from({ length: 6 }).map(() => '<div class="sk-row"></div>').join('') + '</div>'
   try {
-    if (state.section === 'customers' && state.customerId) { await renderCustomer360(state.customerId); return }
-    await AREAS[state.tab]()
+    if (state.section === 'customers' && state.customerId) { await renderCustomer360(state.customerId, myGen, controller.signal) }
+    else { await AREAS[state.tab](myGen, controller.signal) }
+    if (myGen !== renderGen) return
+    state.connStatus = 'online'
+    renderNav()
   } catch (e) {
+    if (e.name === 'AbortError' || myGen !== renderGen) return
+    state.connStatus = 'offline'
+    renderNav()
     $('content').innerHTML = `<div class="error-state"><div class="glyph">!</div><h3>Não foi possível carregar esta tela</h3><p>${esc(e.message)}</p><button class="btn btn-ghost" id="retryBtn">Tentar de novo</button></div>`
     const btn = $('retryBtn'); if (btn) btn.onclick = load
   }
@@ -199,8 +241,8 @@ function narrativeList(rows, mapRow, emptyLabel) {
 }
 
 // ── ÁREA: DASHBOARD ──────────────────────────────────────────────────────────────────────────
-async function renderDashboard() {
-  const [d, health] = await Promise.all([api('dashboard?period=' + state.period), api('health').catch(() => null)])
+async function renderDashboard(gen, signal) {
+  const [d, health] = await Promise.all([api('dashboard?period=' + state.period, signal), api('health', signal).catch(() => null)])
   const m = d.messages || {}
   const otherStatuses = Object.keys(m).filter(k => !['total', 'sent', 'delivered', 'read'].includes(k))
 
@@ -236,11 +278,12 @@ async function renderDashboard() {
 
   let activity = ''
   try {
-    const recent = await api('messages?page=1&pageSize=12')
+    const recent = await api('messages?page=1&pageSize=12', signal)
     activity = `<div class="section-block"><div class="section-block-head"><h2>Atividade recente</h2><span class="hint">Últimas mensagens criadas, com o status atual real</span></div>
       <div class="timeline-feed">${(recent.data || []).map(r => `<div class="timeline-feed-row"><time>${timeOnly(r.createdAt)}</time><div class="event"><b>${esc(r.template || 'Mensagem')}</b> <span class="who">para ${esc(r.customer || 'contato sem nome')}</span></div>${statusPill(r.status, MESSAGE_STATUS)}</div>`).join('') || '<div style="padding:20px" class="cell-muted">Nenhuma mensagem criada ainda.</div>'}</div></div>`
-  } catch { /* atividade recente é complementar — uma falha aqui não derruba o resto do dashboard */ }
+  } catch (e) { if (e.name === 'AbortError') throw e /* atividade recente é complementar — uma falha aqui não derruba o resto do dashboard */ }
 
+  if (gen !== renderGen) return
   $('content').innerHTML = `<div class="dash-top">${hero}${attn}</div>` + chips + funnels + activity
 }
 function buildAlerts(h) {
@@ -260,9 +303,9 @@ function buildAlerts(h) {
 function isStale(createdAt) { if (!createdAt) return false; return (Date.now() - new Date(createdAt).getTime()) > 24 * 3600 * 1000 }
 
 // ── ÁREA: ENVIOS (mensagens) ─────────────────────────────────────────────────────────────────
-async function renderMessagesArea() {
+async function renderMessagesArea(gen, signal) {
   const qs = new URLSearchParams({ page: String(state.page), pageSize: '30' }); if (state.search) qs.set('search', state.search); if (state.msgStatus) qs.set('status', state.msgStatus)
-  const d = await api('messages?' + qs)
+  const d = await api('messages?' + qs, signal)
   const columns = [
     { label: 'Hora', render: r => dt(r.createdAt) },
     { label: 'Cliente', render: r => esc(r.customer || 'Sem nome') },
@@ -273,12 +316,15 @@ async function renderMessagesArea() {
     { label: 'Motivo', hideMobile: true, render: r => r.failureCategory ? esc(FAILURE_CATEGORY[r.failureCategory] || r.failureCategory) : '<span class="cell-muted">—</span>' },
   ]
   const { html, wire } = renderTable({ rows: d.data, columns, pagination: d.pagination, onRowClick: id => openMessageDetail(id), rowClass: () => 'clickable', cardTitle: columns[1], cardMeta: columns[0] })
+  if (gen !== renderGen) return
   $('content').innerHTML = d.data.length ? html : emptyState('Nenhuma mensagem encontrada', 'Ajuste o filtro de status ou a busca para ver outros registros.')
   if (d.data.length) wire($('content'))
 }
 async function openMessageDetail(id) {
+  const myGen = renderGen
   try {
     const m = await api('messages/' + id)
+    if (myGen !== renderGen) return
     const stageLabels = { created: 'Criada', scheduled: 'Agendada', accepted: 'Meta aceitou', sent: 'Enviada', delivered: 'Entregue', read: 'Lida' }
     const steps = (m.timeline || []).map(s => ({ label: stageLabels[s.stage] || s.stage, at: s.at }))
     const failedAtEnd = m.status === 'failed' || m.status === 'unknown'
@@ -301,21 +347,22 @@ async function openMessageDetail(id) {
 }
 
 // ── ÁREA: TEMPLATES (aba local de Envios) ────────────────────────────────────────────────────
-async function renderTemplatesArea() {
-  const d = await api('templates')
+async function renderTemplatesArea(gen, signal) {
+  const d = await api('templates', signal)
   const rows = (d.data || []).map(r => `<div class="template-row">
     <div><div class="name">${esc(r.metaTemplateName)}</div><div class="preview">${esc(r.messagePreview || '')}</div></div>
     <div>${pill(TEMPLATE_CATEGORY[r.category] || r.category, 'neutral')} <span class="cell-muted" style="font-size:11px">${esc(r.languageCode)}</span></div>
     <div>${pill(r.active ? 'Ativo' : 'Inativo', r.active ? 'success' : 'neutral')} <span class="cell-muted" style="font-size:11px">Status Meta: ${fmtValue(r.metaStatus)}</span></div>
     <div class="stat"><b>${num(r.usageCount)}</b>usos<div style="margin-top:6px">${dOnly(r.lastUsedAt)}</div></div>
   </div>`).join('')
+  if (gen !== renderGen) return
   $('content').innerHTML = rows ? `<div class="template-list">${rows}</div>` : emptyState('Nenhum template cadastrado')
 }
 
 // ── ÁREA: CLIENTES + CLIENTE 360 ─────────────────────────────────────────────────────────────
-async function renderCustomersArea() {
+async function renderCustomersArea(gen, signal) {
   const qs = new URLSearchParams({ page: String(state.page), pageSize: '25' }); if (state.search) qs.set('search', state.search)
-  const d = await api('customers?' + qs)
+  const d = await api('customers?' + qs, signal)
   const columns = [
     { label: 'Cliente', render: r => `<div style="display:flex;align-items:center;gap:9px"><span class="c360-avatar" style="width:26px;height:26px;font-size:10px">${esc(initials(r.name))}</span><b>${esc(r.name || 'Sem nome')}</b></div>` },
     { label: 'Telefone', hideMobile: true, render: r => `<span class="cell-mono">${fmtValue(r.phone)}</span>` },
@@ -326,11 +373,13 @@ async function renderCustomersArea() {
     { label: 'Status', render: r => r.optOut ? pill('Opt-out', 'danger') : r.suppressed ? pill('Suprimido', 'danger') : pill('Normal', 'success') },
   ]
   const { html, wire } = renderTable({ rows: d.data, columns, pagination: d.pagination, onRowClick: id => { state.customerId = id; state.customerTab = 'overview'; state.page = 1; load() }, rowClass: () => 'clickable', cardTitle: columns[0], cardMeta: columns[6] })
+  if (gen !== renderGen) return
   $('content').innerHTML = d.data.length ? html : emptyState('Nenhum cliente encontrado', 'Ajuste a busca para ver outros registros.')
   if (d.data.length) wire($('content'))
 }
-async function renderCustomer360(id) {
-  const d = await api('customers/' + id)
+async function renderCustomer360(id, gen, signal) {
+  const d = await api('customers/' + id, signal)
+  if (gen !== renderGen) return
   const tab = state.customerTab || 'overview'
   const tabs = [['overview', 'Visão geral'], ['orders', 'Pedidos'], ['messages', 'Mensagens'], ['conversations', 'Conversas'], ['checkouts', 'Carrinhos'], ['privacy', 'Privacidade']]
   const flags = []
@@ -377,9 +426,9 @@ function renderCustomer360Tab(tab, d) {
 }
 
 // ── ÁREA: CONSENTIMENTOS (aba local de Cliente 360) ──────────────────────────────────────────
-async function renderConsentsArea() {
+async function renderConsentsArea(gen, signal) {
   const qs = new URLSearchParams({ page: String(state.page), pageSize: '30' })
-  const d = await api('consents?' + qs)
+  const d = await api('consents?' + qs, signal)
   const columns = [
     { label: 'Telefone', render: r => `<span class="cell-mono">${fmtValue(r.phone)}</span>` },
     { label: 'Escopo', render: r => esc(r.scope) },
@@ -389,35 +438,39 @@ async function renderConsentsArea() {
     { label: 'Revogado em', render: r => dOnly(r.revokedAt) },
   ]
   const { html, wire } = renderTable({ rows: d.data, columns, pagination: d.pagination })
+  if (gen !== renderGen) return
   $('content').innerHTML = `<div class="notice">Consentimento, opt-out e suppression são conceitos distintos: consentimento é a permissão explícita de contato por escopo; opt-out e suppression (ver Cliente 360) bloqueiam o contato independentemente do consentimento.</div>` + (d.data.length ? html : emptyState('Nenhum consentimento registrado')); if (d.data.length) wire($('content'))
 }
 
 // ── ÁREA: CONVERSAS (inbox 3 colunas) ────────────────────────────────────────────────────────
-async function renderConversationsArea() {
+async function renderConversationsArea(gen, signal) {
   const qs = new URLSearchParams({ page: String(state.page), pageSize: '30' }); if (state.search) qs.set('search', state.search)
-  const d = await api('conversations?' + qs)
+  const d = await api('conversations?' + qs, signal)
+  if (gen !== renderGen) return
   const activeId = state.convoId
   const listHtml = (d.data || []).map(r => `<div class="inbox-list-row ${r.id === activeId ? 'active' : ''}" data-id="${esc(r.id)}"><div class="top"><span>${esc(r.contact || 'Sem nome')}</span><time>${dt(r.lastMessageAt)}</time></div><div class="preview">${esc(r.preview || '')}</div><div>${statusPill(r.status, CONVERSATION_STATUS)}</div></div>`).join('') || '<div class="inbox-empty">Nenhuma conversa encontrada.</div>'
   $('content').innerHTML = `<div class="inbox-grid ${state.mobileThreadOpen ? 'inbox-view-thread' : 'inbox-view-list'}"><div class="inbox-list">${listHtml}</div><div class="inbox-thread" id="thread"><div class="inbox-empty">Selecione uma conversa para ver o histórico.</div></div><div class="inbox-context" id="threadContext"></div></div>`
-  document.querySelectorAll('.inbox-list-row[data-id]').forEach(row => row.onclick = () => { state.convoId = row.dataset.id; state.mobileThreadOpen = true; document.querySelector('.inbox-grid').classList.add('inbox-view-thread'); document.querySelector('.inbox-grid').classList.remove('inbox-view-list'); loadConversationThread(row.dataset.id) })
-  if (activeId) loadConversationThread(activeId)
+  document.querySelectorAll('.inbox-list-row[data-id]').forEach(row => row.onclick = () => { state.convoId = row.dataset.id; state.mobileThreadOpen = true; document.querySelector('.inbox-grid').classList.add('inbox-view-thread'); document.querySelector('.inbox-grid').classList.remove('inbox-view-list'); loadConversationThread(row.dataset.id, gen) })
+  if (activeId) loadConversationThread(activeId, gen)
 }
-async function loadConversationThread(id) {
+async function loadConversationThread(id, gen) {
   document.querySelectorAll('.inbox-list-row').forEach(r => r.classList.toggle('active', r.dataset.id === id))
-  $('thread').innerHTML = '<div class="skeleton" style="padding:18px"><div class="sk-row"></div><div class="sk-row"></div></div>'
+  const threadEl = $('thread'); if (threadEl) threadEl.innerHTML = '<div class="skeleton" style="padding:18px"><div class="sk-row"></div><div class="sk-row"></div></div>'
   try {
     const c = await api('conversations/' + id)
+    if (gen !== renderGen || !$('thread')) return
     const bubbles = (c.messages || []).map(m => `<div class="bubble ${m.direction === 'inbound' ? 'in' : 'out'}">${esc(m.body || `[${m.type}]`)}<time>${dt(m.timestamp || m.createdAt)}</time></div>`).join('') || '<div class="inbox-empty">Sem mensagens nesta conversa.</div>'
     $('thread').innerHTML = `<div class="inbox-thread-head"><button class="inbox-thread-back" id="threadBack">${ICONS.back}</button><span>${esc(c.contact?.name || 'Sem nome')}</span>${statusPill(c.status, CONVERSATION_STATUS)}</div><div class="inbox-thread-body">${bubbles}</div>`
     $('threadBack').onclick = () => { state.mobileThreadOpen = false; document.querySelector('.inbox-grid').classList.add('inbox-view-list'); document.querySelector('.inbox-grid').classList.remove('inbox-view-thread') }
     $('threadContext').innerHTML = `<p class="eyebrow">CONTATO</p><div class="kv" style="margin-bottom:11px"><span>Telefone</span><b>${fmtValue(c.contact?.phone)}</b></div><p class="cell-muted" style="font-size:11.5px;line-height:1.6">Painel somente leitura — sem opções de envio ou alteração de status a partir daqui.</p>`
-  } catch (e) { $('thread').innerHTML = `<div class="inbox-empty">${esc(e.message)}</div>` }
+  } catch (e) { if (gen === renderGen && $('thread')) $('thread').innerHTML = `<div class="inbox-empty">${esc(e.message)}</div>` }
 }
 
 // ── ÁREA: CARRINHO (pipeline) ─────────────────────────────────────────────────────────────────
-async function renderCheckoutsArea() {
+async function renderCheckoutsArea(gen, signal) {
   const qs = new URLSearchParams({ page: String(state.page), pageSize: '25' })
-  const d = await api('checkouts?' + qs)
+  const d = await api('checkouts?' + qs, signal)
+  if (gen !== renderGen) return
   const rows = d.data || []
   const detected = rows.length, eligible = rows.filter(r => r.eligible === true).length, withMsg = rows.filter(r => r.message).length, converted = rows.filter(r => r.status === 'converted').length
   const pipeline = `<div class="pipeline">
@@ -449,9 +502,10 @@ function openCheckoutDetail(r) {
 }
 
 // ── ÁREAS: PIX / BOLETO (abas locais de Carrinho) ────────────────────────────────────────────
-async function renderPaymentsArea(method) {
+async function renderPaymentsArea(method, gen, signal) {
   const qs = new URLSearchParams({ page: String(state.page), pageSize: '25' })
-  const d = await api('payments/' + method + '?' + qs)
+  const d = await api('payments/' + method + '?' + qs, signal)
+  if (gen !== renderGen) return
   const rows = d.data || []
   const pending = rows.filter(r => !['paid', 'confirmed', 'authorized', 'refunded'].includes(String(r.paymentStatus))).length
   const withMsg = rows.filter(r => r.template).length
@@ -472,9 +526,10 @@ async function renderPaymentsArea(method) {
 }
 
 // ── ÁREA: REMARKETING (aba local de Carrinho) ────────────────────────────────────────────────
-async function renderRemarketingArea() {
+async function renderRemarketingArea(gen, signal) {
   const qs = new URLSearchParams({ page: String(state.page), pageSize: '25' })
-  const d = await api('remarketing?' + qs)
+  const d = await api('remarketing?' + qs, signal)
+  if (gen !== renderGen) return
   const rows = d.data || []
   const bySegment = {}
   rows.forEach(r => { (bySegment[r.segment] = bySegment[r.segment] || []).push(r) })
@@ -507,8 +562,9 @@ async function renderRemarketingArea() {
 }
 
 // ── ÁREA: AUTOMAÇÕES (regra vs. runtime) ─────────────────────────────────────────────────────
-async function renderAutomationsArea() {
-  const d = await api('automations')
+async function renderAutomationsArea(gen, signal) {
+  const d = await api('automations', signal)
+  if (gen !== renderGen) return
   const cards = (d.data || []).map(r => {
     const nodes = [`Trigger — ${EVENT_TYPE[r.eventType] || r.eventType}`, r.delayMinutes ? `Esperar ${r.delayMinutes} min` : null, r.stopIfOrderExists ? 'Verificar se já existe pedido' : null, `Template — ${r.templateName}`, 'WhatsApp'].filter(Boolean)
     const flowMismatch = r.active && !r.runtime.automationSendEnabled
@@ -530,8 +586,9 @@ async function renderAutomationsArea() {
 }
 
 // ── ÁREA: SAÚDE ──────────────────────────────────────────────────────────────────────────────
-async function renderHealthArea() {
-  const h = await api('health')
+async function renderHealthArea(gen, signal) {
+  const h = await api('health', signal)
+  if (gen !== renderGen) return
   function tile(name, ok, note) { return `<div class="health-tile"><div class="name">${esc(name)}</div>${pill(ok ? 'Última verificação bem-sucedida' : 'Sem confirmação recente', ok ? 'success' : 'warning')}<p class="cell-muted" style="margin-top:9px;font-size:11.5px">${note}</p></div>` }
   const metaOk = h.meta.configured && h.meta.latestEvidence && !h.meta.latestEvidence.error && !isStale(h.meta.latestEvidence.createdAt)
   const nuvemOk = h.nuvemshop.configured && h.nuvemshop.latestEvidence && !h.nuvemshop.latestEvidence.error && !isStale(h.nuvemshop.latestEvidence.createdAt)
@@ -559,9 +616,10 @@ async function renderHealthArea() {
 }
 
 // ── ÁREA: AUDITORIA (aba local de Saúde) ─────────────────────────────────────────────────────
-async function renderAuditArea() {
+async function renderAuditArea(gen, signal) {
   const qs = new URLSearchParams({ page: String(state.page), pageSize: '30' })
-  const d = await api('audit?' + qs)
+  const d = await api('audit?' + qs, signal)
+  if (gen !== renderGen) return
   const notice = d.fullAuditLog?.status === 'NOT_AVAILABLE' ? `<div class="notice">Ledger de auditoria completo indisponível — faltam ator, estado anterior, estado posterior e motivo (${(d.fullAuditLog.missing || []).join(', ')}). Os eventos técnicos abaixo são reais e comprovados, mas não substituem um ledger completo.</div>` : ''
   const columns = [
     { label: 'Data', render: r => dt(r.createdAt) },
@@ -584,8 +642,8 @@ const AREAS = {
   consents: renderConsentsArea,
   conversations: renderConversationsArea,
   checkouts: renderCheckoutsArea,
-  pix: () => renderPaymentsArea('pix'),
-  boleto: () => renderPaymentsArea('boleto'),
+  pix: (gen, signal) => renderPaymentsArea('pix', gen, signal),
+  boleto: (gen, signal) => renderPaymentsArea('boleto', gen, signal),
   remarketing: renderRemarketingArea,
   automations: renderAutomationsArea,
   health: renderHealthArea,
