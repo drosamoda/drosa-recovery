@@ -100,6 +100,13 @@ const envSchema = z.object({
   AUTOMATION_SEND_ENABLED: z.string().default('false').transform((v) => v === 'true'),
   WHATSAPP_API_NUMBER: z.string().default(''),
   META_WABA_ID: z.string().default(''),
+
+  // AI Campaign Intelligence — server-side only, nunca exposto ao browser.
+  // Ausência de ANTHROPIC_API_KEY não derruba o boot: bloqueia só a geração
+  // de campanhas (AiProviderConfigError), preservando as 7 áreas existentes.
+  AI_PROVIDER: z.enum(['anthropic']).default('anthropic'),
+  AI_MODEL: z.string().default('claude-sonnet-4-5-20250929'),
+  ANTHROPIC_API_KEY: z.string().default(''),
 })
 
 const parsed = envSchema.safeParse(process.env)

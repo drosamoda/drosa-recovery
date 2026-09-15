@@ -19,6 +19,7 @@ import jobsRoutes from './routes/jobs.routes'
 import customersRoutes from './routes/customers.routes'
 import inboxRoutes from './routes/inbox.routes'
 import crmRoutes from './routes/crm.routes'
+import aiCampaignsRoutes from './routes/aiCampaigns.routes'
 import nuvemshopWebhookRoutes from './routes/webhooks.nuvemshop.routes'
 import metaWebhookRoutes from './routes/webhooks.meta.routes'
 
@@ -98,9 +99,17 @@ app.use('/crm-v2-assets', express.static(path.join(process.cwd(), 'public', 'crm
 
 // ── Modo Preview somente-leitura: nenhuma mutação, sem envio real ──────
 // Sem integrações operacionais nem rotas administrativas/webhooks montadas.
+//
+// Única exceção: /crm-api/ai/campaigns (rascunhos de campanha + aprovação
+// humana). Isso NUNCA envia WhatsApp de verdade (WHATSAPP_DRY_RUN continua
+// true), não toca Nuvemshop, não toca dado de cliente existente — só cria
+// linhas nas tabelas novas e isoladas campaign_drafts/ai_runs. Continua
+// exigindo x-admin-secret (adminAuth, aplicado na própria rota), então um
+// preview sem ADMIN_SECRET configurado permanece 100% bloqueado como antes.
 if (env.CRM_PREVIEW_READONLY) {
   app.use((req, res, next) => {
-    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
+    const isAiCampaignWrite = req.path.startsWith('/crm-api/ai/campaigns')
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && !isAiCampaignWrite) {
       res.status(404).json({ error: 'Rota não encontrada' })
       return
     }
@@ -139,6 +148,7 @@ if (!env.CRM_PREVIEW_READONLY) {
   app.use('/inbox', inboxAuth, inboxRoutes)
 }
 app.use('/crm-api', crmAuth, crmRoutes)
+app.use('/crm-api/ai', crmAuth, aiCampaignsRoutes)
 
 // ── 404 ────────────────────────────────────────────────────────────────
 app.use((_req, res) => {

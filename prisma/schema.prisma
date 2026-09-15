@@ -490,3 +490,103 @@ enum WebhookProvider {
   meta
   mercado_pago_future
 }
+
+// =====================================================================
+// AI CAMPAIGN INTELLIGENCE
+// =====================================================================
+// Deliberately lean: 2 tables instead of the 8 originally sketched.
+// Strategies/audience-snapshot/results are JSON on CampaignDraft because
+// they are always read/written together as one artifact and never queried
+// independently — a join table would add migration surface with no
+// query benefit. AiRun is separate because it is an append-only audit
+// trail with its own lifecycle (one row per provider call).
+
+model CampaignDraft {
+  id                 String              @id @default(cuid())
+  opportunityId      String
+  opportunityType    OpportunityType
+  opportunityTitle   String
+  status             CampaignStatus      @default(DRAFT)
+  audienceSnapshot   Json
+  strategies         Json?
+  selectedStrategy   Int?
+  productTruthStatus ProductTruthStatus  @default(PENDING)
+  complianceStatus   ComplianceStatus    @default(PENDING)
+  complianceFindings Json?
+  approvedBy         String?
+  approvedAt         DateTime?
+  scheduledAt        DateTime?
+  completedAt        DateTime?
+  cancelledAt        DateTime?
+  results            Json?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  aiRuns AiRun[]
+
+  @@index([status])
+  @@index([opportunityType])
+  @@index([createdAt])
+  @@map("campaign_drafts")
+}
+
+model AiRun {
+  id              String          @id @default(cuid())
+  campaignDraftId String?
+  provider        String
+  model           String
+  promptVersion   String
+  inputHash       String
+  outputHash      String?
+  status          AiRunStatus     @default(ok)
+  errorMessage    String?
+  createdAt       DateTime        @default(now())
+
+  campaignDraft CampaignDraft? @relation(fields: [campaignDraftId], references: [id])
+
+  @@index([campaignDraftId])
+  @@index([createdAt])
+  @@map("ai_runs")
+}
+
+enum OpportunityType {
+  ABANDONED_CART
+  PIX_PENDING
+  BOLETO_PENDING
+  REPEAT_PURCHASE
+  WINBACK
+  VIP
+  RECENT_CUSTOMER
+  ENGAGED_NO_PURCHASE
+}
+
+enum CampaignStatus {
+  DRAFT
+  AI_READY
+  PRODUCT_TRUTH_APPROVED
+  COMPLIANCE_APPROVED
+  AWAITING_HUMAN_APPROVAL
+  APPROVED
+  SCHEDULED
+  RUNNING
+  COMPLETED
+  CANCELLED
+}
+
+enum ProductTruthStatus {
+  PENDING
+  APPROVED
+  BLOCKED
+  NOT_APPLICABLE
+}
+
+enum ComplianceStatus {
+  PENDING
+  APPROVED
+  BLOCKED
+}
+
+enum AiRunStatus {
+  ok
+  error
+}

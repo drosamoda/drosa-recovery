@@ -117,6 +117,18 @@ describe('CRM_PREVIEW_READONLY', () => {
     expect(del.status).toBe(404)
   })
 
+  it('a única exceção de escrita em read-only é /crm-api/ai/campaigns, e mesmo ela exige x-admin-secret (401 sem ele)', async () => {
+    const { default: app } = await bootApp(READONLY_ENV)
+    const res = await request(app).post('/crm-api/ai/campaigns').send({ opportunityId: 'x' })
+    expect(res.status).toBe(401)
+  })
+
+  it('todas as outras rotas de escrita continuam 404 em read-only mesmo com ADMIN_SECRET configurado (a exceção não é um bypass geral)', async () => {
+    const { default: app } = await bootApp({ ...READONLY_ENV, ADMIN_SECRET: 'test-admin-secret' })
+    const res = await request(app).post('/crm-api/health').set('x-admin-secret', 'test-admin-secret')
+    expect(res.status).toBe(404)
+  })
+
   it('/health/deep valida somente banco + DATABASE_URL/DIRECT_URL/CRM_READ_SECRET em modo read-only', async () => {
     const { default: app } = await bootApp(READONLY_ENV)
     const res = await request(app).get('/health/deep')
