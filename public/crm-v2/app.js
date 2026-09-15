@@ -411,7 +411,7 @@ function renderCustomer360Tab(tab, d) {
     const summary = [
       lastOrder ? `Última compra em <b>${dOnly(lastOrder.date)}</b> — ${money(lastOrder.total)} via ${esc(lastOrder.paymentMethod || 'método não informado')}.` : 'Nenhuma compra registrada para este cliente.',
       lastMsg ? `Último contato via WhatsApp em <b>${dOnly(lastMsg.createdAt)}</b> — ${esc(lastMsg.templateName || 'mensagem')}, ${statusPill(lastMsg.status, MESSAGE_STATUS)}.` : 'Nenhuma mensagem registrada para este cliente.',
-      d.checkouts.length ? `${num(d.checkouts.length)} carrinho(s) abandonado(s) no hist��rico.` : 'Nenhum carrinho abandonado no histórico.',
+      d.checkouts.length ? `${num(d.checkouts.length)} carrinho(s) abandonado(s) no histórico.` : 'Nenhum carrinho abandonado no histórico.',
       d.suppression ? `Contato suprimido — ${esc(d.suppression.reason || 'motivo não informado')}.` : 'Sem suppression registrada para este contato.',
     ]
     return `<div class="panel" style="padding:4px 0 4px">${summary.map(s => `<div class="narrative-row"><span class="icon">${ICONS.chat}</span><div class="body">${s}</div></div>`).join('')}</div>
