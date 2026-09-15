@@ -91,19 +91,6 @@ function isTransientCheckoutPageError(error: unknown): boolean {
   return status === 429 || (typeof status === 'number' && status >= 500 && status <= 599)
 }
 
-function isEmptyOrderRangeError(error: unknown, page: number): boolean {
-  if (page !== 1 || !error || typeof error !== 'object') return false
-
-  const candidate = error as HttpLikeError
-  if (candidate.response?.status !== 404) return false
-
-  const data = candidate.response.data
-  if (!data || typeof data !== 'object' || Array.isArray(data)) return false
-
-  const payload = data as Record<string, unknown>
-  return payload.message === 'Not Found' && payload.description === 'Last page is 0'
-}
-
 function getHeader(headers: unknown, name: string): unknown {
   if (!headers || typeof headers !== 'object') return undefined
 
@@ -257,10 +244,6 @@ async function fetchOrderPage(
         timeout: 30000,
       })
     } catch (error) {
-      if (isEmptyOrderRangeError(error, page)) {
-        return { data: [] as NuvemshopOrder[], headers: {} }
-      }
-
       if (attempt < ORDER_PAGE_MAX_ATTEMPTS && isTransientCheckoutPageError(error)) {
         continue
       }
