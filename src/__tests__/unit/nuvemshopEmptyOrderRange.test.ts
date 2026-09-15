@@ -49,19 +49,22 @@ function emptyRange404() {
   })
 }
 
-describe('nuvemshopService empty historical order ranges', () => {
+describe('nuvemshopService unavailable historical order ranges', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.create.mockReturnValue({ get: mocks.get })
   })
 
-  it('treats the exact Nuvemshop page-1 404 Last page is 0 response as an empty range', async () => {
-    mocks.get.mockRejectedValueOnce(emptyRange404())
+  it('keeps the exact page-1 404 visible when it cannot prove the history boundary', async () => {
+    mocks.get
+      .mockRejectedValueOnce(emptyRange404())
+      .mockResolvedValueOnce({ data: [{ id: 1 }], headers: {} })
 
-    const result = await nuvemshopService.fetchOrders({ createdAtMin, createdAtMax })
+    await expect(nuvemshopService.fetchOrders({ createdAtMin, createdAtMax })).rejects.toThrow(
+      'Request failed with status code 404'
+    )
 
-    expect(result).toEqual([])
-    expect(mocks.get).toHaveBeenCalledTimes(1)
+    expect(mocks.get).toHaveBeenCalledTimes(2)
   })
 
   it('keeps a generic page-1 404 fail-closed', async () => {
