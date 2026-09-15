@@ -23,6 +23,8 @@ const ICONS = {
   send: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7Z"/></svg>',
   chat: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.9 8.4A8.6 8.6 0 0 1 8 19l-5 1 1-4.4A8.4 8.4 0 1 1 21 11.5Z"/></svg>',
   shield: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.4 8.7 8 11 4.6-2.3 8-6 8-11V5l-8-3Z"/></svg>',
+  check: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  alert: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 2.5 17a2 2 0 0 0 1.7 3h15.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>',
 }
 
 // ── Navegação: 7 áreas principais + abas locais (áreas de apoio reaproveitam os mesmos dados) ──
@@ -146,13 +148,16 @@ function renderNav() {
   const hasSecret = Boolean(state.secret)
   const online = hasSecret && state.connStatus === 'online'
   const errored = hasSecret && state.connStatus === 'offline'
-  const label = !hasSecret ? 'Não conectado' : state.connStatus === 'checking' ? 'Conectando…' : online ? 'Conectado' : errored ? 'Erro de conexão' : 'Conectando…'
+  const checking = hasSecret && state.connStatus === 'checking'
+  const label = !hasSecret ? 'Não conectado' : checking ? 'Conectando…' : online ? 'Conectado' : errored ? 'Erro de conexão' : 'Conectando…'
   $('connPill').classList.toggle('on', online)
   $('connPill').classList.toggle('error', errored)
+  $('connPill').classList.toggle('checking', checking)
   $('connLabel').textContent = label
   $('connToggle').textContent = hasSecret ? 'Sair' : 'Conectar'
   $('mtConn').classList.toggle('on', online)
   $('mtConn').classList.toggle('error', errored)
+  $('mtConn').classList.toggle('checking', checking)
 }
 $('sideNav').onclick = e => { const b = e.target.closest('[data-section]'); if (!b) return; selectSection(b.dataset.section) }
 $('bottomTabs').onclick = e => { const b = e.target.closest('[data-section]'); if (!b) return; selectSection(b.dataset.section) }
@@ -198,7 +203,7 @@ async function load() {
     if (e.name === 'AbortError' || myGen !== renderGen) return
     state.connStatus = 'offline'
     renderNav()
-    $('content').innerHTML = `<div class="error-state"><div class="glyph">!</div><h3>Não foi possível carregar esta tela</h3><p>${esc(e.message)}</p><button class="btn btn-ghost" id="retryBtn">Tentar de novo</button></div>`
+    $('content').innerHTML = `<div class="error-state"><div class="glyph">${ICONS.alert}</div><h3>Não foi possível carregar esta tela</h3><p>${esc(e.message)}</p><button class="btn btn-ghost" id="retryBtn">Tentar de novo</button></div>`
     const btn = $('retryBtn'); if (btn) btn.onclick = load
   }
 }
@@ -297,8 +302,8 @@ function buildAlerts(h) {
   if (h.recoveryEngine.failed > 0) rows.push(['danger', 'Mensagens com falha aguardando revisão', null, h.recoveryEngine.failed])
   if (h.recoveryEngine.unknown > 0) rows.push(['warning', 'Mensagens com status desconhecido', null, h.recoveryEngine.unknown])
   if (h.inboxMirror.failed > 0) rows.push(['warning', 'Mensagens não espelhadas no inbox', null, h.inboxMirror.failed])
-  if (!rows.length) return '<div class="alert-ok"><span class="dot"></span>Nenhuma anomalia crítica encontrada agora.</div>'
-  return '<div class="alerts-list">' + rows.map(([tone, label, detail, count]) => `<div class="alert-row ${tone === 'warning' ? 'warning' : ''}"><span class="dot"></span><b>${esc(label)}</b>${detail ? `<span class="cell-muted"> · ${esc(detail)}</span>` : ''}${count !== undefined ? `<span class="count">${num(count)}</span>` : ''}</div>`).join('') + '</div>'
+  if (!rows.length) return `<div class="alert-ok"><span class="icon">${ICONS.check}</span>Nenhuma anomalia crítica encontrada agora.</div>`
+  return '<div class="alerts-list">' + rows.map(([tone, label, detail, count]) => `<div class="alert-row ${tone === 'warning' ? 'warning' : ''}"><span class="icon">${ICONS.alert}</span><b>${esc(label)}</b>${detail ? `<span class="cell-muted"> · ${esc(detail)}</span>` : ''}${count !== undefined ? `<span class="count">${num(count)}</span>` : ''}</div>`).join('') + '</div>'
 }
 function isStale(createdAt) { if (!createdAt) return false; return (Date.now() - new Date(createdAt).getTime()) > 24 * 3600 * 1000 }
 
@@ -406,7 +411,7 @@ function renderCustomer360Tab(tab, d) {
     const summary = [
       lastOrder ? `Última compra em <b>${dOnly(lastOrder.date)}</b> — ${money(lastOrder.total)} via ${esc(lastOrder.paymentMethod || 'método não informado')}.` : 'Nenhuma compra registrada para este cliente.',
       lastMsg ? `Último contato via WhatsApp em <b>${dOnly(lastMsg.createdAt)}</b> — ${esc(lastMsg.templateName || 'mensagem')}, ${statusPill(lastMsg.status, MESSAGE_STATUS)}.` : 'Nenhuma mensagem registrada para este cliente.',
-      d.checkouts.length ? `${num(d.checkouts.length)} carrinho(s) abandonado(s) no histórico.` : 'Nenhum carrinho abandonado no histórico.',
+      d.checkouts.length ? `${num(d.checkouts.length)} carrinho(s) abandonado(s) no hist��rico.` : 'Nenhum carrinho abandonado no histórico.',
       d.suppression ? `Contato suprimido — ${esc(d.suppression.reason || 'motivo não informado')}.` : 'Sem suppression registrada para este contato.',
     ]
     return `<div class="panel" style="padding:4px 0 4px">${summary.map(s => `<div class="narrative-row"><span class="icon">${ICONS.chat}</span><div class="body">${s}</div></div>`).join('')}</div>
@@ -573,11 +578,13 @@ async function renderAutomationsArea(gen, signal) {
         <div class="flow-steps">${nodes.map((n, i) => `<div class="flow-node">${n}</div>${i < nodes.length - 1 ? '<div class="flow-arrow">↓</div>' : ''}`).join('')}</div>
         <div class="flow-side">
           <div class="kv"><span>Máx. envios por entidade</span><b>${num(r.maxSendsPerEntity)}</b></div>
+          <p class="rvr-label">Regra configurada <span class="arrow">→</span> Runtime real</p>
           <div class="rule-vs-runtime">
             <div class="row"><span>Regra</span>${pill(r.active ? 'Ativa' : 'Inativa', r.active ? 'success' : 'neutral')}</div>
             <div class="row ${flowMismatch ? 'mismatch' : ''}"><span>Runtime</span>${pill(r.runtime.automationSendEnabled ? 'Envio liberado' : 'Envio bloqueado', r.runtime.automationSendEnabled ? 'success' : 'danger')}</div>
             ${r.eventType === 'abandoned_checkout' ? `<div class="row"><span>Fluxo carrinho</span>${pill(r.runtime.flowEnabled ? 'Habilitado' : 'Desabilitado', r.runtime.flowEnabled ? 'success' : 'neutral')}</div>` : ''}
             <div class="row"><span>Modo</span>${pill(r.runtime.whatsappDryRun ? 'Dry-run (simulado)' : 'Envio real', r.runtime.whatsappDryRun ? 'warning' : 'brand')}</div>
+            ${flowMismatch ? `<div class="rvr-flag"><span class="icon">${ICONS.alert}</span>Regra ativa, mas o envio está bloqueado em runtime</div>` : ''}
           </div>
         </div>
       </div></div>`
@@ -589,7 +596,7 @@ async function renderAutomationsArea(gen, signal) {
 async function renderHealthArea(gen, signal) {
   const h = await api('health', signal)
   if (gen !== renderGen) return
-  function tile(name, ok, note) { return `<div class="health-tile"><div class="name">${esc(name)}</div>${pill(ok ? 'Última verificação bem-sucedida' : 'Sem confirmação recente', ok ? 'success' : 'warning')}<p class="cell-muted" style="margin-top:9px;font-size:11.5px">${note}</p></div>` }
+  function tile(name, ok, note) { return `<div class="health-tile"><div class="health-tile-top"><span class="health-tile-icon ${ok ? 'ok' : 'warn'}">${ok ? ICONS.check : ICONS.alert}</span><div class="name">${esc(name)}</div></div>${pill(ok ? 'Última verificação bem-sucedida' : 'Sem confirmação recente', ok ? 'success' : 'warning')}<p class="cell-muted" style="margin-top:9px;font-size:11.5px">${note}</p></div>` }
   const metaOk = h.meta.configured && h.meta.latestEvidence && !h.meta.latestEvidence.error && !isStale(h.meta.latestEvidence.createdAt)
   const nuvemOk = h.nuvemshop.configured && h.nuvemshop.latestEvidence && !h.nuvemshop.latestEvidence.error && !isStale(h.nuvemshop.latestEvidence.createdAt)
   const recoveryOk = h.recoveryEngine.failed === 0 && h.recoveryEngine.unknown === 0
