@@ -56,6 +56,18 @@ const CHECKOUT_DETAIL_CONCURRENCY = 4
 const ORDER_PAGE_SIZE = 50
 const ORDER_PAGE_MAX_ATTEMPTS = 3
 
+export class NuvemshopHistoryUnavailableError extends Error {
+  readonly upstreamStatus = 404
+
+  constructor(
+    readonly requestedCreatedAtMax: Date,
+    readonly oldestAvailableAt: Date
+  ) {
+    super('Nuvemshop order history is unavailable for the requested period')
+    this.name = 'NuvemshopHistoryUnavailableError'
+  }
+}
+
 function validDate(value?: string): Date | null {
   if (!value) return null
   const date = new Date(value)
@@ -136,6 +148,37 @@ function getUpstreamStatus(error: unknown): number | null {
   if (!error || typeof error !== 'object') return null
   const status = (error as HttpLikeError).response?.status
   return typeof status === 'number' ? status : null
+}
+
+function isNuvemshopEmptyHistoryPage(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+
+  const candidate = error as HttpLikeError
+  if (candidate.response?.status !== 404) return false
+
+  const data = candidate.response.data
+  if (!data || typeof data !== 'object') return false
+
+  const description = (data as { description?: unknown }).description
+  return typeof description === 'string' && description.trim().toLowerCase() === 'last page is 0'
+}
+
+async function fetchOldestVisibleOrderDate(
+  client: ReturnType<typeof buildNuvemshopClient>
+): Promise<Date | null> {
+  const firstPage = await client.get<NuvemshopOrder[]>('/orders', {
+    params: { page: 1, per_page: 1, fields: 'id,created_at' },
+    timeout: 30000,
+  })
+  const totalCount = parseTotalCount(firstPage.headers)
+  if (totalCount === null || totalCount < 1) return null
+
+  const lastPage = await client.get<NuvemshopOrder[]>('/orders', {
+    params: { page: totalCount, per_page: 1, fields: 'id,created_at' },
+    timeout: 30000,
+  })
+  const oldest = Array.isArray(lastPage.data) ? lastPage.data[0] : undefined
+  return validDate(oldest?.created_at)
 }
 
 function getErrorCode(error: unknown): string | null {
@@ -309,7 +352,17 @@ export const nuvemshopService = {
     const orders: NuvemshopOrder[] = []
 
     for (let page = 1; ; page++) {
-      const response = await fetchOrderPage(client, page, params.createdAtMin, params.createdAtMax)
+      let response
+      try {
+        response = await fetchOrderPage(client, page, params.createdAtMin, params.createdAtMax)
+      } catch (error) {
+        if (page !== 1 || !isNuvemshopEmptyHistoryPage(error)) throw error
+
+        const oldestAvailableAt = await fetchOldestVisibleOrderDate(client)
+        if (!oldestAvailableAt || params.createdAtMax >= oldestAvailableAt) throw error
+
+        throw new NuvemshopHistoryUnavailableError(params.createdAtMax, oldestAvailableAt)
+      }
       const data = Array.isArray(response.data) ? response.data : []
       orders.push(...data)
 
