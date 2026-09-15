@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import request from 'supertest'
+import { NuvemshopHistoryUnavailableError } from '../../services/nuvemshopService'
 
 const mocks = vi.hoisted(() => ({
   runBackfillNuvemshopOrders: vi.fn(),
@@ -77,6 +78,26 @@ describe('POST /jobs/backfill-nuvemshop-orders', () => {
       error: 'nuvemshop_orders_backfill_failed',
       upstreamStatus: null,
       code: 'ECONNABORTED',
+    })
+  })
+
+  it('returns JSON 422 when the requested period predates the visible history', async () => {
+    mocks.runBackfillNuvemshopOrders.mockRejectedValueOnce(new NuvemshopHistoryUnavailableError(
+      new Date('2026-05-13T00:00:00Z'),
+      new Date('2026-06-04T17:18:08Z')
+    ))
+
+    const response = await request(app)
+      .post('/jobs/backfill-nuvemshop-orders')
+      .set('x-jobs-secret', process.env.JOBS_SECRET!)
+      .send({ from: '2026-05-06T00:00:00Z', to: '2026-05-13T00:00:00Z' })
+
+    expect(response.status).toBe(422)
+    expect(response.headers['content-type']).toContain('application/json')
+    expect(response.body).toEqual({
+      error: 'nuvemshop_orders_history_unavailable',
+      upstreamStatus: 404,
+      oldestAvailableAt: '2026-06-04T17:18:08.000Z',
     })
   })
 

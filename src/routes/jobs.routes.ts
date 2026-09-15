@@ -11,6 +11,7 @@ import { runBackfillImportedApiSends } from '../jobs/backfillImportedApiSends'
 import { runBackfillImportedWhatsAppSends } from '../jobs/backfillImportedWhatsAppSends'
 import { runBackfillInboxRenderedTemplatePreviews } from '../jobs/backfillInboxRenderedTemplatePreviews'
 import { runBackfillNuvemshopOrders } from '../jobs/backfillNuvemshopOrders'
+import { NuvemshopHistoryUnavailableError } from '../services/nuvemshopService'
 import { runAbandonedCheckoutsPreview } from '../jobs/previewAbandonedCheckouts'
 import { automationHealth } from '../jobs/automationHealth'
 import { retryInboxMirrors } from '../jobs/retryInboxMirrors'
@@ -56,6 +57,20 @@ function serializeNuvemshopBackfillError(error: unknown): {
     error: 'nuvemshop_orders_backfill_failed',
     upstreamStatus,
     ...(code ? { code } : {}),
+  }
+}
+
+function serializeNuvemshopHistoryUnavailable(error: unknown): {
+  error: 'nuvemshop_orders_history_unavailable'
+  upstreamStatus: 404
+  oldestAvailableAt: string
+} | null {
+  if (!(error instanceof NuvemshopHistoryUnavailableError)) return null
+
+  return {
+    error: 'nuvemshop_orders_history_unavailable',
+    upstreamStatus: error.upstreamStatus,
+    oldestAvailableAt: error.oldestAvailableAt.toISOString(),
   }
 }
 
@@ -153,6 +168,11 @@ router.post('/backfill-nuvemshop-orders', async (req: Request, res: Response) =>
   try {
     res.json(await runBackfillNuvemshopOrders({ from, to, scheduleMessages: false }))
   } catch (error) {
+    const unavailableHistory = serializeNuvemshopHistoryUnavailable(error)
+    if (unavailableHistory) {
+      res.status(422).json(unavailableHistory)
+      return
+    }
     const serialized = serializeNuvemshopBackfillError(error)
     if (!serialized) throw error
     res.status(502).json(serialized)

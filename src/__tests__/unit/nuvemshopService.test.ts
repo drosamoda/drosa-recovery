@@ -32,7 +32,7 @@ vi.mock('../../helpers/dateService', () => ({
   subtractHours: vi.fn(() => new Date('2026-09-08T00:00:00.000Z')),
 }))
 
-import { nuvemshopService } from '../../services/nuvemshopService'
+import { NuvemshopHistoryUnavailableError, nuvemshopService } from '../../services/nuvemshopService'
 
 const createdAtMin = new Date('2026-05-06T00:00:00.000Z')
 const createdAtMax = new Date('2026-09-14T23:59:59.000Z')
@@ -269,5 +269,33 @@ describe('nuvemshopService authentication', () => {
 
     await expect(nuvemshopService.fetchOrders({ createdAtMin, createdAtMax })).rejects.toThrow(`HTTP ${status}`)
     expect(mocks.get).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports a proven unavailable historical range without treating it as empty', async () => {
+    mocks.get
+      .mockRejectedValueOnce(Object.assign(new Error('HTTP 404'), {
+        response: { status: 404, data: { description: 'Last page is 0' } },
+      }))
+      .mockResolvedValueOnce({ data: [{ id: 999 }], headers: { 'x-total-count': '2' } })
+      .mockResolvedValueOnce({ data: [{ id: 1, created_at: '2026-06-04T17:18:08.000Z' }] })
+
+    await expect(nuvemshopService.fetchOrders({
+      createdAtMin: new Date('2026-05-06T00:00:00.000Z'),
+      createdAtMax: new Date('2026-05-13T00:00:00.000Z'),
+    })).rejects.toEqual(expect.objectContaining({
+      name: 'NuvemshopHistoryUnavailableError',
+      oldestAvailableAt: new Date('2026-06-04T17:18:08.000Z'),
+    }))
+
+    expect(mocks.get).toHaveBeenCalledTimes(3)
+    expect(mocks.get.mock.calls[1]).toEqual(['/orders', {
+      params: { page: 1, per_page: 1, fields: 'id,created_at' },
+      timeout: 30000,
+    }])
+    expect(mocks.get.mock.calls[2]).toEqual(['/orders', {
+      params: { page: 2, per_page: 1, fields: 'id,created_at' },
+      timeout: 30000,
+    }])
+    expect(NuvemshopHistoryUnavailableError).toBeTypeOf('function')
   })
 })
