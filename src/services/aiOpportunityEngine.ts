@@ -57,8 +57,16 @@ const sendWindow = `Envio dentro do horário comercial configurado (${String(env
 async function repeatPurchaseCandidates() {
   const now = Date.now()
   const day = 86400000
+  // Filtra no banco pela janela que realmente importa (últimos INACTIVE_DAYS) em vez de
+  // buscar todo o histórico de pedidos: remarketingPreview() já faz sua própria busca
+  // completa internamente, e duplicar um fetch sem filtro aqui satura o connection_limit=2
+  // do Preview (causa real de um hang de 20s+ reproduzido ao vivo). Qualquer telefone cujo
+  // pedido mais recente esteja fora desta janela simplesmente não aparece — correto, porque
+  // nesse caso ele já é RECENT_CUSTOMER (mais novo) ou candidato a WINBACK (mais velho que
+  // INACTIVE_DAYS, logo nem estaria nesta busca de qualquer forma).
+  const cutoff = new Date(now - env.REMARKETING_INACTIVE_DAYS * day)
   const orders = await prisma.order.findMany({
-    where: { paymentStatus: 'paid', status: { notIn: ['cancelled', 'canceled', 'refunded'] } },
+    where: { paymentStatus: 'paid', status: { notIn: ['cancelled', 'canceled', 'refunded'] }, sourceCreatedAt: { gte: cutoff } },
     select: { id: true, normalizedPhone: true, sourceCreatedAt: true },
     orderBy: { sourceCreatedAt: 'desc' },
     take: 10000,

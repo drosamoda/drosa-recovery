@@ -151,4 +151,23 @@ describe('aiOpportunityEngine — nunca inventa oportunidade sem dado', () => {
     expect(repeat!.eligibleCount).toBe(0)
     expect(repeat!.blockedCount).toBe(1)
   })
+
+  it('REPEAT_PURCHASE filtra pedidos no banco pela janela de INACTIVE_DAYS, em vez de buscar todo o histórico — reproduzido ao vivo como um hang de 20s+ no Preview (connection_limit=2) antes desta correção', async () => {
+    mocks.remarketingPreview.mockResolvedValue({
+      segments: {
+        abandoned_cart: { found: 0, eligible: 0 }, pix_pending: { found: 0, eligible: 0 }, boleto_pending: { found: 0, eligible: 0 },
+        recent_customer: { found: 0, eligible: 0 }, vip_customer: { found: 0, eligible: 0 },
+        inactive_customer: { found: 0, eligible: 0 }, engaged_no_purchase: { found: 0, eligible: 0 },
+      },
+      dataQuality: emptyDataQuality,
+    })
+    mocks.orderFindMany.mockResolvedValue([])
+    await generateOpportunities()
+    expect(mocks.orderFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ sourceCreatedAt: expect.objectContaining({ gte: expect.any(Date) }) }),
+    }))
+    const call = mocks.orderFindMany.mock.calls[0][0]
+    const ageDays = (Date.now() - call.where.sourceCreatedAt.gte.getTime()) / 86400000
+    expect(ageDays).toBeCloseTo(90, 0)
+  })
 })
