@@ -23,6 +23,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.126.0",
     "@prisma/client": "^5.14.0",
     "@sentry/node": "^8.13.0",
     "@types/cors": "^2.8.19",

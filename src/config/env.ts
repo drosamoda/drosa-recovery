@@ -105,7 +105,7 @@ const envSchema = z.object({
   // Ausência de ANTHROPIC_API_KEY não derruba o boot: bloqueia só a geração
   // de campanhas (AiProviderConfigError), preservando as 7 áreas existentes.
   AI_PROVIDER: z.enum(['anthropic']).default('anthropic'),
-  AI_MODEL: z.string().default('claude-sonnet-4-5-20250929'),
+  AI_MODEL: z.string().default('claude-opus-5'),
   ANTHROPIC_API_KEY: z.string().default(''),
 })
 
