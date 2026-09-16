@@ -104,8 +104,9 @@ app.use('/crm-v2-assets', express.static(path.join(process.cwd(), 'public', 'crm
 // humana). Isso NUNCA envia WhatsApp de verdade (WHATSAPP_DRY_RUN continua
 // true), não toca Nuvemshop, não toca dado de cliente existente — só cria
 // linhas nas tabelas novas e isoladas campaign_drafts/ai_runs. Continua
-// exigindo x-admin-secret (adminAuth, aplicado na própria rota), então um
-// preview sem ADMIN_SECRET configurado permanece 100% bloqueado como antes.
+// exigindo o mesmo x-crm-read-secret já obrigatório em todo /crm-api (via
+// crmAuth em index.ts), então um preview sem CRM_READ_SECRET configurado
+// permanece 100% bloqueado como antes.
 if (env.CRM_PREVIEW_READONLY) {
   app.use((req, res, next) => {
     const isAiCampaignWrite = req.path.startsWith('/crm-api/ai/campaigns')

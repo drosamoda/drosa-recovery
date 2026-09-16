@@ -40,12 +40,22 @@ describe('CRM v2 operational UI (radical visual redesign, same read-only /crm-ap
     expect(js).not.toContain('localStorage')
     expect(js).not.toMatch(/[?&](?:secret|token|key)=/i)
     expect(js).not.toMatch(/console\.(?:log|info|warn|error)\([^)]*secret/i)
-    expect(js).not.toMatch(/fetch\([^)]*,\s*\{[^}]*(method:\s*['"](?:POST|PATCH|PUT|DELETE))/s)
+    // Exceção deliberada e única: Campanhas & IA precisa de escrita real (gerar
+    // rascunho, selecionar estratégia, aprovar, agendar) — sempre via apiPost(),
+    // sempre contra /crm-api/ai/campaigns/*, nunca envio de WhatsApp real. As
+    // outras 7 áreas originais continuam estritamente somente-leitura: nenhuma
+    // outra função no arquivo pode chamar fetch com método de escrita.
+    const nonApiPostWrites = js
+      .replace(/async function apiPost[\s\S]*?\r?\n}\r?\n/, '')
+      .match(/fetch\([^)]*,\s*\{[^}]*(method:\s*['"](?:POST|PATCH|PUT|DELETE))/s)
+    expect(nonApiPostWrites).toBeNull()
+    expect(js).toMatch(/async function apiPost\(path, body\)/)
   })
 
-  it('never renders raw JSON in the main UI — only inside a collapsed "dados técnicos" section', () => {
+  it('never renders raw JSON in the main UI — only inside a collapsed "dados técnicos" section (exceto o corpo de requisição em apiPost, que é entrada, não exibição)', () => {
     const js = fs.readFileSync(path.join(process.cwd(), 'public/crm-v2/app.js'), 'utf8')
-    expect(js).not.toMatch(/JSON\.stringify/)
+    const outsideApiPost = js.replace(/async function apiPost[\s\S]*?\r?\n}\r?\n/, '')
+    expect(outsideApiPost).not.toMatch(/JSON\.stringify/)
   })
 
   it.each(['post', 'put', 'patch', 'delete'] as const)('does not expose authenticated %s operations', async method => {

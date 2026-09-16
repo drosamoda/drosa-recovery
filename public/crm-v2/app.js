@@ -4,10 +4,17 @@
    mostra isso honestamente (nunca um zero ou um número calculado à parte no cliente).
 
    Arquitetura de navegação: 7 áreas operacionais principais (Dashboard, Envios, Cliente 360,
-   Conversas, Carrinho, Automações, Saúde). Áreas de apoio (Templates, Consentimentos, Pix,
+   Conversas, Carrinho, Campanhas & IA, Saúde). Áreas de apoio (Templates, Consentimentos, Pix,
    Boleto, Remarketing, Auditoria) deixam de competir como destinos de primeiro nível e viram
    abas locais dentro da área correspondente — mesmos endpoints, mesmos dados, sem nenhuma
-   remoção de contrato de API. */
+   remoção de contrato de API.
+
+   Campanhas & IA (antiga "Automações") reúne 4 abas locais: Oportunidades (audiências reais
+   calculadas pelo backend), Campanhas (estratégias geradas por IA sobre /crm-api/ai/*, sempre
+   com aprovação humana explícita antes de qualquer agendamento — a IA nunca aprova a si mesma),
+   Automações (conteúdo já existente de regra-vs-runtime, inalterado) e Aprendizados (métricas
+   comprovadas; envio real está desligado nesta fase, então a ausência de dados é um estado
+   honesto, não um zero fabricado). */
 
 // ── Ícones (SVG inline, sem dependência de ícone externo) ──────────────────────────────────────
 const ICONS = {
@@ -16,7 +23,8 @@ const ICONS = {
   customers: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>',
   conversations: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.9 8.4A8.6 8.6 0 0 1 8 19l-5 1 1-4.4A8.4 8.4 0 1 1 21 11.5Z"/></svg>',
   checkouts: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8h12l-1 12H7L6 8Z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg>',
-  automations: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/></svg>',
+  automations: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3Z"/><path d="M19 3v3M19 4.5h1.5M5 17v3M3.5 18.5H6.5"/></svg>',
+  flow: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/></svg>',
   health: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg>',
   back: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5m6-7-7 7 7 7"/></svg>',
   order: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8h12l-1 12H7L6 8Z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg>',
@@ -34,7 +42,7 @@ const NAV = [
   { key: 'customers', label: 'Cliente 360', mobile: 'Clientes', tabs: [['customers', 'Clientes'], ['consents', 'Consentimentos']] },
   { key: 'conversations', label: 'Conversas', mobile: 'Conversas', tabs: [['conversations', 'Conversas']] },
   { key: 'checkouts', label: 'Carrinho', mobile: 'Carrinho', tabs: [['checkouts', 'Abandonados'], ['pix', 'Pix'], ['boleto', 'Boleto'], ['remarketing', 'Remarketing']] },
-  { key: 'automations', label: 'Automações', mobile: 'Fluxos', tabs: [['automations', 'Automações']] },
+  { key: 'automations', label: 'Campanhas & IA', mobile: 'IA', tabs: [['opportunities', 'Oportunidades'], ['campaigns', 'Campanhas'], ['automation-rules', 'Automações'], ['learning', 'Aprendizados']] },
   { key: 'health', label: 'Saúde', mobile: 'Saúde', tabs: [['health', 'Visão geral'], ['audit', 'Auditoria']] },
 ]
 const TAB_META = {
@@ -48,7 +56,10 @@ const TAB_META = {
   pix: 'Pedidos Pix pendentes e falhas de mensagem observadas.',
   boleto: 'Pedidos por boleto pendentes e falhas de mensagem observadas.',
   remarketing: 'Execuções, públicos e bloqueios já existentes.',
-  automations: 'Regra configurada versus liberação real em runtime.',
+  opportunities: 'Oportunidades reais de contato, calculadas a partir de dados já existentes.',
+  campaigns: 'Estratégias geradas por IA — aprovação humana explícita é sempre obrigatória.',
+  'automation-rules': 'Regra configurada versus liberação real em runtime.',
+  learning: 'Métricas comprovadas de campanhas — envio real ainda desligado nesta fase.',
   health: 'Evidência real e freshness das integrações.',
   audit: 'Eventos técnicos comprovados — nunca um ledger completo fingido.',
 }
@@ -68,6 +79,24 @@ const REMARKETING_RUN_STATUS = { running: ['Em execução', 'brand'], completed:
 const TEMPLATE_CATEGORY = { utility: 'Utilidade', marketing: 'Marketing', authentication: 'Autenticação' }
 const EVENT_TYPE = { order_created: 'Pedido criado', abandoned_checkout: 'Carrinho abandonado' }
 const ENTITY_TYPE = { order: 'Pedido', abandoned_checkout: 'Carrinho abandonado' }
+const OPPORTUNITY_TYPE = { ABANDONED_CART: 'Carrinho abandonado', PIX_PENDING: 'Pix pendente', BOLETO_PENDING: 'Boleto pendente', REPEAT_PURCHASE: 'Compra recorrente', WINBACK: 'Reconquista', VIP: 'Cliente VIP', RECENT_CUSTOMER: 'Cliente recente', ENGAGED_NO_PURCHASE: 'Engajado sem compra' }
+const OPPORTUNITY_CONFIDENCE = { low: ['Confiança baixa', 'neutral'], medium: ['Confiança média', 'warning'], high: ['Confiança alta', 'success'] }
+// Máquina de estados de campanha — ordem e nomes fixos pelo contrato do backend. A aprovação
+// humana (AWAITING_HUMAN_APPROVAL → APPROVED) nunca é automática: só avança por um POST
+// .../approve disparado por um clique humano explícito, com approvedBy preenchido nesta tela.
+const CAMPAIGN_STATUS_ORDER = ['DRAFT', 'AI_READY', 'PRODUCT_TRUTH_APPROVED', 'COMPLIANCE_APPROVED', 'AWAITING_HUMAN_APPROVAL', 'APPROVED', 'SCHEDULED', 'RUNNING', 'COMPLETED']
+const CAMPAIGN_STATUS = {
+  DRAFT: ['Rascunho', 'neutral'],
+  AI_READY: ['IA gerou estratégias', 'brand'],
+  PRODUCT_TRUTH_APPROVED: ['Produto confirmado', 'brand'],
+  COMPLIANCE_APPROVED: ['Compliance aprovado', 'brand'],
+  AWAITING_HUMAN_APPROVAL: ['Aguardando aprovação humana', 'warning'],
+  APPROVED: ['Aprovada', 'success'],
+  SCHEDULED: ['Agendada (simulada)', 'success'],
+  RUNNING: ['Em execução', 'brand'],
+  COMPLETED: ['Concluída', 'success'],
+  CANCELLED: ['Cancelada', 'neutral'],
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id)
@@ -88,7 +117,7 @@ function emptyState(title, hint) { return `<div class="empty-state"><div class="
 // connStatus é a verdade real da conexão (nunca apenas "existe um segredo salvo"): idle (sem
 // segredo) → checking (testando contra o backend agora) → online (última chamada real teve
 // sucesso) → offline (última chamada real falhou, mesmo com segredo válido salvo).
-const state = { section: 'dashboard', tab: 'dashboard', page: 1, secret: sessionStorage.getItem('crmV2Secret') || '', search: '', period: 'today', msgStatus: '', customerId: null, customerTab: 'overview', convoId: null, mobileThreadOpen: false, connStatus: 'idle' }
+const state = { section: 'dashboard', tab: 'dashboard', page: 1, secret: sessionStorage.getItem('crmV2Secret') || '', search: '', period: 'today', msgStatus: '', customerId: null, customerTab: 'overview', convoId: null, mobileThreadOpen: false, connStatus: 'idle', campaignId: null, selectedStrategy: {} }
 
 // Token monotônico de renderização: cada load() incrementa e captura sua própria geração.
 // Uma resposta só pode escrever no DOM se sua geração ainda for a atual — isso é o que impede
@@ -111,7 +140,7 @@ function openPanel(html) { $('panelContent').innerHTML = html; $('panel').classL
 $('backdrop').onclick = () => { closePanel(); closeAuthModal() }
 
 class ApiError extends Error {
-  constructor(message, meta) { super(message); this.name = 'ApiError'; this.status = meta.status; this.endpoint = meta.endpoint }
+  constructor(message, meta) { super(message); this.name = 'ApiError'; this.status = meta.status; this.endpoint = meta.endpoint; this.code = meta.code }
 }
 async function api(path, signal) {
   const endpoint = '/crm-api/' + path
@@ -126,6 +155,35 @@ async function api(path, signal) {
   if (r.status === 401) throw new ApiError('Segredo de leitura inválido ou ausente.', { status: 401, endpoint })
   if (!r.ok) throw new ApiError(`Falha ao carregar · HTTP ${r.status} · ${endpoint}${requestId ? ' · ID: ' + requestId.split('::').pop() : ''}`, { status: r.status, endpoint })
   return r.json()
+}
+// Mutações reais (gerar campanha, selecionar estratégia, aprovar, agendar) — mesma convenção de
+// diagnóstico do api(): nunca engolir o erro, sempre expor status/endpoint/ID de requisição. O
+// corpo de erro é lido quando possível para extrair um código estruturado (ex.:
+// AI_PROVIDER_NOT_CONFIGURED) e permitir uma mensagem de produto melhor em describeAiIssue().
+async function apiPost(path, body) {
+  const endpoint = '/crm-api/' + path
+  let r
+  try {
+    r = await fetch(endpoint, { method: 'POST', headers: { 'x-crm-read-secret': state.secret, 'content-type': 'application/json' }, body: JSON.stringify(body || {}) })
+  } catch (e) {
+    throw new ApiError(`Falha de rede · ${endpoint}`, { status: 0, endpoint })
+  }
+  const requestId = r.headers.get('x-vercel-id')
+  let payload = null
+  try { payload = await r.json() } catch (e) { /* corpo vazio ou não-JSON — segue com payload nulo, nunca falha silenciosamente na leitura do status HTTP */ }
+  if (r.status === 401) throw new ApiError('Segredo de leitura inválido ou ausente.', { status: 401, endpoint })
+  if (!r.ok) throw new ApiError(`Falha ao executar ação · HTTP ${r.status} · ${endpoint}${requestId ? ' · ID: ' + requestId.split('::').pop() : ''}`, { status: r.status, endpoint, code: payload && payload.error })
+  return payload
+}
+// Traduz falhas conhecidas da camada de IA em linguagem de produto, sem nunca esconder o
+// diagnóstico técnico bruto (sempre exibido junto, em texto menor, por quem chama esta função).
+function describeAiIssue(e) {
+  const code = e.code || ''
+  const msg = (e.message || '').toLowerCase()
+  if (e.status === 503 || code === 'AI_PROVIDER_NOT_CONFIGURED' || msg.includes('not_configured')) return { title: 'IA indisponível nesta fase', body: 'O provedor de geração de campanhas ainda não está configurado neste ambiente. Nenhuma estratégia pode ser gerada até a chave de API ser configurada fora desta tela.' }
+  if (code === 'AI_TIMEOUT' || msg.includes('timeout')) return { title: 'O provedor de IA não respondeu a tempo', body: 'A geração foi interrompida por demora na resposta do provedor. Tente novamente em alguns instantes.' }
+  if (code === 'AI_MALFORMED_OUTPUT' || msg.includes('malformed')) return { title: 'A IA retornou um conteúdo inesperado', body: 'A resposta não pôde ser interpretada com segurança, então nenhuma campanha foi criada a partir dela.' }
+  return { title: 'Não foi possível concluir esta ação', body: e.message }
 }
 
 // ── Navegação: sidebar (desktop) + tabs de seção + barra inferior (mobile) ─────────────────────
@@ -161,12 +219,13 @@ function renderNav() {
 }
 $('sideNav').onclick = e => { const b = e.target.closest('[data-section]'); if (!b) return; selectSection(b.dataset.section) }
 $('bottomTabs').onclick = e => { const b = e.target.closest('[data-section]'); if (!b) return; selectSection(b.dataset.section) }
-$('sectionTabs').onclick = e => { const b = e.target.closest('[data-tab]'); if (!b) return; state.tab = b.dataset.tab; state.page = 1; load() }
+$('sectionTabs').onclick = e => { const b = e.target.closest('[data-tab]'); if (!b) return; state.tab = b.dataset.tab; state.page = 1; state.campaignId = null; load() }
 function selectSection(key) {
   state.section = key
   state.tab = NAV.find(s => s.key === key).tabs[0][0]
   state.page = 1
   if (key !== 'customers') state.customerId = null
+  state.campaignId = null
   render()
 }
 
@@ -566,7 +625,219 @@ async function renderRemarketingArea(gen, signal) {
   $('content').innerHTML = runtime + `<div class="segment-row">${segCards}</div>` + (rows.length ? html : emptyState('Nenhuma execução de remarketing registrada')); if (rows.length) wire($('content'))
 }
 
-// ── ÁREA: AUTOMAÇÕES (regra vs. runtime) ─────────────────────────────────────────────────────
+// ── ÁREA: CAMPANHAS & IA · ABA OPORTUNIDADES ─────────────────────────────────────────────────
+// Oportunidades são calculadas pelo backend a partir de dados já existentes (nunca estimadas
+// aqui). recommendedProduct hoje é sempre null — não existe catálogo de produto por pedido
+// ainda — e a tela precisa dizer isso honestamente em vez de inventar um nome de produto.
+async function renderOpportunitiesArea(gen, signal) {
+  const d = await api('ai/opportunities', signal)
+  if (gen !== renderGen) return
+  const rows = d.data || []
+  if (!rows.length) { $('content').innerHTML = emptyState('Nenhuma oportunidade real hoje', 'Quando houver audiência elegível para contato, ela aparece aqui automaticamente — nenhuma oportunidade é criada artificialmente.'); return }
+  $('content').innerHTML = `<div class="opp-grid">${rows.map(renderOpportunityCard).join('')}</div>`
+  document.querySelectorAll('[data-gen-opp]').forEach(btn => btn.onclick = () => generateCampaignFromOpportunity(btn.dataset.genOpp, btn))
+}
+function renderOpportunityCard(o) {
+  const [confLabel, confTone] = OPPORTUNITY_CONFIDENCE[o.confidence] || ['Confiança não informada', 'neutral']
+  const noAudience = o.eligibleCount === 0
+  const blockers = (o.evidence?.topBlockers || []).slice(0, 3)
+  const dq = o.evidence?.dataQuality || {}
+  const dqFlags = [dq.historyTruncated ? pill('Histórico truncado', 'warning') : '', dq.consentSourceConfigured === false ? pill('Origem de consentimento não configurada', 'warning') : '', dq.metaTemplatesVerified === false ? pill('Templates Meta não verificados', 'warning') : ''].filter(Boolean)
+  return `<div class="opp-card">
+    <div class="opp-card-head"><span class="opp-type">${esc(OPPORTUNITY_TYPE[o.type] || o.type)}</span>${pill(confLabel, confTone)}</div>
+    <h3>${esc(o.title)}</h3>
+    <p class="opp-reason">${esc(o.reason)}</p>
+    <div class="opp-audience">
+      <div class="opp-audience-stat"><b>${num(o.audienceCount)}</b><span>Audiência total</span></div>
+      <div class="opp-audience-stat good"><b>${num(o.eligibleCount)}</b><span>Elegíveis agora</span></div>
+      <div class="opp-audience-stat warn"><b>${num(o.blockedCount)}</b><span>Bloqueados</span></div>
+    </div>
+    ${noAudience ? `<div class="ai-banner warning"><span class="icon">${ICONS.alert}</span><div><b>Nenhuma audiência elegível agora</b><p>Gerar uma campanha não teria a quem enviar — resolva os bloqueios abaixo primeiro.</p></div></div>` : ''}
+    ${blockers.length ? `<div class="opp-blockers"><span class="label">Principais bloqueios</span>${blockers.map(b => `<span class="opp-blocker-chip">${esc(CHECKOUT_BLOCKERS[b.reason] || b.reason)}<b>${num(b.count)}</b></span>`).join('')}</div>` : ''}
+    <div class="opp-meta-row">
+      <span>Horário recomendado <b>${fmtValue(o.recommendedTiming)}</b></span>
+      <span>Canal <b>WhatsApp</b></span>
+      <span>Produto <b class="cell-muted">Produto ainda não recomendado</b></span>
+    </div>
+    ${dqFlags.length ? `<div class="opp-dq">${dqFlags.join('')}</div>` : ''}
+    <div class="opp-card-foot">
+      <span class="cell-muted" style="font-size:11px">Gerado em ${dt(o.generatedAt)} · Template sugerido <b class="cell-mono">${fmtValue(o.evidence?.template)}</b></span>
+      <button class="btn btn-primary btn-sm" data-gen-opp="${esc(o.id)}" ${noAudience ? 'disabled' : ''}>Gerar campanha</button>
+    </div>
+    <div class="opp-error" id="oppErr-${esc(o.id)}"></div>
+  </div>`
+}
+async function generateCampaignFromOpportunity(opportunityId, btn) {
+  const errEl = $('oppErr-' + opportunityId)
+  const originalLabel = btn.textContent
+  btn.disabled = true; btn.textContent = 'Gerando…'
+  if (errEl) errEl.innerHTML = ''
+  try {
+    const draft = await apiPost('ai/campaigns', { opportunityId })
+    state.tab = 'campaigns'; state.campaignId = draft.id; state.page = 1
+    load()
+  } catch (e) {
+    btn.disabled = false; btn.textContent = originalLabel
+    if (errEl) { const info = describeAiIssue(e); errEl.innerHTML = `<div class="ai-banner danger"><span class="icon">${ICONS.alert}</span><div><b>${esc(info.title)}</b><p>${esc(info.body)}</p><p class="cell-muted" style="margin-top:4px;font-size:10.5px">${esc(e.message)}</p></div></div>` }
+  }
+}
+
+// ── ÁREA: CAMPANHAS & IA · ABA CAMPANHAS ─────────────────────────────────────────────────────
+// Não existe endpoint de leitura de uma única campanha no contrato — a lista completa
+// (GET ai/campaigns) já traz strategies e complianceFindings por item, então o detalhe é
+// resolvido buscando o id dentro da mesma lista, sem inventar um endpoint extra.
+async function renderCampaignsArea(gen, signal) {
+  const d = await api('ai/campaigns', signal)
+  if (gen !== renderGen) return
+  const rows = d.data || []
+  if (state.campaignId) {
+    const draft = rows.find(c => c.id === state.campaignId)
+    if (!draft) { $('content').innerHTML = `<button class="btn btn-ghost btn-sm" id="campBack" style="margin-bottom:15px">${ICONS.back} Campanhas</button>` + emptyState('Campanha não encontrada', 'Ela pode ter sido removida ou o identificador não é mais válido.'); $('campBack').onclick = () => { state.campaignId = null; load() }; return }
+    renderCampaignDetail(draft)
+    return
+  }
+  if (!rows.length) { $('content').innerHTML = emptyState('Nenhuma campanha criada ainda', 'Gere uma campanha a partir de uma oportunidade real na aba Oportunidades.'); return }
+  $('content').innerHTML = `<div class="campaign-list">${rows.map(renderCampaignRow).join('')}</div>`
+  document.querySelectorAll('[data-campaign-id]').forEach(el => el.onclick = () => { state.campaignId = el.dataset.campaignId; load() })
+}
+function renderCampaignRow(c) {
+  const [label, tone] = CAMPAIGN_STATUS[c.status] || [c.status || 'Status incerto', 'warning']
+  const title = c.opportunityTitle || (OPPORTUNITY_TYPE[c.opportunityType] ? `${OPPORTUNITY_TYPE[c.opportunityType]} · Campanha ${String(c.id).slice(0, 6)}` : `Campanha ${String(c.id).slice(0, 6)}`)
+  return `<div class="campaign-row clickable" data-campaign-id="${esc(c.id)}">
+    <div class="campaign-row-main"><b>${esc(title)}</b><span class="cell-muted">${num((c.strategies || []).length)} estratégia(s)</span></div>
+    ${pill(label, tone)}
+    <span class="cell-muted" style="font-size:11px;white-space:nowrap">${dt(c.updatedAt || c.createdAt)}</span>
+  </div>`
+}
+function campaignStepper(status) {
+  if (status === 'CANCELLED') return `<div class="campaign-stepper">${pill('Campanha cancelada', 'neutral')}</div>`
+  const idx = CAMPAIGN_STATUS_ORDER.indexOf(status)
+  const dots = CAMPAIGN_STATUS_ORDER.map((s, i) => `<span class="cs-dot ${i < idx ? 'done' : ''} ${i === idx ? 'current' : ''}" title="${esc((CAMPAIGN_STATUS[s] || [s])[0])}"></span>`).join('')
+  const label = (CAMPAIGN_STATUS[status] || [status])[0]
+  return `<div class="campaign-stepper"><div class="cs-dots">${dots}</div><span class="cs-current-label">${esc(label)}</span></div>`
+}
+function renderCampaignDetail(draft) {
+  const strategies = draft.strategies || []
+  const findings = draft.complianceFindings || []
+  const strategiesHtml = strategies.length
+    ? `<p class="strategy-swipe-hint">Arraste para comparar A · B · C</p><div class="strategy-grid">${strategies.map((s, i) => renderStrategyCard(draft.id, s, i)).join('')}</div>`
+    : `<div class="ai-banner warning"><span class="icon">${ICONS.alert}</span><div><b>A IA ainda não retornou estratégias</b><p>Esta campanha está registrada, mas nenhuma estratégia foi gerada ainda para ela.</p></div></div>`
+  const complianceBlock = findings.length ? `<div class="section-block"><div class="section-block-head"><h2>Achados de compliance</h2></div><div class="panel">${findings.map(f => `<div class="narrative-row"><span class="icon">${ICONS.shield}</span><div class="body"><b>${esc(f.claim)}</b><div class="sub">${esc(f.reason)}</div></div></div>`).join('')}</div></div>` : ''
+  $('content').innerHTML = `
+    <button class="btn btn-ghost btn-sm" id="campBack" style="margin-bottom:15px">${ICONS.back} Campanhas</button>
+    <div class="campaign-head"><div><p class="eyebrow">CAMPANHA GERADA POR IA · APROVAÇÃO HUMANA OBRIGATÓRIA</p><h1>${esc(draft.opportunityTitle || `Campanha ${String(draft.id).slice(0, 6)}`)}</h1></div>${campaignStepper(draft.status)}</div>
+    <div class="section-block"><div class="section-block-head"><h2>Estratégias (A · B · C)</h2><span class="hint">Product Truth e compliance avaliados por estratégia</span></div>${strategiesHtml}</div>
+    ${complianceBlock}
+    ${renderCampaignActionBlock(draft)}`
+  $('campBack').onclick = () => { state.campaignId = null; load() }
+  wireCampaignActions(draft)
+}
+function renderStrategyCard(campaignId, s, i) {
+  const letter = ['A', 'B', 'C'][i] || String(i + 1)
+  const blocked = s.status === 'BLOCKED'
+  const selected = state.selectedStrategy[campaignId] === i
+  return `<div class="strategy-card ${blocked ? 'blocked' : ''} ${selected ? 'selected' : ''}">
+    <div class="strategy-head"><span class="strategy-letter">${letter}</span><h3>${esc(s.name)}</h3>${pill(blocked ? 'Bloqueada' : 'Liberada', blocked ? 'danger' : 'success')}</div>
+    <p class="strategy-angle">${esc(s.angle)}</p>
+    <div class="strategy-field"><span class="label">Público</span><p>${esc(s.audience)}</p></div>
+    <div class="strategy-field"><span class="label">Produto</span><p>${s.productId ? `<span class="cell-mono">${esc(s.productId)}</span>` : '<span class="cell-muted">Produto ainda não confirmado pela IA</span>'}</p></div>
+    <div class="strategy-field"><span class="label">Mensagem</span><blockquote class="strategy-message">${esc(s.message)}</blockquote></div>
+    <div class="strategy-field"><span class="label">CTA</span><p>${esc(s.cta)}</p></div>
+    <div class="strategy-field"><span class="label">Brief criativo</span><p>${esc(s.creativeBrief)}</p></div>
+    ${(s.warnings || []).length ? `<div class="strategy-warnings">${s.warnings.map(w => `<span class="strategy-warning"><span class="icon">${ICONS.alert}</span>${esc(w)}</span>`).join('')}</div>` : ''}
+    ${blocked && (s.findings || []).length ? `<div class="strategy-findings">${s.findings.map(f => `<div class="ai-banner danger"><span class="icon">${ICONS.alert}</span><div><b>${esc(f.claim)}</b><p>${esc(f.reason)}</p></div></div>`).join('')}</div>` : ''}
+    <button class="btn ${selected ? 'btn-primary' : 'btn-ghost'} btn-sm btn-block" data-select-strategy="${i}" data-campaign-id="${esc(campaignId)}" ${blocked ? 'disabled' : ''}>${selected ? 'Selecionada — salva como rascunho' : 'Usar esta estratégia'}</button>
+  </div>`
+}
+function renderCampaignActionBlock(draft) {
+  if (draft.status === 'AWAITING_HUMAN_APPROVAL') {
+    return `<div class="section-block approval-box">
+      <p class="eyebrow">AÇÃO HUMANA OBRIGATÓRIA</p>
+      <h2>Esta campanha aguarda aprovação humana</h2>
+      <p class="approval-copy">A IA nunca aprova uma campanha por conta própria. Um humano precisa confirmar explicitamente, com o próprio nome, antes de qualquer agendamento.</p>
+      <div id="approvalStart" class="approval-row"><input id="approverName" type="text" placeholder="Seu nome" autocomplete="off"><button class="btn btn-primary" id="approveBtn">Aprovar campanha</button></div>
+      <p id="approvalNameHint" class="approval-hint"></p>
+      <div id="approvalConfirm" class="approval-row hidden"><span id="approvalConfirmLabel" class="approval-confirm-label"></span><button class="btn btn-primary" id="confirmApproveBtn">Confirmar aprovação</button><button class="btn btn-ghost" id="cancelApproveBtn">Cancelar</button></div>
+      <div id="approvalError"></div>
+    </div>`
+  }
+  if (draft.status === 'APPROVED') {
+    return `<div class="section-block approval-box approved">
+      <p class="eyebrow">APROVADA</p>
+      <h2>Pronta para agendar</h2>
+      <p class="approval-copy">O agendamento roda em modo simulado (dry-run) nesta fase. Não existe disparo real a partir desta tela.</p>
+      <button class="btn btn-primary" id="scheduleBtn">Agendar (modo simulado)</button>
+      <div id="scheduleError"></div>
+    </div>`
+  }
+  if (['SCHEDULED', 'RUNNING', 'COMPLETED'].includes(draft.status)) {
+    const [label, tone] = CAMPAIGN_STATUS[draft.status] || [draft.status, 'neutral']
+    return `<div class="notice">${pill(label, tone)} — envio real está desligado nesta fase; qualquer execução aqui é simulada (dry-run).</div>`
+  }
+  if (draft.status === 'CANCELLED') return `<div class="notice">Esta campanha foi cancelada.</div>`
+  return `<div class="notice">Esta campanha ainda está em preparação. A aprovação humana fica disponível quando o status avançar para <b>Aguardando aprovação humana</b>.</div>`
+}
+function wireCampaignActions(draft) {
+  document.querySelectorAll('[data-select-strategy]').forEach(btn => btn.onclick = () => selectStrategy(draft.id, Number(btn.dataset.selectStrategy)))
+  if ($('approveBtn')) $('approveBtn').onclick = () => {
+    const name = $('approverName').value.trim()
+    if (!name) { $('approvalNameHint').textContent = 'Informe quem está aprovando.'; return }
+    $('approvalNameHint').textContent = ''
+    $('approvalConfirmLabel').textContent = `Confirmar que ${name} aprova esta campanha?`
+    $('approvalStart').classList.add('hidden'); $('approvalConfirm').classList.remove('hidden')
+  }
+  if ($('cancelApproveBtn')) $('cancelApproveBtn').onclick = () => { $('approvalConfirm').classList.add('hidden'); $('approvalStart').classList.remove('hidden') }
+  if ($('confirmApproveBtn')) $('confirmApproveBtn').onclick = () => confirmApproval(draft.id)
+  if ($('scheduleBtn')) $('scheduleBtn').onclick = () => scheduleCampaign(draft.id)
+}
+async function selectStrategy(campaignId, index) {
+  try { await apiPost(`ai/campaigns/${campaignId}/select`, { strategyIndex: index }); state.selectedStrategy[campaignId] = index; load() }
+  catch (e) { alert(e.message) }
+}
+async function confirmApproval(campaignId) {
+  const name = $('approverName').value.trim()
+  const btn = $('confirmApproveBtn'); btn.disabled = true; btn.textContent = 'Aprovando…'
+  try { await apiPost(`ai/campaigns/${campaignId}/approve`, { approvedBy: name }); load() }
+  catch (e) {
+    btn.disabled = false; btn.textContent = 'Confirmar aprovação'
+    const info = describeAiIssue(e)
+    $('approvalError').innerHTML = `<div class="ai-banner danger" style="margin-top:10px"><span class="icon">${ICONS.alert}</span><div><b>${esc(info.title)}</b><p>${esc(info.body)}</p></div></div>`
+  }
+}
+async function scheduleCampaign(campaignId) {
+  const btn = $('scheduleBtn'); btn.disabled = true; btn.textContent = 'Agendando…'
+  try { await apiPost(`ai/campaigns/${campaignId}/schedule`, {}); load() }
+  catch (e) {
+    btn.disabled = false; btn.textContent = 'Agendar (modo simulado)'
+    const info = describeAiIssue(e)
+    $('scheduleError').innerHTML = `<div class="ai-banner danger" style="margin-top:10px"><span class="icon">${ICONS.alert}</span><div><b>${esc(info.title)}</b><p>${esc(info.body)}</p></div></div>`
+  }
+}
+
+// ── ÁREA: CAMPANHAS & IA · ABA APRENDIZADOS ──────────────────────────────────────────────────
+// Só métricas comprovadas de entrega/engajamento. "Pedidos após exposição" nunca é chamado de
+// conversão — não há atribuição causal automática. Envio real desligado nesta fase é um estado
+// honesto de "sem dados ainda", nunca um zero fabricado ao lado de métricas reais.
+async function renderLearningArea(gen, signal) {
+  const d = await api('ai/learning', signal)
+  if (gen !== renderGen) return
+  const byStatus = d.campaignsByStatus || {}
+  const statusRows = Object.keys(byStatus).length
+    ? `<div class="section-block"><div class="section-block-head"><h2>Campanhas por status</h2></div><div class="learning-grid">${Object.entries(byStatus).map(([s, n]) => `<div class="learning-metric"><span class="n">${num(n)}</span><span class="l">${esc((CAMPAIGN_STATUS[s] || [s])[0])}</span></div>`).join('')}</div></div>`
+    : ''
+  if (!d.metricsAvailable) {
+    $('content').innerHTML = statusRows + emptyState('Sem métricas de envio ainda', fmtValue(d.reason) || 'O envio real de campanhas está desligado nesta fase — não há mensagens enviadas para medir.')
+    return
+  }
+  // Reservado para quando metricsAvailable=true: o backend ainda não expõe sent/delivered/read/
+  // replies/orders_after_campaign por campanha (exigiria MessageLog.campaignDraftId, fora do
+  // escopo desta fase) — nunca inventar esses números enquanto o campo não existir de verdade.
+  const metrics = [['Enviadas', d.sent], ['Entregues', d.delivered], ['Lidas', d.read], ['Respostas', d.replies], ['Pedidos após exposição', d.orders_after_campaign]].filter(([, v]) => v !== undefined && v !== null)
+  $('content').innerHTML = statusRows + `<div class="notice">Métricas comprovadas de entrega e engajamento. "Pedidos após exposição" indica pedidos observados depois do contato — não é uma conversão atribuída automaticamente à campanha.</div>
+    ${metrics.length ? `<div class="learning-grid">${metrics.map(([l, v]) => `<div class="learning-metric"><span class="n">${num(v)}</span><span class="l">${esc(l)}</span></div>`).join('')}</div>` : ''}`
+}
+
+// ── ÁREA: CAMPANHAS & IA · ABA AUTOMAÇÕES (regra vs. runtime, conteúdo já existente) ─────────
 async function renderAutomationsArea(gen, signal) {
   const d = await api('automations', signal)
   if (gen !== renderGen) return
@@ -640,7 +911,7 @@ async function renderAuditArea(gen, signal) {
   $('content').innerHTML = notice + (d.data.length ? html : emptyState('Nenhum evento técnico registrado')); if (d.data.length) wire($('content'))
 }
 
-// ── Registro de áreas (mesmo dado, 13 áreas reais mapeadas para 7 destinos principais) ───────
+// ── Registro de áreas (mesmo dado, 16 áreas reais mapeadas para 7 destinos principais) ───────
 const AREAS = {
   dashboard: renderDashboard,
   messages: renderMessagesArea,
@@ -652,7 +923,10 @@ const AREAS = {
   pix: (gen, signal) => renderPaymentsArea('pix', gen, signal),
   boleto: (gen, signal) => renderPaymentsArea('boleto', gen, signal),
   remarketing: renderRemarketingArea,
-  automations: renderAutomationsArea,
+  opportunities: renderOpportunitiesArea,
+  campaigns: renderCampaignsArea,
+  'automation-rules': renderAutomationsArea,
+  learning: renderLearningArea,
   health: renderHealthArea,
   audit: renderAuditArea,
 }

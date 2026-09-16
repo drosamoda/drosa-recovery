@@ -117,15 +117,22 @@ describe('CRM_PREVIEW_READONLY', () => {
     expect(del.status).toBe(404)
   })
 
-  it('a única exceção de escrita em read-only é /crm-api/ai/campaigns, e mesmo ela exige x-admin-secret (401 sem ele)', async () => {
+  it('a única exceção de escrita em read-only é /crm-api/ai/campaigns, e mesmo ela exige x-crm-read-secret (401 sem ele)', async () => {
     const { default: app } = await bootApp(READONLY_ENV)
     const res = await request(app).post('/crm-api/ai/campaigns').send({ opportunityId: 'x' })
     expect(res.status).toBe(401)
   })
 
-  it('todas as outras rotas de escrita continuam 404 em read-only mesmo com ADMIN_SECRET configurado (a exceção não é um bypass geral)', async () => {
-    const { default: app } = await bootApp({ ...READONLY_ENV, ADMIN_SECRET: 'test-admin-secret' })
-    const res = await request(app).post('/crm-api/health').set('x-admin-secret', 'test-admin-secret')
+  it('com x-crm-read-secret correto, POST /crm-api/ai/campaigns passa pelo gate de rota (não fica preso em 401/404)', async () => {
+    const { default: app } = await bootApp(READONLY_ENV)
+    const res = await request(app).post('/crm-api/ai/campaigns').set('x-crm-read-secret', 'readonly_secret').send({ opportunityId: 'x' })
+    expect(res.status).not.toBe(401)
+    expect(res.status).not.toBe(404)
+  })
+
+  it('todas as outras rotas de escrita continuam 404 em read-only mesmo com x-crm-read-secret correto (a exceção não é um bypass geral)', async () => {
+    const { default: app } = await bootApp(READONLY_ENV)
+    const res = await request(app).post('/crm-api/health').set('x-crm-read-secret', 'readonly_secret')
     expect(res.status).toBe(404)
   })
 
