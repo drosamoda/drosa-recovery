@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   aiRunCreate: vi.fn(),
   getOpportunityById: vi.fn(),
   getAiProvider: vi.fn(),
+  enrichOpportunityEvidence: vi.fn(),
 }))
 
 vi.mock('../../config/prisma', () => ({
@@ -34,6 +35,10 @@ vi.mock('../../services/productTruthService', () => ({
   productTruthService: { verify: vi.fn().mockResolvedValue({ verified: false, product: null }) },
 }))
 
+vi.mock('../../services/campaignEvidenceService', () => ({
+  enrichOpportunityEvidence: mocks.enrichOpportunityEvidence,
+}))
+
 import { campaignService, CampaignNotFoundError, InvalidCampaignStateError } from '../../services/ai/campaignService'
 import { AiProviderConfigError, AiProviderTimeoutError } from '../../services/ai/aiProvider'
 
@@ -53,11 +58,24 @@ const opportunity = {
   generatedAt: new Date().toISOString(),
 }
 
+function emptyEvidence() {
+  return {
+    candidateProducts: [], purchasedProducts: [], cartProducts: [],
+    evidenceFlags: {
+      hasCandidateProducts: false, hasCategoryEvidence: false, hasStockEvidence: false,
+      hasNewnessEvidence: false, hasPaymentExpiryEvidence: false, hasSecondCopySupport: false,
+      hasPromotionEvidence: false, hasRecoveryUrlEvidence: false,
+    },
+    evidenceSources: [],
+  }
+}
+
 describe('campaignService — criação a partir de oportunidade real', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.campaignDraftCreate.mockResolvedValue({ id: 'draft_1' })
     mocks.campaignDraftUpdate.mockImplementation(async (args) => ({ id: 'draft_1', ...args.data }))
+    mocks.enrichOpportunityEvidence.mockResolvedValue(emptyEvidence())
   })
 
   it('lança CampaignNotFoundError se a oportunidade não existe (não gera campanha do nada)', async () => {
@@ -120,6 +138,28 @@ describe('campaignService — criação a partir de oportunidade real', () => {
     const result = await campaignService.createFromOpportunity(opportunity.id)
     expect(result.status).toBe('AWAITING_HUMAN_APPROVAL')
     expect(result.status).not.toBe('APPROVED')
+  })
+
+  it('purchasedProducts e cartProducts chegam ao CampaignPromptInput, mas NUNCA viram candidateProducts automaticamente (Live Evidence Probe v1.1, seções 6-7)', async () => {
+    const purchased = [{ productId: 'p1', name: 'Vestido comprado antes', price: 199, compareAtPrice: null, stockStatus: 'in_stock', colors: null, sizes: null, url: null }]
+    const cart = [{ productId: 'p2', name: 'Item no carrinho', price: 99, compareAtPrice: null, stockStatus: 'unknown', colors: null, sizes: null, url: null }]
+    mocks.enrichOpportunityEvidence.mockResolvedValue({
+      candidateProducts: [], // nenhuma regra de cross-sell real promove purchased/cart a candidato
+      purchasedProducts: purchased,
+      cartProducts: cart,
+      evidenceFlags: emptyEvidence().evidenceFlags,
+      evidenceSources: [],
+    })
+    mocks.getOpportunityById.mockResolvedValue(opportunity)
+    const generateCampaignStrategies = vi.fn().mockRejectedValue(new Error('stop-after-capture'))
+    mocks.getAiProvider.mockReturnValue({ name: 'anthropic', model: 'claude-test', assertConfigured: vi.fn(), generateCampaignStrategies })
+
+    await expect(campaignService.createFromOpportunity(opportunity.id)).rejects.toThrow('stop-after-capture')
+
+    const promptInput = generateCampaignStrategies.mock.calls[0][0]
+    expect(promptInput.purchasedProducts).toEqual(purchased)
+    expect(promptInput.cartProducts).toEqual(cart)
+    expect(promptInput.candidateProducts).toEqual([])
   })
 })
 

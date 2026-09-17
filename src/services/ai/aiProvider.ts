@@ -31,6 +31,17 @@ export const campaignStrategiesSchema = z.object({
 export type Strategy = z.infer<typeof strategySchema>
 export type CampaignStrategiesOutput = z.infer<typeof campaignStrategiesSchema>
 
+export type CampaignProductFact = {
+  productId: string
+  name: string | null
+  price: number | null
+  compareAtPrice: number | null
+  stockStatus: string
+  colors: string[] | null
+  sizes: string[] | null
+  url: string | null
+}
+
 export type CampaignPromptInput = {
   opportunityId: string
   opportunityType: string
@@ -45,16 +56,20 @@ export type CampaignPromptInput = {
   // Evidence Enrichment v1: campos honestos vindos direto de Product Truth
   // (Nuvemshop confirmada) — nunca preenchidos por heurística. Ausente = null,
   // igual ao próprio ProductTruth (productTruthService.ts).
-  candidateProducts: Array<{
-    productId: string
-    name: string | null
-    price: number | null
-    compareAtPrice: number | null
-    stockStatus: string
-    colors: string[] | null
-    sizes: string[] | null
-    url: string | null
-  }>
+  //
+  // Três significados DIFERENTES, nunca intercambiáveis (Live Evidence Probe
+  // v1.1 — seção 6/7): candidateProducts é o único que a IA pode tratar como
+  // "posso usar/recomendar isto"; os outros dois são só contexto factual.
+  //   candidateProducts = produto que passou Product Truth e pode ser usado
+  //     como candidato na estratégia, dentro das regras do playbook.
+  //   purchasedProducts = produto comprovadamente comprado antes pelo
+  //     cliente/segmento — CONTEXTO, nunca promovido a recomendação
+  //     automática (não existe regra de cross-sell determinística ainda).
+  //   cartProducts = produto comprovadamente presente num checkout real —
+  //     CONTEXTO, não é por si só confirmação de estoque atual.
+  candidateProducts: Array<CampaignProductFact>
+  purchasedProducts: Array<CampaignProductFact>
+  cartProducts: Array<CampaignProductFact>
   // Strategy Lab v1: direção determinística por tipo de oportunidade
   // (strategyPlaybook.ts) — a IA deve gerar exatamente uma estratégia por
   // direção, na ordem A/B/C, e nunca inventar o dado que falta quando uma

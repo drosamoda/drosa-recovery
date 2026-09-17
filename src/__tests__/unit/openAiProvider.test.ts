@@ -41,6 +41,8 @@ const input: CampaignPromptInput = {
   recommendedChannel: 'whatsapp',
   confidence: 'medium',
   candidateProducts: [],
+  purchasedProducts: [],
+  cartProducts: [],
   playbook: [],
   evidence: {
     hasCandidateProducts: false, hasCategoryEvidence: false, hasStockEvidence: false,

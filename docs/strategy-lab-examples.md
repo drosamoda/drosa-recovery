@@ -144,7 +144,7 @@ para lê-la.
 
 | Flag | Comprova | Fonte real hoje |
 |---|---|---|
-| `hasCandidateProducts` | Existe produto candidato real, confirmado via Product Truth | **Dinâmica.** `product_id`/`variant_id` real encontrado em `rawPayload.products[]` e confirmado pela Nuvemshop. Hoje quase sempre `false`: o payload armazenado de carrinho/pedido só guarda `name`/`quantity` por item (ver relatório) |
+| `hasCandidateProducts` | Existe produto candidato real, confirmado via Product Truth | **Dinâmica.** `product_id` real encontrado em `rawPayload.products[]`/`rawPayload.fetchedOrderPayload.products[]` (confirmado por inspeção real do Preview — ver relatório) e confirmado pela Nuvemshop via `productTruthService.verify()`. Só o `productId` da audiência ELEGÍVEL desta oportunidade específica é considerado — nunca uma amostra global |
 | `hasStockEvidence` | Estoque confirmado para o produto candidato | **Dinâmica**, mas depende de `hasCandidateProducts` ser `true` primeiro — sem candidato confirmado, não há o que verificar |
 | `hasRecoveryUrlEvidence` | URL de recuperação de carrinho real e válida | **Dinâmica e majoritariamente `true` na prática** — `AbandonedCheckout.abandonedCheckoutUrl` é uma coluna obrigatória no banco |
 | `hasCategoryEvidence` | Categoria de interesse/afinidade comprovada | Nenhuma — nem `Order`/`AbandonedCheckout` nem `NuvemshopProduct` carregam `categoryId` |

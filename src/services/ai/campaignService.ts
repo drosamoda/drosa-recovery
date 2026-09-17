@@ -38,6 +38,8 @@ async function buildPromptInput(opportunity: Opportunity): Promise<CampaignPromp
     recommendedChannel: opportunity.recommendedChannel,
     confidence: opportunity.confidence,
     candidateProducts: evidence.candidateProducts,
+    purchasedProducts: evidence.purchasedProducts,
+    cartProducts: evidence.cartProducts,
     playbook: resolveStrategyDirections(opportunity.type, evidence.evidenceFlags),
     evidence: evidence.evidenceFlags,
   }

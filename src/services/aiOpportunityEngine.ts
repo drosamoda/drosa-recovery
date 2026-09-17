@@ -54,7 +54,7 @@ const sendWindow = `Envio dentro do horário comercial configurado (${String(env
 // Recompra é a lacuna real entre "recente" e "inativo": pedido pago nessa
 // janela e nenhum pedido pago depois. Usa os mesmos dois limiares já
 // configurados no remarketing (nenhum limiar novo é inventado aqui).
-async function repeatPurchaseCandidates() {
+export async function repeatPurchaseCandidates() {
   const now = Date.now()
   const day = 86400000
   // Filtra no banco pela janela que realmente importa (últimos INACTIVE_DAYS) em vez de
@@ -85,6 +85,12 @@ async function repeatPurchaseCandidates() {
   const suppressed = new Set([...suppressions, ...optedOut].map(item => item.normalizedPhone))
   const consented = new Set(consents.map(item => item.normalizedPhone))
   const reasons: Record<string, number> = {}
+  // eligibleOrderIds: mesma regra de elegibilidade acima (nunca duplicada,
+  // só exposta), um Order.id por telefone elegível — a "própria compra mais
+  // recente" desse cliente, nunca um pedido de outro cliente. Consumido por
+  // campaignEvidenceService para escopar a evidência de REPEAT_PURCHASE à
+  // audiência real desta oportunidade (nunca uma amostra global).
+  const eligibleOrderIds: string[] = []
   let found = 0, eligible = 0
   for (const [phone, history] of byPhone) {
     const dated = history.filter(o => o.sourceCreatedAt).sort((a, b) => b.sourceCreatedAt!.getTime() - a.sourceCreatedAt!.getTime())
@@ -97,9 +103,9 @@ async function repeatPurchaseCandidates() {
     if (!consented.has(phone)) rowReasons.push('consent_unproven')
     if (incomplete) rowReasons.push('history_incomplete')
     for (const r of rowReasons) reasons[r] = (reasons[r] ?? 0) + 1
-    if (rowReasons.length === 0) eligible++
+    if (rowReasons.length === 0) { eligible++; eligibleOrderIds.push(dated[0].id) }
   }
-  return { found, eligible, reasons, dataQuality: { historyTruncated: incomplete, consentSourceConfigured: true, metaTemplatesVerified: true } }
+  return { found, eligible, reasons, eligibleOrderIds, dataQuality: { historyTruncated: incomplete, consentSourceConfigured: true, metaTemplatesVerified: true } }
 }
 
 export async function generateOpportunities(): Promise<Opportunity[]> {

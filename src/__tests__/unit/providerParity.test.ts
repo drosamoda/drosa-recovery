@@ -53,6 +53,8 @@ const evidence = {
   hasRecoveryUrlEvidence: false,
 }
 
+const sampleProduct = { productId: 'p1', name: 'Vestido Real', price: 199, compareAtPrice: null, stockStatus: 'in_stock', colors: ['Azul'], sizes: ['M'], url: 'https://loja.test/p1' }
+
 const input: CampaignPromptInput = {
   opportunityId: 'opp_abandoned_cart_fixture',
   opportunityType: 'ABANDONED_CART',
@@ -64,9 +66,14 @@ const input: CampaignPromptInput = {
   recommendedTiming: 'Automação existente: 30 min após abandono',
   recommendedChannel: 'whatsapp',
   confidence: 'medium',
-  candidateProducts: [],
-  playbook: resolveStrategyDirections('ABANDONED_CART', evidence),
-  evidence,
+  // Não-vazios de propósito (Live Evidence Probe v1.1, seção 9-H): prova que os
+  // dois providers recebem os TRÊS tipos de produto com conteúdo real idêntico,
+  // não só arrays vazios que combinariam por coincidência.
+  candidateProducts: [sampleProduct],
+  purchasedProducts: [{ ...sampleProduct, productId: 'p2', name: 'Comprado antes' }],
+  cartProducts: [{ ...sampleProduct, productId: 'p3', name: 'No carrinho' }],
+  playbook: resolveStrategyDirections('ABANDONED_CART', { ...evidence, hasCandidateProducts: true }),
+  evidence: { ...evidence, hasCandidateProducts: true },
 }
 
 function validOutput() {
@@ -114,6 +121,23 @@ describe('Provider parity (OpenAI vs Anthropic) — mesmo contrato, sem chamar A
     expect(anthropicCall.messages[0].content).toBe(JSON.stringify(input))
     expect(openaiUserMessage.content).toBe(JSON.stringify(input))
     expect(anthropicCall.messages[0].content).toBe(openaiUserMessage.content)
+  })
+
+  it('os dois recebem exatamente os mesmos candidateProducts, purchasedProducts, cartProducts, evidence e playbook (seção 9-H)', async () => {
+    mocks.anthropicParse.mockResolvedValue({ stop_reason: 'end_turn', parsed_output: validOutput() })
+    mocks.openaiParse.mockResolvedValue({ choices: [{ message: { refusal: null, parsed: validOutput() }, finish_reason: 'stop' }] })
+
+    await new AnthropicProvider('claude-opus-5').generateCampaignStrategies(input)
+    await new OpenAiProvider('gpt-5').generateCampaignStrategies(input)
+
+    const anthropicSent = JSON.parse(mocks.anthropicParse.mock.calls[0][0].messages[0].content)
+    const openaiSent = JSON.parse(mocks.openaiParse.mock.calls[0][0].messages.find((m: { role: string }) => m.role === 'user').content)
+
+    for (const field of ['candidateProducts', 'purchasedProducts', 'cartProducts', 'evidence', 'playbook'] as const) {
+      expect(anthropicSent[field]).toEqual(input[field])
+      expect(openaiSent[field]).toEqual(input[field])
+      expect(anthropicSent[field]).toEqual(openaiSent[field])
+    }
   })
 
   it('o JSON Schema manual do Anthropic (STRATEGIES_JSON_SCHEMA) exige exatamente os mesmos campos do strategySchema (Zod) usado pela OpenAI', () => {

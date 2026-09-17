@@ -1,118 +1,129 @@
-# Evidence Enrichment v1 — relatório de dados reais
+# Evidence Enrichment — relatório de dados reais
 
-**Metodologia e uma limitação honesta primeiro**: este relatório foi produzido
-por leitura do código-fonte já em produção (webhooks, jobs, tipos Nuvemshop),
-não por uma consulta ao vivo ao banco de dados real ou à API real da
-Nuvemshop — esta sessão não tem credenciais nem autorização para acessar
-diretamente o Postgres de produção/Preview, e a missão pede explicitamente
-para não tocar banco. O código que já processa esses payloads em produção
-hoje É a fonte confiável de "quais campos existem" — se `orderService.ts` já
-extrai com sucesso `payment_details.method` de todo pedido real há meses, isso
-é uma confirmação indireta, mas real, do formato do payload. Onde a resposta
-depende do que a API COMPLETA da Nuvemshop retornaria (não o que já está
-armazenado), isso está marcado explicitamente como não verificado.
+## ⚠️ Correção v1.1 (Live Evidence Probe) — leia isto primeiro
 
-## 1. `AbandonedCheckout.rawPayload`
+A versão original deste relatório (v1) concluiu `product_id AUSENTE` com base
+**só na leitura do código-fonte e das interfaces TypeScript**
+(`NuvemshopCheckoutPayload`/`NuvemshopOrderPayload`), sem consultar o dado
+real armazenado. Essa conclusão estava **errada** e foi corrigida nesta
+revisão.
 
-Shape confirmado em `src/services/abandonedCheckoutService.ts:10-24`
-(`NuvemshopCheckoutPayload`): `id, token, contact_name/email/phone, total,
-currency, products: [{ name?, quantity? }], checkout_url,
-abandoned_checkout_url, created_at, updated_at`.
+O motivo do erro: `orderService.ts` e `abandonedCheckoutService.ts` salvam o
+payload bruto em uma coluna `Json` tipada como `[key: string]: unknown` — ou
+seja, a interface TypeScript documenta só um SUBCONJUNTO dos campos que a
+integração realmente persiste, porque o código nunca precisou tipar o resto
+para funcionar. Uma interface estreita não é prova de ausência do dado real.
 
-```
-ABANDONED_CHECKOUT_HAS_PRODUCT_ID=AUSENTE
-```
-Line items só têm `name`/`quantity` — nenhum `product_id`/`variant_id` em
-nenhum lugar do tipo ou do código que o lê (`abandonedCheckoutService.ts`,
-`nuvemshopService.ts`'s `NuvemshopCheckout`).
+Para corrigir isso com segurança, foi feita uma inspeção **read-only, sem
+PII** do banco de Preview (script temporário fora do repositório, usando a
+credencial de leitura já existente em `.env.preview.local`; nenhuma variável
+de ambiente foi alterada, nenhuma migração foi aplicada): até 3
+`AbandonedCheckout` e 3 `Order` reais, imprimindo apenas os NOMES das chaves
+encontradas (nunca valores — nunca nome/telefone/e-mail/endereço). Os fatos
+abaixo substituem a v1.
+
+## Fatos confirmados por inspeção real (read-only, Preview, 2026-09)
 
 ```
-CHECKOUT_HAS_RECOVERY_URL=PRESENTE
+ABANDONED_CHECKOUT_HAS_PRODUCT_ID=PRESENTE
+ABANDONED_CHECKOUT_HAS_VARIANT_ID=PRESENTE
+ORDER_FETCHED_PAYLOAD_HAS_PRODUCT_ID=PRESENTE
+ORDER_FETCHED_PAYLOAD_HAS_VARIANT_ID=PRESENTE
 ```
-`abandoned_checkout_url` (fallback `checkout_url`) já é extraído e vira a
-coluna obrigatória `AbandonedCheckout.abandonedCheckoutUrl` — esta é a
-evidência mais sólida de todo o relatório: 100% dos checkouts armazenados têm
-um valor aqui (coluna `String`, não `String?`, no schema).
 
-## 2. `Order.rawPayload`
+**Caminhos exatos confirmados** (únicos suportados por
+`campaignEvidenceService.ts` — extração por caminho fixo, nunca um crawler
+genérico que vasculha qualquer campo):
 
-Shape confirmado em `src/services/orderService.ts:12-28`
-(`NuvemshopOrderPayload`): `id, number, status, event, payment_status,
-payment_details: { method? }, contact_name/email/phone, total, currency,
-checkout_url, created_at, updated_at`.
+- `AbandonedCheckout.rawPayload.products[]` (raiz, sem aninhamento) — cada
+  item tem `id, product_id, variant_id, sku, name, quantity, price,
+  compare_at_price, width, height, depth, weight, barcode, image, is_gift,
+  free_shipping, promotions, properties, variant_values,
+  has_promotional_price, name_without_variants`.
+- `Order.rawPayload.products[]` — presente quando o webhook original já veio
+  completo.
+- `Order.rawPayload.fetchedOrderPayload.products[]` — presente quando o
+  pedido precisou de um fetch de detalhe adicional
+  (`orderService.resolveOrderPayload`); nesse caso
+  `Order.rawPayload.originalWebhookPayload` fica reduzido a
+  `{ id, event, store_id }` e o payload completo (incluindo `products[]`)
+  fica dentro de `fetchedOrderPayload`.
 
-```
-ORDER_HAS_PRODUCT_ID=AUSENTE
-ORDER_HAS_VARIANT_ID=AUSENTE
-ORDER_HAS_CATEGORY_ID=AUSENTE
-```
-Nenhum array de itens (`products`/`line_items`/`items`) existe no tipo ou é
-lido em `orderService.ts`. `payment_details` só tem `method`.
+`product_id` e `variant_id` são campos **distintos** em todo item de produto
+real observado — nunca o mesmo id, e um nunca substitui o outro
+(`campaignEvidenceService.ts` extrai os dois separadamente; só `product_id`
+comprovado é verificado via `productTruthService.verify()` contra a Nuvemshop
+real; um `variant_id` sozinho fica fail-closed, nunca tratado como se fosse
+`product_id`).
+
+### Ainda confirmado AUSENTE (não mudou nesta revisão)
 
 ```
 PIX_HAS_EXPIRY=AUSENTE
 BOLETO_HAS_DUE_DATE=AUSENTE
+ORDER_HAS_CATEGORY_ID=AUSENTE
 ```
-Busca por `expir|due_date|vencimento|boleto_url|barcode|pix_url|qr_code` em
-todo `src/` (fora de testes/prompt de IA): zero ocorrências em código de
-produção. Confirmado indiretamente por `src/jobs/syncBoletoExpiring.ts:17-25`:
-o job de notificação de boleto vencendo calcula uma janela sintética
-(`order.createdAt + BOLETO_NOTIFY_HOURS`) exatamente porque não existe um
-campo real de vencimento para usar — se existisse, o job já o estaria usando.
 
-## 3. Colunas tipadas do Prisma (não `rawPayload`)
+Inspeção real confirmou: `payment_details` (checkout e pedido) só tem
+`{ method, installments, credit_card_company }` — nenhum campo de
+vencimento/expiração em nenhum nível até profundidade 2 (a mesma profundidade
+que `findExpiryLikeKey()` varre). Nenhum item de produto real amostrado tem
+`category_id`/`categories` — só os campos listados acima.
 
-`Order` (schema.prisma:42-76): sem coluna de vencimento/prazo.
-`AbandonedCheckout` (schema.prisma:82-121): `productsSummary` é uma *string*
-já achatada (`"2x Camiseta, Calça"`, montada em
-`abandonedCheckoutService.ts:47-56`), não uma estrutura com IDs.
+### Confirmado PRESENTE mas ainda NÃO usado (fora do escopo desta rodada)
 
-## 4. Tipos Nuvemshop (`nuvemshopService.ts`)
+`AbandonedCheckout.rawPayload.has_stock_available` (bool no nível do
+checkout) e `promotional_discount.total_discount_amount` +
+`has_promotional_price`/`compare_at_price` por item — poderiam sustentar
+`hasStockEvidence`/`hasPromotionEvidence` adicionais no futuro, mas não foram
+ligados a nenhuma flag nesta rodada por decisão deliberada de escopo, não por
+limitação técnica.
 
-`NuvemshopProduct` (linha 5-15): `id, name, description, handle,
-canonical_url, variants[], images[], attributes[]`. Sem `category`/
-`categoryId`/`categories` em nenhum lugar — confirmado também em
-`productTruthService.toProductTruth()`, que não popula nenhum campo de
-categoria em `ProductTruth`.
+```
+CHECKOUT_HAS_RECOVERY_URL=PRESENTE
+```
+Continua a evidência mais sólida do relatório: `abandonedCheckoutUrl` é
+coluna `String` obrigatória no schema (`prisma/schema.prisma`), não
+`String?` — praticamente sempre presente na prática.
 
-## 5. Funções que já chamam a API real (não só o payload armazenado)
+## Bloqueio de escopo (não impede este commit)
 
-`fetchProductById`, `fetchOrderById`, `fetchCheckoutById` e `searchProducts`
-já existem em `nuvemshopService.ts` e chamam endpoints reais. **Não verificado
-nesta sessão**: se a resposta completa de `GET /orders/:id` da Nuvemshop
-inclui um array de produtos com `product_id`/`variant_id` (a documentação
-pública da Nuvemshop sugere que sim, mas isso nunca foi confirmado contra uma
-conta real neste projeto, e `fetchOrderById` retorna `unknown` — o código
-nunca comprometeu um formato). `campaignEvidenceService.ts` foi escrito de
-forma defensiva para aproveitar isso se um dia for confirmado (extrai
-`product_id`/`variant_id` de qualquer `products[]` que encontrar), mas hoje só
-lê o que já está armazenado — nenhuma chamada nova à API foi adicionada para
-esta investigação, por decisão deliberada (ver seção "Performance" abaixo).
+```
+BLOCKER_NUVEMSHOP_PREVIEW_CREDENTIALS=YES
+```
+Nenhuma credencial real da Nuvemshop (`NUVEMSHOP_ACCESS_TOKEN`) existe em
+`.env.preview.local` — só os nomes das variáveis existem como placeholder em
+`.env.example`. Por isso a sonda de detalhe via API real
+(`fetchOrderById`/`fetchCheckoutById`, seção "GET /orders/:id retorna
+product_id?") **não foi executada** nesta rodada — permanece não verificada.
+Isso não bloqueia o trabalho desta rodada porque toda a correção feita
+(separação `product_id`/`variant_id`, extração pelos caminhos confirmados,
+contexto de `purchasedProducts`/`cartProducts` para a IA) depende só do
+payload já armazenado, que FOI verificado.
 
-## Por que nenhuma chamada nova à API foi feita para "confirmar" o que falta
+## Metodologia
 
-A missão pede para não fazer uma chamada Nuvemshop por cliente em listas
-grandes, e para preferir timeout fail-closed a inventar. Adicionar uma
-chamada de detalhe (`fetchOrderById`/`fetchCheckoutById`) por linha amostrada
-só para "talvez" descobrir um campo cujo formato não está confirmado teria um
-custo real (latência, nova superfície de falha, uma chamada à conta de
-produção da Nuvemshop) para um benefício não verificado. A escolha foi:
-extrair só do que já está sincronizado localmente, documentar honestamente o
-que falta, e deixar o extrator pronto (não a chamada de rede) para o dia em
-que isso for decidido deliberadamente.
+Leitura read-only via Prisma direto (sem passar pela API HTTP do CRM),
+usando a credencial de leitura já autorizada em Preview
+(`.env.preview.local`: `DATABASE_URL`/`DIRECT_URL`). O script rodou fora do
+repositório (scratchpad da sessão), nunca foi commitado, e imprimiu somente
+uma árvore recursiva de nomes de chave (`Object.keys()`), nunca um valor —
+nenhum nome, telefone, e-mail ou endereço de cliente real foi lido ou exibido
+em nenhum momento desta investigação.
 
 ## Resumo
 
 ```
-ABANDONED_CHECKOUT_HAS_PRODUCT_ID=AUSENTE
-ORDER_HAS_PRODUCT_ID=AUSENTE
-ORDER_HAS_VARIANT_ID=AUSENTE
+ABANDONED_CHECKOUT_HAS_PRODUCT_ID=PRESENTE
+ABANDONED_CHECKOUT_HAS_VARIANT_ID=PRESENTE
+ORDER_FETCHED_PAYLOAD_HAS_PRODUCT_ID=PRESENTE
+ORDER_FETCHED_PAYLOAD_HAS_VARIANT_ID=PRESENTE
 ORDER_HAS_CATEGORY_ID=AUSENTE
 PIX_HAS_EXPIRY=AUSENTE
 BOLETO_HAS_DUE_DATE=AUSENTE
 CHECKOUT_HAS_RECOVERY_URL=PRESENTE
+BLOCKER_NUVEMSHOP_PREVIEW_CREDENTIALS=YES
 ```
 
 Nenhum dado de cliente real foi exposto neste relatório — os únicos fatos
-citados são nomes de campos e trechos de tipos TypeScript já públicos no
-próprio repositório.
+citados são nomes de campos, nunca valores.
