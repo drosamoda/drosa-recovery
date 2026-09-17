@@ -10,9 +10,10 @@ import { runAbandonedCheckoutsPreview } from '../../jobs/previewAbandonedCheckou
 // Este arquivo testa só a agregação/preview-only de runAbandonedCheckoutsPreview — a paridade
 // do batch com o caminho por linha já é coberta em abandonedCheckoutEligibilityBatch.test.ts.
 const state = vi.hoisted(() => {
+  const tracker = { failId: null as string | null }
   const writes = vi.fn((): never => { throw new Error('Preview attempted a write') })
   const evaluateBatch = vi.fn(async (checkouts: Array<{ id: string; normalizedPhone: string }>) => {
-    return checkouts.map((c) => c.id === state.failId ? null : {
+    return checkouts.map((c) => c.id === tracker.failId ? null : {
       eligible: true,
       reasons: [],
       warnings: [],
@@ -23,7 +24,12 @@ const state = vi.hoisted(() => {
       renderedPreview: 'Preview seguro',
     })
   })
-  return { failId: null as string | null, writes, evaluateBatch }
+  return {
+    get failId() { return tracker.failId },
+    set failId(value: string | null) { tracker.failId = value },
+    writes,
+    evaluateBatch,
+  }
 })
 
 vi.mock('../../services/abandonedCheckoutEligibilityService', () => ({
