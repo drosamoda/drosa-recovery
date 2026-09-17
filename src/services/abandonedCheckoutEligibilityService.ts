@@ -51,7 +51,10 @@ function hasBadEncoding(value: string): boolean {
   return value.includes('\uFFFD') || value.includes('??') || /{{\s*\d+\s*}}/.test(value)
 }
 
-function validRecoveryUrl(value: string): boolean {
+// Exportada para reuso em campaignEvidenceService.ts (Evidence Enrichment) —
+// mesma regra de validade real usada aqui para decidir elegibilidade de
+// envio, sem duplicar a lógica em dois lugares.
+export function validRecoveryUrl(value: string): boolean {
   try {
     const candidate = new URL(value)
     const allowed = new URL(env.CHECKOUT_BASE_URL)

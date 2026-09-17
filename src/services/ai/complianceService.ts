@@ -151,6 +151,16 @@ const CLAIM_CATEGORY_RULES: ClaimCategoryRule[] = [
     phrases: ['continua disponivel', 'item continua disponivel', 'produto continua disponivel', 'ainda disponivel', 'segue disponivel'],
   },
   {
+    // Microfix v1.1.1: "ainda dá tempo de finalizar quando quiser" não é uma
+    // claim de estoque — é uma claim de que o CHECKOUT em si continua válido/
+    // retomável, o que só está comprovado quando existe uma URL de
+    // recuperação real (hasRecoveryUrlEvidence), não quando existe estoque.
+    category: 'checkout_validity',
+    requiredFlag: 'hasRecoveryUrlEvidence',
+    appliesTo: ['ABANDONED_CART'],
+    phrases: ['finalizar quando quiser', 'ainda da tempo', 'retomar o checkout quando quiser'],
+  },
+  {
     category: 'payment_validity',
     requiredFlag: 'hasPaymentExpiryEvidence',
     appliesTo: ['PIX_PENDING', 'BOLETO_PENDING'],

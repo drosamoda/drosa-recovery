@@ -17,6 +17,7 @@ const NO_EVIDENCE: EvidenceFlags = {
   hasPaymentExpiryEvidence: false,
   hasSecondCopySupport: false,
   hasPromotionEvidence: false,
+  hasRecoveryUrlEvidence: false,
 }
 
 function wordCount(text: string): number {
@@ -135,6 +136,17 @@ describe('Strategy Lab v1.1 — Truth Hardening: testes negativos obrigatórios 
     expect(findings.some(f => f.claim === 'payment_validity')).toBe(true)
   })
 
+  it('ABANDONED_CART · hasRecoveryUrlEvidence=false: "finalizar quando quiser" => FAIL (microfix v1.1.1 — claim residual)', () => {
+    const findings = auditClaimCategories(strategy({ message: 'Ainda dá tempo de finalizar quando quiser.' }), 0, 'ABANDONED_CART', NO_EVIDENCE)
+    expect(findings.some(f => f.claim === 'checkout_validity')).toBe(true)
+  })
+
+  it('ABANDONED_CART · com hasRecoveryUrlEvidence=true, a mesma frase deixa de ser bloqueada', () => {
+    const evidenceWithUrl: EvidenceFlags = { ...NO_EVIDENCE, hasRecoveryUrlEvidence: true }
+    const findings = auditClaimCategories(strategy({ message: 'Ainda dá tempo de finalizar quando quiser.' }), 0, 'ABANDONED_CART', evidenceWithUrl)
+    expect(findings.some(f => f.claim === 'checkout_validity')).toBe(false)
+  })
+
   it('a mesma frase de disponibilidade NÃO é bloqueada em um tipo fora do escopo da regra (ex.: VIP não audita stock_availability)', () => {
     // stock_availability só se aplica a ABANDONED_CART e payment_validity só a PIX/BOLETO —
     // por isso "continua disponível" em VIP não é auditado por NENHUma das duas regras
@@ -148,6 +160,71 @@ describe('Strategy Lab v1.1 — Truth Hardening: testes negativos obrigatórios 
     const evidenceWithStock: EvidenceFlags = { ...NO_EVIDENCE, hasStockEvidence: true }
     const findings = auditClaimCategories(strategy({ message: 'O item continua disponível.' }), 0, 'ABANDONED_CART', evidenceWithStock)
     expect(findings.some(f => f.claim === 'stock_availability')).toBe(false)
+  })
+})
+
+describe('Strategy Lab v1.1 — Evidence Enrichment: com evidência real, a direção deixa de degradar (seção 9)', () => {
+  function strategy(overrides: Partial<Strategy> = {}): Strategy {
+    return {
+      direction: 'A', name: 'Estratégia', angle: 'Ângulo genérico', audience: '10 elegíveis', productId: null,
+      message: 'Mensagem neutra.', cta: 'Ver mais', creativeBrief: 'Brief neutro.', warnings: [],
+      ...overrides,
+    }
+  }
+
+  it('ABANDONED_CART: com produto real + estoque conhecido, a direção C deixa de degradar e pode citar o produto', () => {
+    const evidence: EvidenceFlags = { ...NO_EVIDENCE, hasCandidateProducts: true, hasStockEvidence: true }
+    const [, , c] = resolveStrategyDirections('ABANDONED_CART', evidence)
+    expect(c.degraded).toBe(false)
+
+    const findings = auditClaimCategories(strategy({ message: 'O item continua disponível para você finalizar a compra.' }), 0, 'ABANDONED_CART', evidence)
+    expect(findings.some(f => f.claim === 'stock_availability')).toBe(false)
+  })
+
+  it('RECENT_CUSTOMER: com produto anterior real, Style Guidance (B) deixa de degradar e pode citar o item comprado — mas complemento (A) continua exigindo candidato próprio', () => {
+    const evidence: EvidenceFlags = { ...NO_EVIDENCE, hasCandidateProducts: true }
+    const [a, b] = resolveStrategyDirections('RECENT_CUSTOMER', evidence)
+    expect(a.degraded).toBe(false)
+    expect(b.degraded).toBe(false)
+
+    // "combina bem com o que você já tem" só deixa de ser bloqueada porque hasCandidateProducts
+    // agora é true — não porque inventamos uma regra de recomendação nova.
+    const findings = auditClaimCategories(strategy({ message: 'Isso combina bem com o que você já tem.' }), 0, 'RECENT_CUSTOMER', evidence)
+    expect(findings.some(f => f.claim === 'product_recommendation')).toBe(false)
+  })
+
+  it('REPEAT_PURCHASE: histórico real permite contextualizar a compra anterior, mas cross-sell inventado continua bloqueado sem candidato próprio', () => {
+    // purchasedProducts (contexto) NÃO é o mesmo que hasCandidateProducts (campaignEvidenceService
+    // nunca promove um ao outro sem regra de recomendação real) — por isso a direção A
+    // (complemento) continua degradada mesmo com histórico de compra real disponível.
+    const evidenceWithHistoryOnly: EvidenceFlags = { ...NO_EVIDENCE, hasCandidateProducts: false }
+    const [a] = resolveStrategyDirections('REPEAT_PURCHASE', evidenceWithHistoryOnly)
+    expect(a.degraded).toBe(true)
+
+    const findings = auditClaimCategories(strategy({ message: 'Separamos um complemento que combina com o que você já tem.' }), 0, 'REPEAT_PURCHASE', evidenceWithHistoryOnly)
+    expect(findings.some(f => f.claim === 'product_recommendation')).toBe(true)
+  })
+
+  it('PIX_PENDING/BOLETO_PENDING: com prazo real comprovado, a direção de prazo deixa de degradar e pode citar SOMENTE o prazo fornecido', () => {
+    const evidence: EvidenceFlags = { ...NO_EVIDENCE, hasPaymentExpiryEvidence: true }
+    const [, , pixC] = resolveStrategyDirections('PIX_PENDING', evidence)
+    const [, , boletoC] = resolveStrategyDirections('BOLETO_PENDING', evidence)
+    expect(pixC.degraded).toBe(false)
+    expect(boletoC.degraded).toBe(false)
+    expect(pixC.guidance).toMatch(/citando apenas o dado de prazo fornecido/i)
+    expect(boletoC.guidance).toMatch(/citando apenas o dado de prazo fornecido/i)
+
+    const findings = auditClaimCategories(strategy({ message: 'O Pix continua disponível até o prazo informado.' }), 0, 'PIX_PENDING', evidence)
+    expect(findings.some(f => f.claim === 'payment_validity')).toBe(false)
+  })
+
+  it('inverso: retirar a evidência volta automaticamente à versão degradada (nenhum estado fica "preso" no modo real)', () => {
+    const withEvidence: EvidenceFlags = { ...NO_EVIDENCE, hasCandidateProducts: true }
+    const withoutEvidence: EvidenceFlags = { ...NO_EVIDENCE }
+    const [aWith] = resolveStrategyDirections('VIP', withEvidence)
+    const [aWithout] = resolveStrategyDirections('VIP', withoutEvidence)
+    expect(aWith.degraded).toBe(false)
+    expect(aWithout.degraded).toBe(true)
   })
 })
 

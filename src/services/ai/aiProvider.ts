@@ -42,7 +42,19 @@ export type CampaignPromptInput = {
   recommendedTiming: string
   recommendedChannel: string
   confidence: string
-  candidateProducts: Array<{ productId: string; name: string | null; price: number | null; stockStatus: string }>
+  // Evidence Enrichment v1: campos honestos vindos direto de Product Truth
+  // (Nuvemshop confirmada) — nunca preenchidos por heurística. Ausente = null,
+  // igual ao próprio ProductTruth (productTruthService.ts).
+  candidateProducts: Array<{
+    productId: string
+    name: string | null
+    price: number | null
+    compareAtPrice: number | null
+    stockStatus: string
+    colors: string[] | null
+    sizes: string[] | null
+    url: string | null
+  }>
   // Strategy Lab v1: direção determinística por tipo de oportunidade
   // (strategyPlaybook.ts) — a IA deve gerar exatamente uma estratégia por
   // direção, na ordem A/B/C, e nunca inventar o dado que falta quando uma

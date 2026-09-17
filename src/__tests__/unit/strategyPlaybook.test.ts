@@ -15,6 +15,7 @@ const NO_EVIDENCE: EvidenceFlags = {
   hasPaymentExpiryEvidence: false,
   hasSecondCopySupport: false,
   hasPromotionEvidence: false,
+  hasRecoveryUrlEvidence: false,
 }
 const FULL_EVIDENCE: EvidenceFlags = {
   hasCandidateProducts: true,
@@ -24,6 +25,7 @@ const FULL_EVIDENCE: EvidenceFlags = {
   hasPaymentExpiryEvidence: true,
   hasSecondCopySupport: true,
   hasPromotionEvidence: true,
+  hasRecoveryUrlEvidence: true,
 }
 
 describe('strategyPlaybook — resolução determinística por tipo de oportunidade', () => {
@@ -47,12 +49,19 @@ describe('strategyPlaybook — resolução determinística por tipo de oportunid
     expect(directions.every(d => d.requiredWarning === null)).toBe(true)
   })
 
-  it('ABANDONED_CART: A e B nunca degradam (não dependem de evidência); C degrada sem hasStockEvidence', () => {
+  it('ABANDONED_CART: B nunca degrada (não depende de evidência); A degrada sem hasRecoveryUrlEvidence; C degrada sem hasStockEvidence', () => {
     const [a, b, c] = resolveStrategyDirections('ABANDONED_CART', NO_EVIDENCE)
-    expect(a.degraded).toBe(false)
+    expect(a.degraded).toBe(true)
     expect(b.degraded).toBe(false)
     expect(c.degraded).toBe(true)
+    expect(a.guidance).toMatch(/não ofereça retomar o checkout diretamente/i)
     expect(c.guidance).toMatch(/não afirme nem implique que ele está disponível/i)
+  })
+
+  it('ABANDONED_CART: A não degrada quando existe URL de recuperação real e válida confirmada', () => {
+    const [a] = resolveStrategyDirections('ABANDONED_CART', { ...NO_EVIDENCE, hasRecoveryUrlEvidence: true })
+    expect(a.degraded).toBe(false)
+    expect(a.guidance).toMatch(/cta de retomada direta do checkout/i)
   })
 
   it('PIX_PENDING direção C degrada sem prazo comprovado (hasPaymentExpiryEvidence=false) — usa fallbackGuidance e traz aviso obrigatório', () => {

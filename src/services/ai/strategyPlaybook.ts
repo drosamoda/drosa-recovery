@@ -2,13 +2,20 @@ import { OpportunityType } from '../aiOpportunityEngine'
 
 export type StrategyDirectionKey = 'A' | 'B' | 'C'
 
-// Nenhuma dessas fontes existe hoje no modelo de dados real (Order/Opportunity
-// não carregam produto candidato, categoria de interesse, estoque, indício de
-// novidade, prazo de pagamento nem segunda via de boleto) — por isso
-// campaignService.ts sempre passa todas como false hoje. Existem como
-// parâmetro explícito (em vez de hardcoded dentro deste arquivo) para o dia em
-// que uma fonte real de cada uma existir, e para o resolver ser testável nos
-// dois caminhos sem fingir que o dado existe agora.
+// 8 flags — cada uma comprovada (ou não) por campaignEvidenceService.ts a
+// partir de dados reais já existentes (AbandonedCheckout, Order, Nuvemshop,
+// Product Truth), nunca por heurística textual. hasCandidateProducts,
+// hasStockEvidence e hasRecoveryUrlEvidence já são genuinamente dinâmicas
+// (podem virar true com dado real hoje); hasCategoryEvidence,
+// hasNewnessEvidence, hasPaymentExpiryEvidence, hasSecondCopySupport e
+// hasPromotionEvidence continuam estruturalmente false na maior parte dos
+// casos porque a fonte real (categoria, indício de novidade, prazo de
+// pagamento comprovado, segunda via de boleto, promoção ativa) não existe
+// no payload armazenado hoje — ver relatório em
+// docs/evidence-enrichment-report.md para o que foi verificado campo a
+// campo. Existem como parâmetro explícito (em vez de hardcoded dentro deste
+// arquivo) para o resolver ser testável nos dois caminhos sem fingir que o
+// dado existe quando não existe.
 export interface EvidenceFlags {
   hasCandidateProducts: boolean
   hasCategoryEvidence: boolean
@@ -17,6 +24,7 @@ export interface EvidenceFlags {
   hasPaymentExpiryEvidence: boolean
   hasSecondCopySupport: boolean
   hasPromotionEvidence: boolean
+  hasRecoveryUrlEvidence: boolean
 }
 
 export interface ResolvedDirection {
@@ -51,8 +59,16 @@ const PLAYBOOKS: Record<OpportunityType, DirectionDefinition[]> = {
   ABANDONED_CART: [
     {
       key: 'A', label: 'RECUPERAÇÃO DIRETA',
-      intent: 'Retomar o checkout iniciado e não finalizado.',
-      guidance: 'Lembre objetivamente que o carrinho ficou aberto e convide a finalizar a compra. Foque na ação de concluir — nunca em desconto, cupom ou urgência de tempo.',
+      intent: 'Retomar o checkout iniciado e não finalizado, sem implicar que ele ainda é válido.',
+      // Microfix Truth Hardening v1.1.1: "ainda dá tempo de finalizar quando
+      // quiser" implica validade/disponibilidade atual do checkout sem prova
+      // nenhuma. O CTA de retomada direta só é seguro quando uma URL de
+      // recuperação real e válida foi confirmada (hasRecoveryUrlEvidence) —
+      // sem isso, oferecer atendimento humano é o único CTA honesto.
+      guidance: 'Informe objetivamente que um checkout foi iniciado e não foi concluído. Como uma URL de recuperação real e válida foi confirmada, use um CTA de retomada direta do checkout.',
+      requires: 'hasRecoveryUrlEvidence',
+      fallbackGuidance: 'Informe objetivamente que um checkout foi iniciado e não foi concluído. Sem uma URL de recuperação real confirmada, não ofereça retomar o checkout diretamente nem implique que ele ainda é válido — ofereça falar com o atendimento.',
+      fallbackWarning: 'Direção A (recuperação direta) degradada: nenhuma URL de recuperação real e válida foi confirmada para os checkouts desta oportunidade — o CTA oferece atendimento humano em vez de retomar o checkout diretamente.',
     },
     {
       key: 'B', label: 'ASSISTÊNCIA / REDUÇÃO DE FRICÇÃO',

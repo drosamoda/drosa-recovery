@@ -51,9 +51,12 @@ export const STRATEGY_LAB_FIXTURES: Record<OpportunityType, StrategyLabFixture> 
       audienceCount: 100, eligibleCount: 40, blockedCount: 60, recommendedTiming: 'Automação existente: 30 min após abandono',
     }),
     goodStrategies: [
-      strategy({ direction: 'A', name: 'Recuperação direta', angle: 'Retomar o checkout que ficou aberto', audience: '40 elegíveis', productId: null,
-        message: 'Notamos que seu carrinho ficou aberto com um item separado. Ainda dá tempo de finalizar a compra quando quiser.',
-        cta: 'Finalizar compra', creativeBrief: 'Print do carrinho com o item já selecionado.' }),
+      strategy({
+        direction: 'A', name: 'Recuperação direta (degradado — sem URL de recuperação confirmada)', angle: 'Informar que o checkout ficou em aberto', audience: '40 elegíveis', productId: null,
+        message: 'Identificamos que um checkout foi iniciado e não foi concluído.',
+        cta: 'Falar com atendimento', creativeBrief: 'Texto neutro, sem foto do carrinho.',
+        warnings: ['Direção A (recuperação direta) degradada: nenhuma URL de recuperação real e válida foi confirmada para os checkouts desta oportunidade — o CTA oferece atendimento humano em vez de retomar o checkout diretamente.'],
+      }),
       strategy({ direction: 'B', name: 'Assistência / redução de fricção', angle: 'Oferecer ajuda para destravar a compra', audience: '40 elegíveis', productId: null,
         message: 'Vimos que você não conseguiu concluir a compra. Teve alguma dúvida ou dificuldade que possamos ajudar a resolver agora?',
         cta: 'Falar com atendimento', creativeBrief: 'Balão de conversa simulando atendimento humano.' }),

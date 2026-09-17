@@ -31,13 +31,23 @@ contra este exato conteúdo e não encontra nenhum finding.
 
 ## ABANDONED_CART
 
-| | A — RECUPERAÇÃO DIRETA | B — ASSISTÊNCIA / REDUÇÃO DE FRICÇÃO | C — PRODUTO / DESEJO *(degradado — sem estoque comprovado)* |
+| | A — RECUPERAÇÃO DIRETA *(degradado — sem URL de recuperação confirmada)* | B — ASSISTÊNCIA / REDUÇÃO DE FRICÇÃO | C — PRODUTO / DESEJO *(degradado — sem estoque comprovado)* |
 |---|---|---|---|
-| Mensagem | Notamos que seu carrinho ficou aberto com um item separado. Ainda dá tempo de finalizar a compra quando quiser. | Vimos que você não conseguiu concluir a compra. Teve alguma dúvida ou dificuldade que possamos ajudar a resolver agora? | Vimos que você demonstrou interesse por algo em nossa loja recentemente. Ficamos à disposição se quiser continuar de onde parou. |
-| CTA | Finalizar compra | Falar com atendimento | Continuar de onde parei |
-| Aviso | — | — | Direção C (produto/desejo) degradada: nenhuma confirmação real de estoque está disponível para o item deste carrinho — a variação gerada evita afirmar disponibilidade. |
+| Mensagem | Identificamos que um checkout foi iniciado e não foi concluído. | Vimos que você não conseguiu concluir a compra. Teve alguma dúvida ou dificuldade que possamos ajudar a resolver agora? | Vimos que você demonstrou interesse por algo em nossa loja recentemente. Ficamos à disposição se quiser continuar de onde parou. |
+| CTA | Falar com atendimento | Falar com atendimento | Continuar de onde parei |
+| Aviso | Direção A (recuperação direta) degradada: nenhuma URL de recuperação real e válida foi confirmada para os checkouts desta oportunidade — o CTA oferece atendimento humano em vez de retomar o checkout diretamente. | — | Direção C (produto/desejo) degradada: nenhuma confirmação real de estoque está disponível para o item deste carrinho — a variação gerada evita afirmar disponibilidade. |
 
 `PRODUCT_TRUTH=PASS` `COMPLIANCE=PASS` `CREATIVE_DISTANCE=PASS`
+
+**v1.1.1 — microfix de Truth residual**: a versão anterior de A dizia "ainda dá
+tempo de finalizar a compra quando quiser", que implica validade/estoque
+atual sem prova. `hasRecoveryUrlEvidence` (Evidence Enrichment v1) agora é
+uma flag genuinamente dinâmica — `campaignEvidenceService.ts` confirma, a
+partir de `AbandonedCheckout.abandonedCheckoutUrl` real, se existe uma URL de
+recuperação válida na amostra de checkouts elegíveis. Quando existe (o caso
+mais comum, já que a coluna é obrigatória no banco), A usa CTA "Retomar
+checkout"; quando não, usa "Falar com atendimento" — nunca implica validade
+que não foi checada.
 
 ## PIX_PENDING
 
@@ -122,21 +132,31 @@ você costumava explorar", uma claim que nenhum dado comprova hoje.
 
 ---
 
-## As 6 flags de evidência (`EvidenceFlags`)
+## As 8 flags de evidência (`EvidenceFlags`)
+
+Desde o Evidence Enrichment v1, todas as 8 são computadas por
+`campaignEvidenceService.ts` a partir de dados reais (`AbandonedCheckout`,
+`Order`, Product Truth) — nenhuma é mais um `false` hardcoded escrito à mão em
+`campaignService.ts`. Três já são genuinamente dinâmicas hoje (podem virar
+`true` com dado real); as outras cinco continuam majoritariamente `false`
+porque a fonte real não existe na integração atual — não por falta de código
+para lê-la.
 
 | Flag | Comprova | Fonte real hoje |
 |---|---|---|
-| `hasCandidateProducts` | Existe produto candidato real | `candidateProducts.length > 0` — dinâmica, mas sempre `false` porque `campaignService.ts` chama `buildPromptInput(opportunity, [])` |
-| `hasCategoryEvidence` | Categoria de interesse/afinidade comprovada | Nenhuma — `Opportunity` não carrega categoria |
-| `hasStockEvidence` | Estoque confirmado para o item específico | Nenhuma — sem modelo de produto por pedido |
-| `hasNewnessEvidence` | Existe novidade real a comunicar | Nenhuma |
-| `hasPaymentExpiryEvidence` | Prazo/vencimento real comprovado | Nenhuma — `Order`/`Opportunity` não carregam prazo |
-| `hasSecondCopySupport` | Segunda via de boleto disponível | Nenhuma |
-| `hasPromotionEvidence` | Promoção/desconto real ativo | Nenhuma |
+| `hasCandidateProducts` | Existe produto candidato real, confirmado via Product Truth | **Dinâmica.** `product_id`/`variant_id` real encontrado em `rawPayload.products[]` e confirmado pela Nuvemshop. Hoje quase sempre `false`: o payload armazenado de carrinho/pedido só guarda `name`/`quantity` por item (ver relatório) |
+| `hasStockEvidence` | Estoque confirmado para o produto candidato | **Dinâmica**, mas depende de `hasCandidateProducts` ser `true` primeiro — sem candidato confirmado, não há o que verificar |
+| `hasRecoveryUrlEvidence` | URL de recuperação de carrinho real e válida | **Dinâmica e majoritariamente `true` na prática** — `AbandonedCheckout.abandonedCheckoutUrl` é uma coluna obrigatória no banco |
+| `hasCategoryEvidence` | Categoria de interesse/afinidade comprovada | Nenhuma — nem `Order`/`AbandonedCheckout` nem `NuvemshopProduct` carregam `categoryId` |
+| `hasNewnessEvidence` | Existe novidade real a comunicar | Nenhuma — sem definição comercial de "novidade" nem dado real |
+| `hasPaymentExpiryEvidence` | Prazo/vencimento real comprovado | Verificada por varredura real do payload (`findExpiryLikeKey`), hoje sempre `false` porque nenhum campo de prazo existe no payload do Pix/boleto |
+| `hasSecondCopySupport` | Segunda via de boleto disponível | Nenhuma — sem integração de reemissão |
+| `hasPromotionEvidence` | Promoção/desconto real ativo | Nenhuma implementada nesta rodada |
 
-Quando uma fonte real existir para qualquer uma destas, o único lugar a mudar
-é `computeEvidenceFlags()` em `campaignService.ts` — o playbook e o auditor de
-claims já sabem o que fazer com `true`.
+Quando uma fonte real passar a existir para qualquer uma das cinco
+estruturalmente ausentes, o único lugar a mudar é
+`campaignEvidenceService.ts` — o playbook e o auditor de claims já sabem o
+que fazer com `true`.
 
 ## O que NÃO está resolvido nesta fase (limitações honestas)
 

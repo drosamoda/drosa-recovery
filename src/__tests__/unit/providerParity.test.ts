@@ -50,6 +50,7 @@ const evidence = {
   hasPaymentExpiryEvidence: false,
   hasSecondCopySupport: false,
   hasPromotionEvidence: false,
+  hasRecoveryUrlEvidence: false,
 }
 
 const input: CampaignPromptInput = {

@@ -46,7 +46,7 @@ const input: CampaignPromptInput = {
   playbook: [],
   evidence: {
     hasCandidateProducts: false, hasCategoryEvidence: false, hasStockEvidence: false,
-    hasNewnessEvidence: false, hasPaymentExpiryEvidence: false, hasSecondCopySupport: false, hasPromotionEvidence: false,
+    hasNewnessEvidence: false, hasPaymentExpiryEvidence: false, hasSecondCopySupport: false, hasPromotionEvidence: false, hasRecoveryUrlEvidence: false,
   },
 }
 

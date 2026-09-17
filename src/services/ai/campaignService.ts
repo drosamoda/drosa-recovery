@@ -3,11 +3,12 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '../../config/prisma'
 import { getOpportunityById, Opportunity } from '../aiOpportunityEngine'
 import { productTruthService } from '../productTruthService'
+import { enrichOpportunityEvidence } from '../campaignEvidenceService'
 import { getAiProvider } from './providerFactory'
 import { PROMPT_VERSION } from './campaignPromptContract'
 import { auditAllStrategies, auditClaimCategories, ComplianceFinding } from './complianceService'
 import { CampaignPromptInput, Strategy } from './aiProvider'
-import { EvidenceFlags, resolveStrategyDirections, auditDirectionAdherence } from './strategyPlaybook'
+import { resolveStrategyDirections, auditDirectionAdherence } from './strategyPlaybook'
 import { evaluateCreativeDistance } from './strategyDistanceService'
 import { evaluateStrategyQuality } from './strategyQualityRubric'
 
@@ -18,29 +19,13 @@ function hash(value: string): string {
 export class CampaignNotFoundError extends Error {}
 export class InvalidCampaignStateError extends Error {}
 
-// Strategy Lab v1.1 — Truth Hardening: única função que decide o que está
-// realmente comprovado para esta oportunidade. hasCandidateProducts é a
-// única flag genuinamente dinâmica hoje (verdadeira só se candidateProducts
-// não estiver vazio); as outras cinco são sempre false porque nenhuma fonte
-// real de categoria de interesse, estoque por candidato, indício de
-// novidade, prazo de pagamento comprovado, segunda via de boleto ou promoção
-// ativa existe no modelo de dados atual (Order/Opportunity não carregam
-// nada disso). Centralizar aqui — em vez de espalhar `false` em vários
-// lugares — significa que o dia em que uma fonte real existir, muda só isto.
-function computeEvidenceFlags(candidateProducts: CampaignPromptInput['candidateProducts']): EvidenceFlags {
-  return {
-    hasCandidateProducts: candidateProducts.length > 0,
-    hasCategoryEvidence: false,
-    hasStockEvidence: false,
-    hasNewnessEvidence: false,
-    hasPaymentExpiryEvidence: false,
-    hasSecondCopySupport: false,
-    hasPromotionEvidence: false,
-  }
-}
-
-function buildPromptInput(opportunity: Opportunity, candidateProducts: CampaignPromptInput['candidateProducts']): CampaignPromptInput {
-  const evidence = computeEvidenceFlags(candidateProducts)
+// Evidence Enrichment v1: candidateProducts e evidenceFlags vêm de
+// campaignEvidenceService.ts (dados reais — AbandonedCheckout/Order/Product
+// Truth), nunca de heurística textual. "Product Truth antes da IA": qualquer
+// id que chegue aqui já foi confirmado pela Nuvemshop dentro do próprio
+// enrichOpportunityEvidence — a IA nunca vê um id não confirmado.
+async function buildPromptInput(opportunity: Opportunity): Promise<CampaignPromptInput> {
+  const evidence = await enrichOpportunityEvidence(opportunity)
   return {
     opportunityId: opportunity.id,
     opportunityType: opportunity.type,
@@ -52,9 +37,9 @@ function buildPromptInput(opportunity: Opportunity, candidateProducts: CampaignP
     recommendedTiming: opportunity.recommendedTiming,
     recommendedChannel: opportunity.recommendedChannel,
     confidence: opportunity.confidence,
-    candidateProducts,
-    playbook: resolveStrategyDirections(opportunity.type, evidence),
-    evidence,
+    candidateProducts: evidence.candidateProducts,
+    playbook: resolveStrategyDirections(opportunity.type, evidence.evidenceFlags),
+    evidence: evidence.evidenceFlags,
   }
 }
 
@@ -87,7 +72,7 @@ export const campaignService = {
       },
     })
 
-    const promptInput = buildPromptInput(opportunity, [])
+    const promptInput = await buildPromptInput(opportunity)
     const inputHash = hash(JSON.stringify(promptInput))
 
     try {
