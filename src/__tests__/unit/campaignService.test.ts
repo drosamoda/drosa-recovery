@@ -104,12 +104,14 @@ describe('campaignService — criação a partir de oportunidade real', () => {
         output: {
           opportunityId: opportunity.id,
           summary: 'x',
-          // Direções reais do playbook de RECENT_CUSTOMER (A/B/C), com texto
-          // genuinamente distinto — evita colidir com o gate de Creative Distance.
+          // Direções reais do playbook de RECENT_CUSTOMER (A/B/C) no estado
+          // degradado — coerente com candidateProducts=[] (sempre o caso em
+          // createFromOpportunity hoje) — com texto genuinamente distinto,
+          // sem nenhuma claim implícita não comprovada (Truth Hardening).
           strategies: [
-            { direction: 'A', name: 'Cross-sell', angle: 'Complemento da compra recente', audience: '8 elegíveis', productId: null, message: 'Oi! Notamos sua compra recente e temos um complemento que combina bem com ela.', cta: 'Ver complemento', creativeBrief: 'Foto do complemento em fundo neutro.', warnings: [] },
-            { direction: 'B', name: 'Style guidance', angle: 'Como combinar o que já foi comprado', audience: '8 elegíveis', productId: null, message: 'Preparamos dicas de como aproveitar ao máximo sua última compra no dia a dia.', cta: 'Ver dicas', creativeBrief: 'Vídeo curto mostrando combinações.', warnings: [] },
-            { direction: 'C', name: 'Novidades relacionadas', angle: 'Novidades da categoria', audience: '8 elegíveis', productId: null, message: 'Chegaram novidades na categoria que você comprou recentemente — quer dar uma olhada?', cta: 'Ver novidades', creativeBrief: 'Carrossel com as novidades da categoria.', warnings: [] },
+            { direction: 'A', name: 'Relacionamento pós-compra', angle: 'Relacionamento pós-compra', audience: '8 elegíveis', productId: null, message: 'Obrigado por comprar com a gente recentemente! Ficamos à disposição se precisar de qualquer coisa.', cta: 'Responder esta mensagem', creativeBrief: 'Mensagem de agradecimento em tom pessoal.', warnings: ['Direção A (cross-sell complementar) degradada: nenhum produto candidato real foi fornecido — a variação gerada foca em relacionamento pós-compra, sem afirmar um complemento específico.'] },
+            { direction: 'B', name: 'Orientação de estilo geral', angle: 'Orientação de estilo geral', audience: '8 elegíveis', productId: null, message: 'Preparamos algumas dicas gerais de cuidado e estilo que podem ser úteis no dia a dia.', cta: 'Ver dicas', creativeBrief: 'Carrossel com dicas gerais, sem citar produto específico.', warnings: ['Direção B (style guidance) degradada: nenhum produto candidato real foi fornecido — a variação gerada oferece orientação geral, sem citar um item específico.'] },
+            { direction: 'C', name: 'Convite para o catálogo', angle: 'Convite para conhecer o catálogo atual', audience: '8 elegíveis', productId: null, message: 'Enquanto isso, você pode dar uma olhada no que temos disponível no catálogo atual.', cta: 'Ver catálogo', creativeBrief: 'Grade geral do catálogo, sem recorte de categoria.', warnings: ['Direção C (novidades relacionadas) degradada: nenhuma evidência real de categoria está disponível — a variação gerada convida a conhecer o catálogo atual, sem afirmar relação com a compra anterior.'] },
           ],
         },
         rawOutputText: '{}',

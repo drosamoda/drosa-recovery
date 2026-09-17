@@ -1,5 +1,7 @@
 import { Strategy } from './aiProvider'
 import { ProductTruth } from '../productTruthService'
+import { OpportunityType } from '../aiOpportunityEngine'
+import { EvidenceFlags } from './strategyPlaybook'
 
 // Claims que exigem comprovação explícita nos dados de produto antes de
 // aparecer numa mensagem gerada pela IA. Bloqueio por padrão (fail-closed):
@@ -113,4 +115,91 @@ export function auditStrategy(strategy: Strategy, strategyIndex: number, product
 
 export function auditAllStrategies(strategies: Strategy[], productByStrategy: Array<ProductTruth | null>): ComplianceFinding[] {
   return strategies.flatMap((strategy, index) => auditStrategy(strategy, index, productByStrategy[index] ?? null))
+}
+
+// Strategy Lab v1.1 — Truth Hardening. GUARDED_CLAIMS bloqueia PALAVRAS
+// (desconto, emagrece...); isto aqui bloqueia CLAIMS IMPLÍCITAS — frases que
+// pressupõem um fato que o input não comprova, mesmo sem usar nenhuma palavra
+// da lista acima. "O item continua disponível" não tem nenhuma palavra
+// proibida, mas afirma estoque sem prova nenhuma — é exatamente esse tipo de
+// alegação que escapava do auditor por palavra. Cada categoria só se aplica
+// quando a EvidenceFlags correspondente estiver ausente, e algumas só valem
+// para os tipos de oportunidade onde a frase realmente implica o que
+// pressupõe (ex.: "continua disponível" é claim de ESTOQUE em carrinho
+// abandonado, mas é claim de VALIDADE DE PAGAMENTO em Pix/boleto pendente).
+interface ClaimCategoryRule {
+  category: string
+  requiredFlag: keyof EvidenceFlags
+  phrases: string[]
+  appliesTo?: OpportunityType[]
+}
+
+const CLAIM_CATEGORY_RULES: ClaimCategoryRule[] = [
+  {
+    category: 'product_recommendation',
+    requiredFlag: 'hasCandidateProducts',
+    phrases: [
+      'separamos um complemento', 'separamos uma selecao', 'preparamos uma selecao',
+      'combina com o que voce comprou', 'combina bem com o que voce ja tem',
+      'pecas novas', 'complemento que combina',
+    ],
+  },
+  {
+    category: 'stock_availability',
+    requiredFlag: 'hasStockEvidence',
+    appliesTo: ['ABANDONED_CART'],
+    phrases: ['continua disponivel', 'item continua disponivel', 'produto continua disponivel', 'ainda disponivel', 'segue disponivel'],
+  },
+  {
+    category: 'payment_validity',
+    requiredFlag: 'hasPaymentExpiryEvidence',
+    appliesTo: ['PIX_PENDING', 'BOLETO_PENDING'],
+    phrases: [
+      'continua disponivel', 'pagar agora', 'ainda pode ser pago', 'ainda e valido',
+      'qualquer banco', 'qualquer loterica', 'quando for conveniente', 'quando quiser',
+    ],
+  },
+  {
+    category: 'newness',
+    requiredFlag: 'hasNewnessEvidence',
+    phrases: ['chegaram novidades', 'novidades relacionadas', 'novidades na categoria', 'novidades da categoria', 'novidades da mesma categoria'],
+  },
+  {
+    category: 'category_affinity',
+    requiredFlag: 'hasCategoryEvidence',
+    phrases: [
+      'mesma categoria', 'categoria que voce costuma comprar', 'categoria da sua ultima compra',
+      'categoria que voce costumava explorar', 'categoria de interesse', 'categoria de afinidade',
+    ],
+  },
+  {
+    category: 'promotion',
+    requiredFlag: 'hasPromotionEvidence',
+    phrases: ['desconto', 'cupom', 'promocao', 'frete gratis'],
+  },
+]
+
+// Diferente de auditStrategy, aqui a "descrição do produto" nunca é uma
+// desculpa válida — estas claims não são sobre o PRODUTO, são sobre a
+// OPORTUNIDADE (estoque, categoria, novidade, validade de pagamento), então
+// só a EvidenceFlags computada a partir de dados reais da oportunidade pode
+// liberar a frase, nunca a descrição de um produto candidato.
+export function auditClaimCategories(strategy: Strategy, strategyIndex: number, opportunityType: OpportunityType, evidence: EvidenceFlags): ComplianceFinding[] {
+  const findings: ComplianceFinding[] = []
+  const haystack = haystackOf(strategy)
+
+  for (const rule of CLAIM_CATEGORY_RULES) {
+    if (rule.appliesTo && !rule.appliesTo.includes(opportunityType)) continue
+    if (evidence[rule.requiredFlag]) continue
+    for (const phrase of rule.phrases) {
+      if (!haystack.includes(normalize(phrase))) continue
+      findings.push({
+        strategyIndex,
+        claim: rule.category,
+        reason: `Frase "${phrase}" implica um fato (${rule.category}) que não está comprovado para esta oportunidade (evidência ausente: ${rule.requiredFlag})`,
+      })
+    }
+  }
+
+  return findings
 }

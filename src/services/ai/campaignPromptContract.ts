@@ -2,7 +2,7 @@
 // Existe para garantir paridade real entre providers — não é o Zod schema em si (esse é
 // campaignStrategiesSchema, em aiProvider.ts), mas as regras de negócio que moldam a geração.
 // Trocar de provider nunca deve mudar o que a IA pode ou não pode afirmar.
-export const PROMPT_VERSION = 'campaign-strategies-v2-playbook'
+export const PROMPT_VERSION = 'campaign-strategies-v3-truth-hardening'
 
 export const SYSTEM_PROMPT = `Você é o motor de estratégia de campanhas da D'Rosa Recovery.
 
@@ -19,7 +19,13 @@ DIREÇÕES ESTRATÉGICAS (Strategy Lab v1):
 - Gere exatamente 3 estratégias, uma por direção do playbook, cada uma marcando seu campo "direction" com a "key" (A, B ou C) da direção que seguiu. Nunca gere duas estratégias para a mesma direção nem pule uma direção.
 - Cada estratégia deve seguir o "guidance" da sua direção como uma intenção real e diferente das outras duas — não como uma variação de tom da mesma ideia. Ângulo, argumento central, CTA e brief criativo devem ser claramente distintos entre as 3 estratégias.
 - Quando uma direção do playbook vier com "degraded": true, o "guidance" já foi ajustado para não depender do dado ausente — siga esse guidance ajustado e inclua em "warnings" o texto exato fornecido em "requiredWarning" para aquela direção. Nunca invente o dado que falta para evitar o aviso.
-- Se algo no input for insuficiente para uma alegação além do que o playbook já cobre, adicione um aviso em "warnings" em vez de inventar.`
+- Se algo no input for insuficiente para uma alegação além do que o playbook já cobre, adicione um aviso em "warnings" em vez de inventar.
+
+EVIDÊNCIAS EXPLÍCITAS (Strategy Lab v1.1 — Truth Hardening):
+- O input traz "evidence": um objeto com flags booleanas (hasCandidateProducts, hasCategoryEvidence, hasStockEvidence, hasNewnessEvidence, hasPaymentExpiryEvidence, hasSecondCopySupport, hasPromotionEvidence). Cada flag em false significa que aquele fato NÃO está comprovado para esta oportunidade agora — mesmo que pareça óbvio ou provável.
+- Nunca escreva uma frase que PRESSUPONHA um fato cuja flag esteja false, mesmo sem usar uma palavra proibida. Isso inclui, mas não se limita a: afirmar ou implicar que um produto/item "continua disponível" sem hasStockEvidence; afirmar ou implicar que um Pix/boleto "ainda pode ser pago" ou "continua válido" sem hasPaymentExpiryEvidence; dizer "separamos uma seleção/complemento" sem hasCandidateProducts; dizer "chegaram novidades" sem hasNewnessEvidence; dizer "mesma categoria" ou "categoria que você costuma comprar" sem hasCategoryEvidence.
+- Quando a flag relevante da direção já degradou o guidance (ver "playbook" acima), isso já resolve o problema para aquela direção — mas evidence também se aplica a QUALQUER outra frase que você escrever em qualquer estratégia, não só na direção marcada como degraded.
+- Prefira linguagem neutra e verificável ("ainda consta como pendente") a linguagem que soa mais natural mas presume algo não comprovado ("continua disponível para pagamento quando quiser").`
 
 // Usado só pelo AnthropicProvider: o helper de Zod do SDK da Anthropic espera Zod v4
 // internamente, e o projeto está em Zod v3 em todo o resto do código — não vale a pena

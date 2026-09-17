@@ -1,22 +1,35 @@
 import { describe, expect, it } from 'vitest'
 import { STRATEGY_LAB_FIXTURES } from '../fixtures/strategyLabFixtures'
-import { resolveStrategyDirections, auditDirectionAdherence } from '../../services/ai/strategyPlaybook'
+import { resolveStrategyDirections, auditDirectionAdherence, EvidenceFlags } from '../../services/ai/strategyPlaybook'
 import { evaluateCreativeDistance } from '../../services/ai/strategyDistanceService'
 import { evaluateStrategyQuality } from '../../services/ai/strategyQualityRubric'
-import { auditAllStrategies, auditAttributeClaims } from '../../services/ai/complianceService'
+import { auditAllStrategies, auditAttributeClaims, auditClaimCategories } from '../../services/ai/complianceService'
 import { Strategy } from '../../services/ai/aiProvider'
 import { ProductTruth } from '../../services/productTruthService'
 
 const TYPES = Object.keys(STRATEGY_LAB_FIXTURES) as Array<keyof typeof STRATEGY_LAB_FIXTURES>
 
+const NO_EVIDENCE: EvidenceFlags = {
+  hasCandidateProducts: false,
+  hasCategoryEvidence: false,
+  hasStockEvidence: false,
+  hasNewnessEvidence: false,
+  hasPaymentExpiryEvidence: false,
+  hasSecondCopySupport: false,
+  hasPromotionEvidence: false,
+}
+
 function wordCount(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length
 }
 
-describe.each(TYPES)('Strategy Lab v1 — %s', (type) => {
+function claimCategoryFindingsFor(strategies: Strategy[], type: (typeof TYPES)[number]) {
+  return strategies.flatMap((strategy, index) => auditClaimCategories(strategy, index, type, NO_EVIDENCE))
+}
+
+describe.each(TYPES)('Strategy Lab v1.1 — %s', (type) => {
   const fixture = STRATEGY_LAB_FIXTURES[type]
-  const evidenceFlags = { hasVerifiedPaymentDeadline: false, hasVerifiedSecondCopySupport: false }
-  const playbook = resolveStrategyDirections(fixture.opportunity.type, evidenceFlags)
+  const playbook = resolveStrategyDirections(fixture.opportunity.type, NO_EVIDENCE)
   const strategies = fixture.goodStrategies
 
   it('gera exatamente 3 estratégias', () => {
@@ -28,7 +41,7 @@ describe.each(TYPES)('Strategy Lab v1 — %s', (type) => {
     expect(auditDirectionAdherence(strategies, playbook)).toHaveLength(0)
   })
 
-  it('direções degradadas (quando existem) trazem o aviso obrigatório do playbook em warnings', () => {
+  it('direções degradadas (quando existem, com evidência ausente) trazem o aviso obrigatório do playbook em warnings', () => {
     playbook.forEach((direction, index) => {
       if (!direction.degraded) return
       expect(direction.requiredWarning).not.toBeNull()
@@ -40,8 +53,13 @@ describe.each(TYPES)('Strategy Lab v1 — %s', (type) => {
     for (const strategy of strategies) expect(strategy.productId).toBeNull()
   })
 
-  it('Compliance: zero alegação não comprovada nas 3 estratégias', () => {
+  it('Compliance (palavra proibida): zero alegação não comprovada nas 3 estratégias', () => {
     const findings = auditAllStrategies(strategies, [null, null, null])
+    expect(findings).toHaveLength(0)
+  })
+
+  it('Compliance (claim implícita — v1.1 Truth Hardening): zero claim que pressupõe evidência ausente', () => {
+    const findings = claimCategoryFindingsFor(strategies, type)
     expect(findings).toHaveLength(0)
   })
 
@@ -64,6 +82,72 @@ describe.each(TYPES)('Strategy Lab v1 — %s', (type) => {
       const results = evaluateStrategyQuality(strategy, { product: null, complianceFindings, distanceFindings, strategyIndex: index })
       for (const result of results) expect(result.score, `${result.criterion} (estratégia ${index})`).toBeGreaterThanOrEqual(1)
     })
+  })
+})
+
+describe('Strategy Lab v1.1 — Truth Hardening: testes negativos obrigatórios (claim implícita sem evidência)', () => {
+  function strategy(overrides: Partial<Strategy> = {}): Strategy {
+    return {
+      direction: 'A', name: 'Estratégia', angle: 'Ângulo genérico', audience: '10 elegíveis', productId: null,
+      message: 'Mensagem neutra sem alegação específica.', cta: 'Ver mais', creativeBrief: 'Brief neutro.', warnings: [],
+      ...overrides,
+    }
+  }
+
+  it.each([
+    ['ABANDONED_CART' as const, 'separamos um complemento que combina com o que você comprou'],
+    ['RECENT_CUSTOMER' as const, 'preparamos uma seleção especial para você'],
+  ])('%s · candidateProducts=[] (hasCandidateProducts=false): "%s" => FAIL', (type, message) => {
+    const findings = auditClaimCategories(strategy({ message }), 0, type, NO_EVIDENCE)
+    expect(findings.some(f => f.claim === 'product_recommendation')).toBe(true)
+  })
+
+  it('ABANDONED_CART · hasStockEvidence=false: "o item continua disponível" => FAIL', () => {
+    const findings = auditClaimCategories(strategy({ message: 'Boa notícia: o item continua disponível para você.' }), 0, 'ABANDONED_CART', NO_EVIDENCE)
+    expect(findings.some(f => f.claim === 'stock_availability')).toBe(true)
+  })
+
+  it.each([
+    ['RECENT_CUSTOMER' as const, 'chegaram novidades para você'],
+    ['WINBACK' as const, 'chegaram novidades desde sua última visita'],
+  ])('%s · hasNewnessEvidence=false: "%s" => FAIL', (type, message) => {
+    const findings = auditClaimCategories(strategy({ message }), 0, type, NO_EVIDENCE)
+    expect(findings.some(f => f.claim === 'newness')).toBe(true)
+  })
+
+  it('RECENT_CUSTOMER · hasCategoryEvidence=false: "novidades da mesma categoria" => FAIL', () => {
+    const findings = auditClaimCategories(strategy({ message: 'Preparamos novidades da mesma categoria que você já comprou.' }), 0, 'RECENT_CUSTOMER', NO_EVIDENCE)
+    expect(findings.some(f => f.claim === 'newness' || f.claim === 'category_affinity')).toBe(true)
+  })
+
+  it('REPEAT_PURCHASE · hasCategoryEvidence=false: "categoria que você costuma comprar" => FAIL', () => {
+    const findings = auditClaimCategories(strategy({ message: 'Temos novidades na categoria que você costuma comprar.' }), 0, 'REPEAT_PURCHASE', NO_EVIDENCE)
+    expect(findings.some(f => f.claim === 'category_affinity')).toBe(true)
+  })
+
+  it('PIX_PENDING · hasPaymentExpiryEvidence=false: "o Pix continua disponível" => FAIL', () => {
+    const findings = auditClaimCategories(strategy({ message: 'O pagamento via Pix continua disponível para você.' }), 0, 'PIX_PENDING', NO_EVIDENCE)
+    expect(findings.some(f => f.claim === 'payment_validity')).toBe(true)
+  })
+
+  it('BOLETO_PENDING · hasPaymentExpiryEvidence=false: "o boleto ainda pode ser pago" => FAIL', () => {
+    const findings = auditClaimCategories(strategy({ message: 'Não se preocupe, o boleto ainda pode ser pago em qualquer banco.' }), 0, 'BOLETO_PENDING', NO_EVIDENCE)
+    expect(findings.some(f => f.claim === 'payment_validity')).toBe(true)
+  })
+
+  it('a mesma frase de disponibilidade NÃO é bloqueada em um tipo fora do escopo da regra (ex.: VIP não audita stock_availability)', () => {
+    // stock_availability só se aplica a ABANDONED_CART e payment_validity só a PIX/BOLETO —
+    // por isso "continua disponível" em VIP não é auditado por NENHUma das duas regras
+    // (nenhuma se aplica ao tipo), o que é o comportamento correto: a frase não pressupõe
+    // nem estoque nem validade de pagamento nesse contexto.
+    const findings = auditClaimCategories(strategy({ message: 'Esse item continua disponível.' }), 0, 'VIP', NO_EVIDENCE)
+    expect(findings.some(f => f.claim === 'stock_availability' || f.claim === 'payment_validity')).toBe(false)
+  })
+
+  it('com a evidência comprovada (flag true), a mesma frase deixa de ser bloqueada', () => {
+    const evidenceWithStock: EvidenceFlags = { ...NO_EVIDENCE, hasStockEvidence: true }
+    const findings = auditClaimCategories(strategy({ message: 'O item continua disponível.' }), 0, 'ABANDONED_CART', evidenceWithStock)
+    expect(findings.some(f => f.claim === 'stock_availability')).toBe(false)
   })
 })
 
@@ -111,22 +195,23 @@ describe('Strategy Lab v1 — dados incompletos (a IA deve reduzir especificidad
     expect(findings).toHaveLength(0)
   })
 
-  it('sem promoção comprovada: alegação de desconto/cupom é bloqueada mesmo com produto real confirmado', () => {
+  it('sem promoção comprovada: alegação de desconto/cupom é bloqueada mesmo com produto real confirmado (palavra proibida e claim implícita)', () => {
     const product: ProductTruth = { productId: 'p1', name: 'Vestido', url: null, image: null, price: null, compareAtPrice: null, variants: 1, colors: null, sizes: null, stockStatus: 'unknown', description: 'Vestido básico.', updatedAt: '2026-01-01' }
-    const findings = auditAllStrategies([strategy({ productId: 'p1', message: 'Aproveite o cupom de desconto exclusivo desta semana!' })], [product])
-    expect(findings.some(f => f.claim === 'cupom')).toBe(true)
-    expect(findings.some(f => f.claim === 'desconto')).toBe(true)
-    expect(findings.some(f => f.claim === 'exclusivo')).toBe(true)
+    const guardedFindings = auditAllStrategies([strategy({ productId: 'p1', message: 'Aproveite o cupom de desconto exclusivo desta semana!' })], [product])
+    expect(guardedFindings.some(f => f.claim === 'cupom')).toBe(true)
+    expect(guardedFindings.some(f => f.claim === 'desconto')).toBe(true)
+    expect(guardedFindings.some(f => f.claim === 'exclusivo')).toBe(true)
+
+    const claimFindings = auditClaimCategories(strategy({ message: 'Aproveite o cupom de desconto desta semana!' }), 0, 'VIP', NO_EVIDENCE)
+    expect(claimFindings.some(f => f.claim === 'promotion')).toBe(true)
   })
 
-  it('sem histórico de categoria comprovado: direções de afinidade de categoria (WINBACK/VIP) da fixture não citam uma categoria específica inventada', () => {
-    // Nenhuma fonte real de "categoria de interesse" existe hoje em Opportunity —
-    // por isso este teste verifica a própria fixture de exemplo (documentação viva),
-    // não um bloqueio automático de código: não existe uma lista de categorias reais
-    // para comparar contra, então esta é uma garantia de autoria, não um gate.
-    const invented = /\b(vestido|calça|blusa|sapato|bolsa|camisa|saia|short)\b/i
+  it('sem histórico de categoria comprovado: direções de afinidade de categoria (WINBACK/RECENT_CUSTOMER/REPEAT_PURCHASE) da fixture não citam categoria nem novidade sem evidência', () => {
     const winbackB = STRATEGY_LAB_FIXTURES.WINBACK.goodStrategies[1]
-    expect(winbackB.message).not.toMatch(invented)
-    expect(winbackB.angle).not.toMatch(invented)
+    const recentC = STRATEGY_LAB_FIXTURES.RECENT_CUSTOMER.goodStrategies[2]
+    const repeatC = STRATEGY_LAB_FIXTURES.REPEAT_PURCHASE.goodStrategies[2]
+    expect(auditClaimCategories(winbackB, 1, 'WINBACK', NO_EVIDENCE)).toHaveLength(0)
+    expect(auditClaimCategories(recentC, 2, 'RECENT_CUSTOMER', NO_EVIDENCE)).toHaveLength(0)
+    expect(auditClaimCategories(repeatC, 2, 'REPEAT_PURCHASE', NO_EVIDENCE)).toHaveLength(0)
   })
 })

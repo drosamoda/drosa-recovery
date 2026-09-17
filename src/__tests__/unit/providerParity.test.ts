@@ -42,6 +42,16 @@ import { SYSTEM_PROMPT, STRATEGIES_JSON_SCHEMA } from '../../services/ai/campaig
 import { campaignStrategiesSchema, strategySchema, CampaignPromptInput } from '../../services/ai/aiProvider'
 import { resolveStrategyDirections } from '../../services/ai/strategyPlaybook'
 
+const evidence = {
+  hasCandidateProducts: false,
+  hasCategoryEvidence: false,
+  hasStockEvidence: false,
+  hasNewnessEvidence: false,
+  hasPaymentExpiryEvidence: false,
+  hasSecondCopySupport: false,
+  hasPromotionEvidence: false,
+}
+
 const input: CampaignPromptInput = {
   opportunityId: 'opp_abandoned_cart_fixture',
   opportunityType: 'ABANDONED_CART',
@@ -54,7 +64,8 @@ const input: CampaignPromptInput = {
   recommendedChannel: 'whatsapp',
   confidence: 'medium',
   candidateProducts: [],
-  playbook: resolveStrategyDirections('ABANDONED_CART', { hasVerifiedPaymentDeadline: false, hasVerifiedSecondCopySupport: false }),
+  playbook: resolveStrategyDirections('ABANDONED_CART', evidence),
+  evidence,
 }
 
 function validOutput() {

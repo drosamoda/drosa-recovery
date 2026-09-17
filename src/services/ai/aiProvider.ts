@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { ResolvedDirection } from './strategyPlaybook'
+import { EvidenceFlags, ResolvedDirection } from './strategyPlaybook'
 
 // Contrato de saída da IA. Validado por schema — nenhuma resposta que não
 // bater exatamente com isto chega a virar draft de campanha.
@@ -49,6 +49,11 @@ export type CampaignPromptInput = {
   // direção estiver degradada (guidance já vem ajustada e requiredWarning
   // diz qual aviso é obrigatório nesse caso).
   playbook: ResolvedDirection[]
+  // Strategy Lab v1.1 — Truth Hardening: as mesmas flags usadas para resolver
+  // o playbook, expostas cruas no input para a IA (e para
+  // complianceService.auditClaimCategories) nunca tratar como comprovado um
+  // fato que esta oportunidade não sustenta.
+  evidence: EvidenceFlags
 }
 
 export class AiProviderConfigError extends Error {}

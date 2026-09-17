@@ -44,6 +44,10 @@ const input: CampaignPromptInput = {
   confidence: 'medium',
   candidateProducts: [],
   playbook: [],
+  evidence: {
+    hasCandidateProducts: false, hasCategoryEvidence: false, hasStockEvidence: false,
+    hasNewnessEvidence: false, hasPaymentExpiryEvidence: false, hasSecondCopySupport: false, hasPromotionEvidence: false,
+  },
 }
 
 function validParsedOutput(overrides: Record<string, unknown> = {}) {

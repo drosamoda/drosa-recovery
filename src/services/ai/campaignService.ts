@@ -5,9 +5,9 @@ import { getOpportunityById, Opportunity } from '../aiOpportunityEngine'
 import { productTruthService } from '../productTruthService'
 import { getAiProvider } from './providerFactory'
 import { PROMPT_VERSION } from './campaignPromptContract'
-import { auditAllStrategies, ComplianceFinding } from './complianceService'
+import { auditAllStrategies, auditClaimCategories, ComplianceFinding } from './complianceService'
 import { CampaignPromptInput, Strategy } from './aiProvider'
-import { resolveStrategyDirections, auditDirectionAdherence } from './strategyPlaybook'
+import { EvidenceFlags, resolveStrategyDirections, auditDirectionAdherence } from './strategyPlaybook'
 import { evaluateCreativeDistance } from './strategyDistanceService'
 import { evaluateStrategyQuality } from './strategyQualityRubric'
 
@@ -18,7 +18,29 @@ function hash(value: string): string {
 export class CampaignNotFoundError extends Error {}
 export class InvalidCampaignStateError extends Error {}
 
+// Strategy Lab v1.1 — Truth Hardening: única função que decide o que está
+// realmente comprovado para esta oportunidade. hasCandidateProducts é a
+// única flag genuinamente dinâmica hoje (verdadeira só se candidateProducts
+// não estiver vazio); as outras cinco são sempre false porque nenhuma fonte
+// real de categoria de interesse, estoque por candidato, indício de
+// novidade, prazo de pagamento comprovado, segunda via de boleto ou promoção
+// ativa existe no modelo de dados atual (Order/Opportunity não carregam
+// nada disso). Centralizar aqui — em vez de espalhar `false` em vários
+// lugares — significa que o dia em que uma fonte real existir, muda só isto.
+function computeEvidenceFlags(candidateProducts: CampaignPromptInput['candidateProducts']): EvidenceFlags {
+  return {
+    hasCandidateProducts: candidateProducts.length > 0,
+    hasCategoryEvidence: false,
+    hasStockEvidence: false,
+    hasNewnessEvidence: false,
+    hasPaymentExpiryEvidence: false,
+    hasSecondCopySupport: false,
+    hasPromotionEvidence: false,
+  }
+}
+
 function buildPromptInput(opportunity: Opportunity, candidateProducts: CampaignPromptInput['candidateProducts']): CampaignPromptInput {
+  const evidence = computeEvidenceFlags(candidateProducts)
   return {
     opportunityId: opportunity.id,
     opportunityType: opportunity.type,
@@ -31,12 +53,8 @@ function buildPromptInput(opportunity: Opportunity, candidateProducts: CampaignP
     recommendedChannel: opportunity.recommendedChannel,
     confidence: opportunity.confidence,
     candidateProducts,
-    // Nenhuma fonte real de prazo de pagamento comprovado ou de segunda via
-    // de boleto existe hoje no modelo de dados (Order/Opportunity não
-    // carregam isso) — por isso as duas flags são sempre false. resolveStrategyDirections
-    // já degrada a direção correspondente (PIX_PENDING C, BOLETO_PENDING B/C)
-    // para uma variação segura com aviso obrigatório, em vez de a IA inventar o dado.
-    playbook: resolveStrategyDirections(opportunity.type, { hasVerifiedPaymentDeadline: false, hasVerifiedSecondCopySupport: false }),
+    playbook: resolveStrategyDirections(opportunity.type, evidence),
+    evidence,
   }
 }
 
@@ -77,6 +95,11 @@ export const campaignService = {
 
       const productResults = await Promise.all(output.strategies.map(s => productTruthService.verify(s.productId)))
       const complianceFindings = auditAllStrategies(output.strategies, productResults.map(r => r.product))
+      // Strategy Lab v1.1 — Truth Hardening: claims IMPLÍCITAS (ex.: "continua
+      // disponível") que não usam nenhuma palavra de GUARDED_CLAIMS mas
+      // pressupõem um fato que promptInput.evidence não comprova.
+      const claimCategoryFindings = output.strategies.flatMap((strategy, index) =>
+        auditClaimCategories(strategy, index, opportunity.type, promptInput.evidence))
 
       // Strategy Lab v1: dois gates adicionais, tão hard-block quanto compliance.
       // Adesão de direção garante que a IA não embaralhou/pulou A/B/C; distância
@@ -87,6 +110,7 @@ export const campaignService = {
 
       const findings: ComplianceFinding[] = [
         ...complianceFindings,
+        ...claimCategoryFindings,
         ...directionFindings.map(f => ({ strategyIndex: f.strategyIndex, claim: 'direction_mismatch', reason: f.reason })),
         ...distanceFindings.flatMap(f => ([
           { strategyIndex: f.strategyIndexA, claim: 'creative_distance', reason: f.reason },

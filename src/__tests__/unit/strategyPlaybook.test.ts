@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveStrategyDirections, auditDirectionAdherence } from '../../services/ai/strategyPlaybook'
+import { resolveStrategyDirections, auditDirectionAdherence, EvidenceFlags } from '../../services/ai/strategyPlaybook'
 import { OpportunityType } from '../../services/aiOpportunityEngine'
 
 const ALL_TYPES: OpportunityType[] = [
@@ -7,8 +7,24 @@ const ALL_TYPES: OpportunityType[] = [
   'RECENT_CUSTOMER', 'ENGAGED_NO_PURCHASE', 'WINBACK', 'REPEAT_PURCHASE',
 ]
 
-const NO_EVIDENCE = { hasVerifiedPaymentDeadline: false, hasVerifiedSecondCopySupport: false }
-const FULL_EVIDENCE = { hasVerifiedPaymentDeadline: true, hasVerifiedSecondCopySupport: true }
+const NO_EVIDENCE: EvidenceFlags = {
+  hasCandidateProducts: false,
+  hasCategoryEvidence: false,
+  hasStockEvidence: false,
+  hasNewnessEvidence: false,
+  hasPaymentExpiryEvidence: false,
+  hasSecondCopySupport: false,
+  hasPromotionEvidence: false,
+}
+const FULL_EVIDENCE: EvidenceFlags = {
+  hasCandidateProducts: true,
+  hasCategoryEvidence: true,
+  hasStockEvidence: true,
+  hasNewnessEvidence: true,
+  hasPaymentExpiryEvidence: true,
+  hasSecondCopySupport: true,
+  hasPromotionEvidence: true,
+}
 
 describe('strategyPlaybook — resolução determinística por tipo de oportunidade', () => {
   it.each(ALL_TYPES)('%s tem exatamente 3 direções, com keys A, B, C nessa ordem', (type) => {
@@ -25,14 +41,28 @@ describe('strategyPlaybook — resolução determinística por tipo de oportunid
     }
   })
 
-  it('PIX_PENDING direção C degrada sem prazo comprovado — usa fallbackGuidance e traz aviso obrigatório', () => {
+  it.each(ALL_TYPES)('%s: com evidência completa, nenhuma direção fica degradada', (type) => {
+    const directions = resolveStrategyDirections(type, FULL_EVIDENCE)
+    expect(directions.every(d => !d.degraded)).toBe(true)
+    expect(directions.every(d => d.requiredWarning === null)).toBe(true)
+  })
+
+  it('ABANDONED_CART: A e B nunca degradam (não dependem de evidência); C degrada sem hasStockEvidence', () => {
+    const [a, b, c] = resolveStrategyDirections('ABANDONED_CART', NO_EVIDENCE)
+    expect(a.degraded).toBe(false)
+    expect(b.degraded).toBe(false)
+    expect(c.degraded).toBe(true)
+    expect(c.guidance).toMatch(/não afirme nem implique que ele está disponível/i)
+  })
+
+  it('PIX_PENDING direção C degrada sem prazo comprovado (hasPaymentExpiryEvidence=false) — usa fallbackGuidance e traz aviso obrigatório', () => {
     const [, , c] = resolveStrategyDirections('PIX_PENDING', NO_EVIDENCE)
     expect(c.degraded).toBe(true)
     expect(c.requiredWarning).not.toBeNull()
-    expect(c.guidance).toMatch(/não mencione vencimento/i)
+    expect(c.guidance).toMatch(/não implique que o pix continua válido/i)
   })
 
-  it('PIX_PENDING direção C NÃO degrada quando o prazo é comprovado (evidence flag true)', () => {
+  it('PIX_PENDING direção C NÃO degrada quando o prazo é comprovado (hasPaymentExpiryEvidence=true)', () => {
     const [, , c] = resolveStrategyDirections('PIX_PENDING', FULL_EVIDENCE)
     expect(c.degraded).toBe(false)
     expect(c.requiredWarning).toBeNull()
@@ -53,11 +83,35 @@ describe('strategyPlaybook — resolução determinística por tipo de oportunid
     expect(c.degraded).toBe(false)
   })
 
-  it('direções que não dependem de evidência (ex.: ABANDONED_CART) nunca degradam, com ou sem evidência', () => {
-    const withNone = resolveStrategyDirections('ABANDONED_CART', NO_EVIDENCE)
-    const withFull = resolveStrategyDirections('ABANDONED_CART', FULL_EVIDENCE)
-    expect(withNone.every(d => !d.degraded)).toBe(true)
-    expect(withFull.every(d => !d.degraded)).toBe(true)
+  it('VIP: A e C degradam sem produto candidato real; B nunca degrada', () => {
+    const [a, b, c] = resolveStrategyDirections('VIP', NO_EVIDENCE)
+    expect(a.degraded).toBe(true)
+    expect(b.degraded).toBe(false)
+    expect(c.degraded).toBe(true)
+  })
+
+  it('RECENT_CUSTOMER: as 3 direções degradam sem produto candidato/categoria comprovados', () => {
+    const directions = resolveStrategyDirections('RECENT_CUSTOMER', NO_EVIDENCE)
+    expect(directions.every(d => d.degraded)).toBe(true)
+  })
+
+  it('ENGAGED_NO_PURCHASE: só B degrada (depende de produto candidato); A e C nunca dependem de evidência', () => {
+    const [a, b, c] = resolveStrategyDirections('ENGAGED_NO_PURCHASE', NO_EVIDENCE)
+    expect(a.degraded).toBe(false)
+    expect(b.degraded).toBe(true)
+    expect(c.degraded).toBe(false)
+  })
+
+  it('WINBACK: A e B degradam sem produto candidato/categoria comprovados; C nunca degrada', () => {
+    const [a, b, c] = resolveStrategyDirections('WINBACK', NO_EVIDENCE)
+    expect(a.degraded).toBe(true)
+    expect(b.degraded).toBe(true)
+    expect(c.degraded).toBe(false)
+  })
+
+  it('REPEAT_PURCHASE: as 3 direções degradam sem produto candidato/categoria comprovados', () => {
+    const directions = resolveStrategyDirections('REPEAT_PURCHASE', NO_EVIDENCE)
+    expect(directions.every(d => d.degraded)).toBe(true)
   })
 })
 
