@@ -102,11 +102,15 @@ const envSchema = z.object({
   META_WABA_ID: z.string().default(''),
 
   // AI Campaign Intelligence — server-side only, nunca exposto ao browser.
-  // Ausência de ANTHROPIC_API_KEY não derruba o boot: bloqueia só a geração
-  // de campanhas (AiProviderConfigError), preservando as 7 áreas existentes.
-  AI_PROVIDER: z.enum(['anthropic']).default('anthropic'),
-  AI_MODEL: z.string().default('claude-opus-5'),
+  // Ausência da API key do provedor selecionado não derruba o boot: bloqueia
+  // só a geração de campanhas (AiProviderConfigError), preservando as 7
+  // áreas existentes. A escolha de provedor é sempre explícita via
+  // AI_PROVIDER — sem fallback automático entre eles nesta fase.
+  AI_PROVIDER: z.enum(['anthropic', 'openai']).default('anthropic'),
   ANTHROPIC_API_KEY: z.string().default(''),
+  ANTHROPIC_MODEL: z.string().default('claude-opus-5'),
+  OPENAI_API_KEY: z.string().default(''),
+  OPENAI_MODEL: z.string().default('gpt-5'),
 })
 
 const parsed = envSchema.safeParse(process.env)

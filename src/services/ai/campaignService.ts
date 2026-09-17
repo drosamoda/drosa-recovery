@@ -3,7 +3,7 @@ import { prisma } from '../../config/prisma'
 import { getOpportunityById, Opportunity } from '../aiOpportunityEngine'
 import { productTruthService } from '../productTruthService'
 import { getAiProvider } from './providerFactory'
-import { PROMPT_VERSION } from './anthropicProvider'
+import { PROMPT_VERSION } from './campaignPromptContract'
 import { auditAllStrategies } from './complianceService'
 import { CampaignPromptInput, Strategy } from './aiProvider'
 
