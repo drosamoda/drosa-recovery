@@ -137,7 +137,31 @@ function disconnect() { state.secret = ''; state.connStatus = 'idle'; sessionSto
 $('closePanel').onclick = closePanel
 function closePanel() { $('panel').classList.add('hidden'); if ($('authModal').classList.contains('hidden')) $('backdrop').classList.add('hidden') }
 function openPanel(html) { $('panelContent').innerHTML = html; $('panel').classList.remove('hidden'); $('backdrop').classList.remove('hidden') }
-$('backdrop').onclick = () => { closePanel(); closeAuthModal() }
+$('backdrop').onclick = () => { closePanel(); closeAuthModal(); closeAdminModal(false) }
+
+// Modal de confirmação administrativa (aprovar/agendar campanha). O segredo digitado nunca é
+// gravado em nenhum armazenamento persistente do navegador nem em estado global — vive só no input enquanto o modal está
+// aberto e é apagado do DOM assim que o modal fecha, em qualquer caminho (confirmar ou cancelar).
+let adminModalResolve = null
+function openAdminModal() {
+  return new Promise(resolve => {
+    adminModalResolve = resolve
+    $('adminSecretInput').value = ''
+    $('adminModalError').innerHTML = ''
+    $('adminModal').classList.remove('hidden'); $('backdrop').classList.remove('hidden')
+    $('adminSecretInput').focus()
+  })
+}
+function closeAdminModal(confirmed) {
+  const secret = $('adminSecretInput').value
+  $('adminSecretInput').value = ''
+  $('adminModal').classList.add('hidden')
+  if ($('authModal').classList.contains('hidden') && $('panel').classList.contains('hidden')) $('backdrop').classList.add('hidden')
+  if (adminModalResolve) { const resolve = adminModalResolve; adminModalResolve = null; resolve(confirmed ? secret : null) }
+}
+$('adminConfirmBtn').onclick = () => closeAdminModal(true)
+$('adminCancelBtn').onclick = () => closeAdminModal(false)
+$('adminSecretInput').onkeydown = e => { if (e.key === 'Enter') closeAdminModal(true) }
 
 class ApiError extends Error {
   constructor(message, meta) { super(message); this.name = 'ApiError'; this.status = meta.status; this.endpoint = meta.endpoint; this.code = meta.code }
@@ -172,6 +196,25 @@ async function apiPost(path, body) {
   let payload = null
   try { payload = await r.json() } catch (e) { /* corpo vazio ou não-JSON — segue com payload nulo, nunca falha silenciosamente na leitura do status HTTP */ }
   if (r.status === 401) throw new ApiError('Segredo de leitura inválido ou ausente.', { status: 401, endpoint })
+  if (!r.ok) throw new ApiError(`Falha ao executar ação · HTTP ${r.status} · ${endpoint}${requestId ? ' · ID: ' + requestId.split('::').pop() : ''}`, { status: r.status, endpoint, code: payload && payload.error })
+  return payload
+}
+// Ações administrativas (aprovar, agendar) exigem x-admin-secret além do x-crm-read-secret —
+// mesmo adminAuth já usado por /admin. O segredo chega aqui só como parâmetro de função (nunca
+// lido de armazenamento persistente do navegador nem de estado global) e o chamador é responsável por limpá-lo da
+// UI logo após esta chamada resolver, com sucesso ou erro.
+async function apiPostAdmin(path, body, adminSecret) {
+  const endpoint = '/crm-api/' + path
+  let r
+  try {
+    r = await fetch(endpoint, { method: 'POST', headers: { 'x-crm-read-secret': state.secret, 'x-admin-secret': adminSecret, 'content-type': 'application/json' }, body: JSON.stringify(body || {}) })
+  } catch (e) {
+    throw new ApiError(`Falha de rede · ${endpoint}`, { status: 0, endpoint })
+  }
+  const requestId = r.headers.get('x-vercel-id')
+  let payload = null
+  try { payload = await r.json() } catch (e) { /* corpo vazio ou não-JSON — segue com payload nulo */ }
+  if (r.status === 401 || r.status === 403) throw new ApiError('Segredo administrativo inválido ou ausente.', { status: r.status, endpoint })
   if (!r.ok) throw new ApiError(`Falha ao executar ação · HTTP ${r.status} · ${endpoint}${requestId ? ' · ID: ' + requestId.split('::').pop() : ''}`, { status: r.status, endpoint, code: payload && payload.error })
   return payload
 }
@@ -797,7 +840,9 @@ async function selectStrategy(campaignId, index) {
 async function confirmApproval(campaignId) {
   const name = $('approverName').value.trim()
   const btn = $('confirmApproveBtn'); btn.disabled = true; btn.textContent = 'Aprovando…'
-  try { await apiPost(`ai/campaigns/${campaignId}/approve`, { approvedBy: name }); load() }
+  const adminSecret = await openAdminModal()
+  if (adminSecret === null) { btn.disabled = false; btn.textContent = 'Confirmar aprovação'; return }
+  try { await apiPostAdmin(`ai/campaigns/${campaignId}/approve`, { approvedBy: name }, adminSecret); load() }
   catch (e) {
     btn.disabled = false; btn.textContent = 'Confirmar aprovação'
     const info = describeAiIssue(e)
@@ -806,7 +851,9 @@ async function confirmApproval(campaignId) {
 }
 async function scheduleCampaign(campaignId) {
   const btn = $('scheduleBtn'); btn.disabled = true; btn.textContent = 'Agendando…'
-  try { await apiPost(`ai/campaigns/${campaignId}/schedule`, {}); load() }
+  const adminSecret = await openAdminModal()
+  if (adminSecret === null) { btn.disabled = false; btn.textContent = 'Agendar (modo simulado)'; return }
+  try { await apiPostAdmin(`ai/campaigns/${campaignId}/schedule`, {}, adminSecret); load() }
   catch (e) {
     btn.disabled = false; btn.textContent = 'Agendar (modo simulado)'
     const info = describeAiIssue(e)

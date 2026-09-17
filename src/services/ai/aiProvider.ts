@@ -43,5 +43,9 @@ export class AiProviderResponseError extends Error {}
 export interface AiProvider {
   readonly name: string
   readonly model: string
+  // Valida configuração (ex.: API key) de forma síncrona e ANTES de qualquer
+  // escrita de campanha — permite ao chamador falhar rápido (503) sem deixar
+  // um campaignDraft/aiRun órfão no banco quando o provedor não está pronto.
+  assertConfigured(): void
   generateCampaignStrategies(input: CampaignPromptInput): Promise<{ output: CampaignStrategiesOutput; rawOutputText: string }>
 }

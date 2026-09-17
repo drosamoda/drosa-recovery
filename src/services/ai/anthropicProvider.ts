@@ -59,10 +59,14 @@ export class AnthropicProvider implements AiProvider {
     this.model = model
   }
 
-  private getClient(): Anthropic {
+  assertConfigured(): void {
     if (!env.ANTHROPIC_API_KEY) {
       throw new AiProviderConfigError('ANTHROPIC_API_KEY ausente — configure no ambiente antes de gerar campanhas com IA.')
     }
+  }
+
+  private getClient(): Anthropic {
+    this.assertConfigured()
     if (!this.client) this.client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY })
     return this.client
   }

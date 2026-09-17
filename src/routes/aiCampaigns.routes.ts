@@ -4,6 +4,7 @@ import { campaignService, CampaignNotFoundError, InvalidCampaignStateError } fro
 import { getLearningSummary } from '../services/ai/learningService'
 import { AiProviderConfigError, AiProviderResponseError, AiProviderTimeoutError } from '../services/ai/aiProvider'
 import { logger } from '../config/logger'
+import { adminAuth } from '../middlewares/adminAuth'
 
 const router = Router()
 
@@ -72,7 +73,11 @@ router.post('/campaigns/:id/select', async (req: Request, res: Response) => {
 
 // Único endpoint que pode levar um draft a APPROVED. A IA nunca chama esta
 // rota — só um clique humano explícito na tela, com approvedBy preenchido.
-router.post('/campaigns/:id/approve', async (req: Request, res: Response) => {
+// adminAuth (mesmo middleware já usado por /admin) é exigido aqui porque
+// aprovar é o ato que autoriza a campanha a avançar rumo ao agendamento —
+// o crmAuth (x-crm-read-secret) sozinho não é suficiente para uma ação
+// administrativa dessas.
+router.post('/campaigns/:id/approve', adminAuth, async (req: Request, res: Response) => {
   const approvedBy = String(req.body?.approvedBy ?? '')
   if (!approvedBy) return res.status(400).json({ error: 'approvedBy é obrigatório (identifique quem aprovou)' })
   try {
@@ -82,7 +87,7 @@ router.post('/campaigns/:id/approve', async (req: Request, res: Response) => {
   }
 })
 
-router.post('/campaigns/:id/schedule', async (req: Request, res: Response) => {
+router.post('/campaigns/:id/schedule', adminAuth, async (req: Request, res: Response) => {
   try {
     res.json(await campaignService.schedule(req.params.id))
   } catch (error) {
@@ -90,7 +95,10 @@ router.post('/campaigns/:id/schedule', async (req: Request, res: Response) => {
   }
 })
 
-router.post('/campaigns/:id/cancel', async (req: Request, res: Response) => {
+// Cancelamento também é administrativo: uma campanha aprovada/agendada tem
+// impacto operacional, e não exigir o mesmo gate aqui abriria um atalho para
+// desfazer uma decisão humana sem outra autorização humana equivalente.
+router.post('/campaigns/:id/cancel', adminAuth, async (req: Request, res: Response) => {
   try {
     res.json(await campaignService.cancel(req.params.id))
   } catch (error) {

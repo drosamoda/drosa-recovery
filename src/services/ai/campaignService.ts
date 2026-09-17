@@ -37,6 +37,12 @@ export const campaignService = {
     const opportunity = await getOpportunityById(opportunityId)
     if (!opportunity) throw new CampaignNotFoundError(`Oportunidade não encontrada ou sem dados suficientes: ${opportunityId}`)
 
+    // Falha rápido ANTES de qualquer escrita: se o provedor de IA não está
+    // configurado (ex.: ANTHROPIC_API_KEY ausente), nenhum campaignDraft nem
+    // aiRun é criado — evita rascunho órfão que nunca vai receber estratégias.
+    const provider = getAiProvider()
+    provider.assertConfigured()
+
     const draft = await prisma.campaignDraft.create({
       data: {
         opportunityId: opportunity.id,
@@ -54,7 +60,6 @@ export const campaignService = {
     })
 
     const promptInput = buildPromptInput(opportunity, [])
-    const provider = getAiProvider()
     const inputHash = hash(JSON.stringify(promptInput))
 
     try {

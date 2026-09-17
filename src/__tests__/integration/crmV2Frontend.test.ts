@@ -41,21 +41,33 @@ describe('CRM v2 operational UI (radical visual redesign, same read-only /crm-ap
     expect(js).not.toMatch(/[?&](?:secret|token|key)=/i)
     expect(js).not.toMatch(/console\.(?:log|info|warn|error)\([^)]*secret/i)
     // Exceção deliberada e única: Campanhas & IA precisa de escrita real (gerar
-    // rascunho, selecionar estratégia, aprovar, agendar) — sempre via apiPost(),
-    // sempre contra /crm-api/ai/campaigns/*, nunca envio de WhatsApp real. As
-    // outras 7 áreas originais continuam estritamente somente-leitura: nenhuma
-    // outra função no arquivo pode chamar fetch com método de escrita.
+    // rascunho, selecionar estratégia, aprovar, agendar) — sempre via apiPost()
+    // ou apiPostAdmin() (esta última só para aprovar/agendar, que exigem também
+    // x-admin-secret), sempre contra /crm-api/ai/campaigns/*, nunca envio de
+    // WhatsApp real. As outras 7 áreas originais continuam estritamente
+    // somente-leitura: nenhuma outra função no arquivo pode chamar fetch com
+    // método de escrita. O /g cobre as duas funções, já que "apiPost" é
+    // prefixo literal de "apiPostAdmin".
     const nonApiPostWrites = js
-      .replace(/async function apiPost[\s\S]*?\r?\n}\r?\n/, '')
+      .replace(/async function apiPost[\s\S]*?\r?\n}\r?\n/g, '')
       .match(/fetch\([^)]*,\s*\{[^}]*(method:\s*['"](?:POST|PATCH|PUT|DELETE))/s)
     expect(nonApiPostWrites).toBeNull()
     expect(js).toMatch(/async function apiPost\(path, body\)/)
+    expect(js).toMatch(/async function apiPostAdmin\(path, body, adminSecret\)/)
   })
 
-  it('never renders raw JSON in the main UI — only inside a collapsed "dados técnicos" section (exceto o corpo de requisição em apiPost, que é entrada, não exibição)', () => {
+  it('never renders raw JSON in the main UI — only inside a collapsed "dados técnicos" section (exceto o corpo de requisição em apiPost/apiPostAdmin, que é entrada, não exibição)', () => {
     const js = fs.readFileSync(path.join(process.cwd(), 'public/crm-v2/app.js'), 'utf8')
-    const outsideApiPost = js.replace(/async function apiPost[\s\S]*?\r?\n}\r?\n/, '')
+    const outsideApiPost = js.replace(/async function apiPost[\s\S]*?\r?\n}\r?\n/g, '')
     expect(outsideApiPost).not.toMatch(/JSON\.stringify/)
+  })
+
+  it('admin secret used to approve/schedule a campaign is never persisted (no localStorage/sessionStorage) and is cleared from the DOM after the modal closes', () => {
+    const js = fs.readFileSync(path.join(process.cwd(), 'public/crm-v2/app.js'), 'utf8')
+    expect(js).toContain('x-admin-secret')
+    expect(js).not.toMatch(/sessionStorage\.[gs]etItem\([^)]*[aA]dmin/)
+    expect(js).not.toMatch(/localStorage/)
+    expect(js).toMatch(/function closeAdminModal\(confirmed\) \{\s*const secret = \$\('adminSecretInput'\)\.value\s*\$\('adminSecretInput'\)\.value = ''/)
   })
 
   it.each(['post', 'put', 'patch', 'delete'] as const)('does not expose authenticated %s operations', async method => {

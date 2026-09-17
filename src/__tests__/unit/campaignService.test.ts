@@ -35,7 +35,7 @@ vi.mock('../../services/productTruthService', () => ({
 }))
 
 import { campaignService, CampaignNotFoundError, InvalidCampaignStateError } from '../../services/ai/campaignService'
-import { AiProviderTimeoutError } from '../../services/ai/aiProvider'
+import { AiProviderConfigError, AiProviderTimeoutError } from '../../services/ai/aiProvider'
 
 const opportunity = {
   id: 'opp_recent_customer_2026-09-15',
@@ -71,12 +71,43 @@ describe('campaignService — criação a partir de oportunidade real', () => {
     mocks.getAiProvider.mockReturnValue({
       name: 'anthropic',
       model: 'claude-test',
+      assertConfigured: vi.fn(),
       generateCampaignStrategies: vi.fn().mockRejectedValue(new AiProviderTimeoutError('timeout')),
     })
 
     await expect(campaignService.createFromOpportunity(opportunity.id)).rejects.toThrow(AiProviderTimeoutError)
     expect(mocks.aiRunCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'error' }) }))
     expect(mocks.campaignDraftUpdate).not.toHaveBeenCalled()
+  })
+
+  it('provedor de IA não configurado (ex.: ANTHROPIC_API_KEY ausente) falha ANTES de qualquer escrita — zero campaignDraft, zero aiRun', async () => {
+    mocks.getOpportunityById.mockResolvedValue(opportunity)
+    mocks.getAiProvider.mockReturnValue({
+      name: 'anthropic',
+      model: 'claude-test',
+      assertConfigured: vi.fn(() => { throw new AiProviderConfigError('ANTHROPIC_API_KEY ausente') }),
+      generateCampaignStrategies: vi.fn(),
+    })
+
+    await expect(campaignService.createFromOpportunity(opportunity.id)).rejects.toThrow(AiProviderConfigError)
+    expect(mocks.campaignDraftCreate).not.toHaveBeenCalled()
+    expect(mocks.aiRunCreate).not.toHaveBeenCalled()
+  })
+
+  it('a IA nunca avança um draft para APPROVED — mesmo com todas as estratégias liberadas, o melhor que createFromOpportunity() atinge é AWAITING_HUMAN_APPROVAL', async () => {
+    mocks.getOpportunityById.mockResolvedValue(opportunity)
+    mocks.getAiProvider.mockReturnValue({
+      name: 'anthropic',
+      model: 'claude-test',
+      assertConfigured: vi.fn(),
+      generateCampaignStrategies: vi.fn().mockResolvedValue({
+        output: { opportunityId: opportunity.id, summary: 'x', strategies: [] },
+        rawOutputText: '{}',
+      }),
+    })
+    const result = await campaignService.createFromOpportunity(opportunity.id)
+    expect(result.status).toBe('AWAITING_HUMAN_APPROVAL')
+    expect(result.status).not.toBe('APPROVED')
   })
 })
 
@@ -109,5 +140,15 @@ describe('campaignService — approval gate (IA nunca aprova sozinha)', () => {
   it('selectStrategy() rejeita índice fora do intervalo das 3 estratégias', async () => {
     mocks.campaignDraftFindUnique.mockResolvedValue({ id: 'draft_1', status: 'AWAITING_HUMAN_APPROVAL', strategies: [{}, {}, {}] })
     await expect(campaignService.selectStrategy('draft_1', 5)).rejects.toThrow(InvalidCampaignStateError)
+  })
+})
+
+describe('campaignService — envio real permanece desligado nesta fase', () => {
+  it('schedule()/approve()/cancel() nunca chamam o whatsappService — dry-run garantido pela ausência estrutural de qualquer chamada de envio, não por uma flag que alguém possa esquecer ligada', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const text = fs.readFileSync(path.join(process.cwd(), 'src/services/ai/campaignService.ts'), 'utf8')
+    expect(text).not.toMatch(/whatsappService/)
+    expect(text).not.toMatch(/sendTemplate|sendTextMessage/)
   })
 })

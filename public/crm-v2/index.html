@@ -65,6 +65,18 @@
     </div>
   </div>
 
+  <div id="adminModal" class="auth-modal hidden">
+    <p class="eyebrow">CONFIRMAÇÃO ADMINISTRATIVA</p>
+    <h2>Confirmação administrativa</h2>
+    <p>Esta ação exige o segredo administrativo. Ele é enviado apenas nesta requisição — nunca é salvo no navegador.</p>
+    <input id="adminSecretInput" type="password" placeholder="Segredo administrativo" autocomplete="off">
+    <div class="row">
+      <button id="adminConfirmBtn" class="btn btn-primary">Confirmar</button>
+      <button id="adminCancelBtn" class="btn btn-ghost" type="button">Cancelar</button>
+    </div>
+    <div id="adminModalError"></div>
+  </div>
+
   <div id="panel" class="side-panel hidden">
     <div class="side-panel-inner">
       <button id="closePanel" class="panel-close" aria-label="Fechar">✕</button>
