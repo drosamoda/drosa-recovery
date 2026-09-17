@@ -67,9 +67,26 @@ const corsOptions: cors.CorsOptions = {
 
 // CORS — aceita qualquer subdomínio *.lovable.app e localhost
 // Explicit OPTIONS handler must come before all other routes
+//
+// Same-origin sempre passa, mesmo fora de ALLOWED_ORIGINS: browsers enviam o
+// header Origin em POST/PATCH/DELETE mesmo quando a chamada é para o próprio
+// host da página (fetch() dentro do crm-v2 chamando /crm-api/ai/*), o que
+// GET nunca fazia — por isso nenhuma escrita do crm-v2 tinha exercitado este
+// bloqueio antes de existir a primeira. Cada deploy do Preview recebe um
+// subdomínio novo (nunca listável em ALLOWED_ORIGINS de antemão), então a
+// checagem correta aqui é "a origem é o próprio host da requisição", não uma
+// lista estática.
+function isSameOrigin(origin: string, req: Request): boolean {
+  try {
+    return new URL(origin).host === req.get('host')
+  } catch {
+    return false
+  }
+}
+
 app.use((req, res, next) => {
   const origin = req.headers.origin
-  if (origin && !isAllowedOrigin(origin)) {
+  if (origin && !isAllowedOrigin(origin) && !isSameOrigin(origin, req)) {
     res.status(403).json({ error: 'CORS bloqueado' })
     return
   }
