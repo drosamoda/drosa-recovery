@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => {
     skipPendingCheckoutLogs: vi.fn(),
     markProcessed: vi.fn(),
     markError: vi.fn(),
+    recordConsentFromNuvemshopOrderExtra: vi.fn(),
   }
 })
 
@@ -68,8 +69,13 @@ vi.mock('../../services/webhookEventService', () => ({
   },
 }))
 
+vi.mock('../../services/whatsappConsentService', () => ({
+  recordConsentFromNuvemshopOrderExtra: mocks.recordConsentFromNuvemshopOrderExtra,
+}))
+
 import { orderService } from '../../services/orderService'
 import { nuvemshopService } from '../../services/nuvemshopService'
+import { recordConsentFromNuvemshopOrderExtra } from '../../services/whatsappConsentService'
 
 const fullOrderPayload = {
   id: 1944167967,
@@ -110,6 +116,7 @@ describe('orderService.handleNuvemshopOrderWebhook', () => {
     mocks.createPendingMessageIfNotExists.mockResolvedValue({ id: 'message-log-1' })
     mocks.markProcessed.mockResolvedValue(undefined)
     mocks.markError.mockResolvedValue(undefined)
+    mocks.recordConsentFromNuvemshopOrderExtra.mockResolvedValue(undefined)
   })
 
   it('busca pedido completo na Nuvemshop quando o webhook vem resumido', async () => {
@@ -206,5 +213,38 @@ describe('orderService.handleNuvemshopOrderWebhook', () => {
     expect(mocks.createPendingMessageIfNotExists).not.toHaveBeenCalled()
     expect(mocks.markProcessed).not.toHaveBeenCalled()
     expect(mocks.markError).toHaveBeenCalledWith('event-4', 'Nuvemshop order fetch failed')
+  })
+
+  it('repassa order.extra e telefone normalizado para a sincronizacao de consentimento WhatsApp', async () => {
+    const payloadWithExtra = {
+      ...fullOrderPayload,
+      extra: { drosa_whatsapp_marketing_choice: 'granted' },
+    }
+
+    await orderService.handleNuvemshopOrderWebhook({
+      payload: payloadWithExtra,
+      headers: { 'x-linkedstore-topic': 'order/created' },
+      webhookEventId: 'event-5',
+    })
+
+    expect(recordConsentFromNuvemshopOrderExtra).toHaveBeenCalledWith({
+      normalizedPhone: '5583998765432',
+      extra: { drosa_whatsapp_marketing_choice: 'granted' },
+      nuvemshopOrderId: '1944167967',
+    })
+    expect(mocks.markProcessed).toHaveBeenCalledWith('event-5')
+  })
+
+  it('falha na sincronizacao de consentimento nao derruba o processamento do pedido', async () => {
+    mocks.recordConsentFromNuvemshopOrderExtra.mockRejectedValue(new Error('falha ao gravar consentimento'))
+
+    await orderService.handleNuvemshopOrderWebhook({
+      payload: fullOrderPayload,
+      headers: { 'x-linkedstore-topic': 'order/created' },
+      webhookEventId: 'event-6',
+    })
+
+    expect(mocks.markProcessed).toHaveBeenCalledWith('event-6')
+    expect(mocks.markError).not.toHaveBeenCalled()
   })
 })

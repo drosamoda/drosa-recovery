@@ -33,6 +33,8 @@ export type NuvemshopOrder = {
   checkout_url?: string
   created_at?: string
   updated_at?: string
+  // Metadados custom do pedido (setados via API ou order:add:extra do checkout).
+  extra?: unknown
   [key: string]: unknown
 }
 

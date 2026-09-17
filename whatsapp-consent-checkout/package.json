@@ -1,0 +1,22 @@
+{
+  "name": "drosa-whatsapp-consent-checkout",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Extensao NubeSDK (checkout) que captura opt-in explicito de marketing WhatsApp da D'Rosa Moda.",
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest watch"
+  },
+  "devDependencies": {
+    "@tiendanube/nube-sdk-helper": "^0.3.0",
+    "@tiendanube/nube-sdk-jsx": "^0.21.0",
+    "@tiendanube/nube-sdk-types": "^0.98.0",
+    "@tiendanube/nube-sdk-ui": "^0.22.1",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.2",
+    "vitest": "^3.2.4"
+  }
+}

@@ -5,6 +5,7 @@ import { customerService } from './customerService'
 import { messageService } from './messageService'
 import { webhookEventService } from './webhookEventService'
 import { nuvemshopService } from './nuvemshopService'
+import { recordConsentFromNuvemshopOrderExtra } from './whatsappConsentService'
 import { AbandonedCheckoutStatus, EventType } from '@prisma/client'
 import { logger } from '../config/logger'
 
@@ -24,6 +25,8 @@ type NuvemshopOrderPayload = {
   checkout_url?: string
   created_at?: string
   updated_at?: string
+  // Metadados custom do pedido (setados via API ou order:add:extra do checkout).
+  extra?: unknown
   [key: string]: unknown
 }
 
@@ -273,6 +276,20 @@ export const orderService = {
             await scheduleOrderMessage(savedOrderId, customer.id, customer.optOut, normalizedPhone, EventType.pix_cancelled)
           }
         }
+      }
+
+      // Consentimento de marketing WhatsApp (checkout NubeSDK) — nunca deve
+      // derrubar o processamento principal do pedido caso falhe.
+      try {
+        await recordConsentFromNuvemshopOrderExtra({
+          normalizedPhone: normalizedPhone || null,
+          extra: payload.extra,
+          nuvemshopOrderId,
+        })
+      } catch (consentErr) {
+        logger.error('[orderService] erro ao sincronizar consentimento WhatsApp do checkout', consentErr, {
+          nuvemshopOrderId,
+        })
       }
 
       await webhookEventService.markProcessed(webhookEventId)
