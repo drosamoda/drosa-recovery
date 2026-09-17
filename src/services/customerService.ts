@@ -1,5 +1,5 @@
 import { prisma } from '../config/prisma'
-import { Customer } from '@prisma/client'
+import { Customer, Prisma } from '@prisma/client'
 
 type UpsertParams = {
   name: string
@@ -9,30 +9,42 @@ type UpsertParams = {
   source?: string
 }
 
-export const customerService = {
-  async upsertCustomer(params: UpsertParams): Promise<Customer> {
-    const existing = await customerService.findByPhoneOrEmail({
-      normalizedPhone: params.normalizedPhone,
-      email: params.email ?? undefined,
-    })
+// This removes duplicate work in one process. PostgreSQL keeps the same
+// guarantee across concurrent Cloud Run instances.
+const inFlightUpserts = new Map<string, Promise<Customer>>()
+
+function customerLockKey(params: UpsertParams): string {
+  return params.normalizedPhone || `email:${params.email?.trim().toLowerCase() ?? 'unknown'}`
+}
+
+async function persistCustomer(params: UpsertParams): Promise<Customer> {
+  const lockKey = customerLockKey(params)
+
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`)
+
+    const byPhone = params.normalizedPhone
+      ? await tx.customer.findFirst({ where: { normalizedPhone: params.normalizedPhone } })
+      : null
+    const existing = byPhone ?? (params.email
+      ? await tx.customer.findFirst({ where: { email: params.email } })
+      : null)
 
     if (existing) {
-      return prisma.customer.update({
+      return tx.customer.update({
         where: { id: existing.id },
         data: {
-          // Atualiza nome apenas se o novo for mais completo
           name: params.name.trim().length > existing.name.trim().length
             ? params.name
             : existing.name,
           email: params.email ?? existing.email,
           phone: params.phone ?? existing.phone,
           normalizedPhone: params.normalizedPhone,
-          // Nunca sobrescreve opt_out=true automaticamente
         },
       })
     }
 
-    return prisma.customer.create({
+    return tx.customer.create({
       data: {
         name: params.name,
         email: params.email ?? null,
@@ -42,6 +54,22 @@ export const customerService = {
         source: params.source ?? null,
       },
     })
+  })
+}
+
+export const customerService = {
+  async upsertCustomer(params: UpsertParams): Promise<Customer> {
+    const lockKey = customerLockKey(params)
+    const inFlight = inFlightUpserts.get(lockKey)
+    if (inFlight) return inFlight
+
+    const work = persistCustomer(params)
+    inFlightUpserts.set(lockKey, work)
+    try {
+      return await work
+    } finally {
+      if (inFlightUpserts.get(lockKey) === work) inFlightUpserts.delete(lockKey)
+    }
   },
 
   async applyOptOutByPhone(normalizedPhone: string): Promise<void> {
@@ -59,13 +87,11 @@ export const customerService = {
     normalizedPhone: string
     email?: string
   }): Promise<Customer | null> {
-    // Prioridade: telefone normalizado
     const byPhone = await prisma.customer.findFirst({
       where: { normalizedPhone: params.normalizedPhone },
     })
     if (byPhone) return byPhone
 
-    // Fallback: e-mail
     if (params.email) {
       return prisma.customer.findFirst({
         where: { email: params.email },
