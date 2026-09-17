@@ -65,8 +65,14 @@ export async function remarketingPreview(segment: Segment | 'all' = 'all') {
     })
     : Promise.resolve([])
   const [orders, conversations, suppressions, optedOut, recentMessages, consents] = await Promise.all([
-    prisma.order.findMany({ orderBy: { sourceCreatedAt: 'desc' }, take: 10000 }),
-    prisma.conversation.findMany({ where: { lastInboundAt: { not: null } }, include: { contact: true }, take: 10000 }),
+    // select explícito (não o objeto inteiro): esta função nunca leu rawPayload nem os demais
+    // campos do pedido, e sob o connection_limit=2 do Preview, trazer esse JSON em até 10.000
+    // linhas por chamada é o gargalo real (reproduzido ao vivo como hang de 45s+). Mesmos
+    // filtro, ordenação e limite de antes — só menos colunas por linha.
+    prisma.order.findMany({ orderBy: { sourceCreatedAt: 'desc' }, take: 10000,
+      select: { id: true, normalizedPhone: true, paymentMethod: true, paymentStatus: true, status: true, sourceCreatedAt: true, orderUrl: true, total: true } }),
+    prisma.conversation.findMany({ where: { lastInboundAt: { not: null } }, take: 10000,
+      select: { id: true, lastInboundAt: true, contact: { select: { phone: true } } } }),
     prisma.suppression.findMany({ select: { normalizedPhone: true } }),
     prisma.customer.findMany({ where: { optOut: true }, select: { normalizedPhone: true } }),
     prisma.messageLog.findMany({ where: { status: { in: ['sent', 'delivered', 'read', 'unknown'] },
