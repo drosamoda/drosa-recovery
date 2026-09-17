@@ -4,7 +4,7 @@ import { env } from '../config/env'
 import { logger } from '../config/logger'
 import {
   AbandonedCheckoutEligibility,
-  evaluateAbandonedCheckoutEligibility,
+  evaluateAbandonedCheckoutEligibilityBatch,
 } from '../services/abandonedCheckoutEligibilityService'
 
 type PublicEligibilityReason = AbandonedCheckoutEligibility['reasons'][number] | 'evaluation_error'
@@ -21,34 +21,28 @@ type PreviewEvaluation =
   | { ok: true; value: AbandonedCheckoutEligibility }
   | { ok: false; checkout: AbandonedCheckout }
 
+// Antes avaliava cada checkout com uma chamada individual (N+1: ~178 queries para 25 linhas,
+// já corrigido no mesmo padrão para a leitura do Carrinho). Esta função nunca tinha recebido
+// esse fix — sob o connection_limit=2 do Preview, isso virou um hang reproduzido ao vivo (45s+
+// sem resposta) assim que passou a ser exercitada de ponta a ponta pela primeira vez (via
+// remarketingPreview('all') → Oportunidades). evaluateAbandonedCheckoutEligibilityBatch já é o
+// mesmo resultado, testado (paridade com o caminho por linha), só que em poucas queries batched
+// por página inteira em vez de uma por checkout.
 async function evaluateWithConcurrency(
   checkouts: AbandonedCheckout[],
-  concurrency: number,
+  _concurrency: number,
 ): Promise<PreviewEvaluation[]> {
-  const results = new Array<PreviewEvaluation>(checkouts.length)
-  let nextIndex = 0
-
-  async function worker() {
-    while (nextIndex < checkouts.length) {
-      const index = nextIndex++
-      const checkout = checkouts[index]
-      try {
-        results[index] = { ok: true, value: await evaluateAbandonedCheckoutEligibility(checkout) }
-      } catch (error) {
-        const safeError = error as { code?: unknown; name?: unknown }
-        logger.error('[previewAbandonedCheckouts] candidate evaluation failed', undefined, {
-          checkoutId: checkout.id,
-          errorCode: typeof safeError?.code === 'string' ? safeError.code : 'candidate_evaluation_failed',
-          errorName: typeof safeError?.name === 'string' ? safeError.name : 'unknown_error',
-        })
-        results[index] = { ok: false, checkout }
-      }
-    }
-  }
-
-  const workerCount = Math.min(concurrency, checkouts.length)
-  await Promise.all(Array.from({ length: workerCount }, () => worker()))
-  return results
+  const values = await evaluateAbandonedCheckoutEligibilityBatch(checkouts)
+  return checkouts.map((checkout, index) => {
+    const value = values[index]
+    if (value) return { ok: true, value }
+    logger.error('[previewAbandonedCheckouts] candidate evaluation failed', undefined, {
+      checkoutId: checkout.id,
+      errorCode: 'candidate_evaluation_failed',
+      errorName: 'batch_evaluation_returned_null',
+    })
+    return { ok: false, checkout }
+  })
 }
 
 function maskPhone(phone: string | null): string | null {
