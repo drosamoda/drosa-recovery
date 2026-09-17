@@ -94,14 +94,24 @@ describe('campaignService — criação a partir de oportunidade real', () => {
     expect(mocks.aiRunCreate).not.toHaveBeenCalled()
   })
 
-  it('a IA nunca avança um draft para APPROVED — mesmo com todas as estratégias liberadas, o melhor que createFromOpportunity() atinge é AWAITING_HUMAN_APPROVAL', async () => {
+  it('a IA nunca avança um draft para APPROVED — mesmo com todas as estratégias liberadas e distintas, o melhor que createFromOpportunity() atinge é AWAITING_HUMAN_APPROVAL', async () => {
     mocks.getOpportunityById.mockResolvedValue(opportunity)
     mocks.getAiProvider.mockReturnValue({
       name: 'anthropic',
       model: 'claude-test',
       assertConfigured: vi.fn(),
       generateCampaignStrategies: vi.fn().mockResolvedValue({
-        output: { opportunityId: opportunity.id, summary: 'x', strategies: [] },
+        output: {
+          opportunityId: opportunity.id,
+          summary: 'x',
+          // Direções reais do playbook de RECENT_CUSTOMER (A/B/C), com texto
+          // genuinamente distinto — evita colidir com o gate de Creative Distance.
+          strategies: [
+            { direction: 'A', name: 'Cross-sell', angle: 'Complemento da compra recente', audience: '8 elegíveis', productId: null, message: 'Oi! Notamos sua compra recente e temos um complemento que combina bem com ela.', cta: 'Ver complemento', creativeBrief: 'Foto do complemento em fundo neutro.', warnings: [] },
+            { direction: 'B', name: 'Style guidance', angle: 'Como combinar o que já foi comprado', audience: '8 elegíveis', productId: null, message: 'Preparamos dicas de como aproveitar ao máximo sua última compra no dia a dia.', cta: 'Ver dicas', creativeBrief: 'Vídeo curto mostrando combinações.', warnings: [] },
+            { direction: 'C', name: 'Novidades relacionadas', angle: 'Novidades da categoria', audience: '8 elegíveis', productId: null, message: 'Chegaram novidades na categoria que você comprou recentemente — quer dar uma olhada?', cta: 'Ver novidades', creativeBrief: 'Carrossel com as novidades da categoria.', warnings: [] },
+          ],
+        },
         rawOutputText: '{}',
       }),
     })

@@ -1,11 +1,15 @@
 import { createHash } from 'crypto'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../../config/prisma'
 import { getOpportunityById, Opportunity } from '../aiOpportunityEngine'
 import { productTruthService } from '../productTruthService'
 import { getAiProvider } from './providerFactory'
 import { PROMPT_VERSION } from './campaignPromptContract'
-import { auditAllStrategies } from './complianceService'
+import { auditAllStrategies, ComplianceFinding } from './complianceService'
 import { CampaignPromptInput, Strategy } from './aiProvider'
+import { resolveStrategyDirections, auditDirectionAdherence } from './strategyPlaybook'
+import { evaluateCreativeDistance } from './strategyDistanceService'
+import { evaluateStrategyQuality } from './strategyQualityRubric'
 
 function hash(value: string): string {
   return createHash('sha256').update(value).digest('hex')
@@ -27,6 +31,12 @@ function buildPromptInput(opportunity: Opportunity, candidateProducts: CampaignP
     recommendedChannel: opportunity.recommendedChannel,
     confidence: opportunity.confidence,
     candidateProducts,
+    // Nenhuma fonte real de prazo de pagamento comprovado ou de segunda via
+    // de boleto existe hoje no modelo de dados (Order/Opportunity não
+    // carregam isso) — por isso as duas flags são sempre false. resolveStrategyDirections
+    // já degrada a direção correspondente (PIX_PENDING C, BOLETO_PENDING B/C)
+    // para uma variação segura com aviso obrigatório, em vez de a IA inventar o dado.
+    playbook: resolveStrategyDirections(opportunity.type, { hasVerifiedPaymentDeadline: false, hasVerifiedSecondCopySupport: false }),
   }
 }
 
@@ -66,11 +76,33 @@ export const campaignService = {
       const { output, rawOutputText } = await provider.generateCampaignStrategies(promptInput)
 
       const productResults = await Promise.all(output.strategies.map(s => productTruthService.verify(s.productId)))
-      const findings = auditAllStrategies(output.strategies, productResults.map(r => r.product))
+      const complianceFindings = auditAllStrategies(output.strategies, productResults.map(r => r.product))
+
+      // Strategy Lab v1: dois gates adicionais, tão hard-block quanto compliance.
+      // Adesão de direção garante que a IA não embaralhou/pulou A/B/C; distância
+      // criativa garante que A/B/C não são a mesma ideia reescrita. Nenhum dos
+      // dois é previsão de venda — são checagens estruturais do texto gerado.
+      const directionFindings = auditDirectionAdherence(output.strategies, promptInput.playbook)
+      const distanceFindings = evaluateCreativeDistance(output.strategies)
+
+      const findings: ComplianceFinding[] = [
+        ...complianceFindings,
+        ...directionFindings.map(f => ({ strategyIndex: f.strategyIndex, claim: 'direction_mismatch', reason: f.reason })),
+        ...distanceFindings.flatMap(f => ([
+          { strategyIndex: f.strategyIndexA, claim: 'creative_distance', reason: f.reason },
+          { strategyIndex: f.strategyIndexB, claim: 'creative_distance', reason: f.reason },
+        ])),
+      ]
 
       const strategiesWithStatus = output.strategies.map((strategy, index) => {
         const strategyFindings = findings.filter(f => f.strategyIndex === index)
-        return { ...strategy, status: strategyFindings.length ? 'BLOCKED' : 'OK', findings: strategyFindings }
+        const qualityRubric = evaluateStrategyQuality(strategy, {
+          product: productResults[index]?.product ?? null,
+          complianceFindings,
+          distanceFindings,
+          strategyIndex: index,
+        })
+        return { ...strategy, status: strategyFindings.length ? 'BLOCKED' : 'OK', findings: strategyFindings, qualityRubric }
       })
 
       const anyBlocked = findings.length > 0
@@ -91,10 +123,10 @@ export const campaignService = {
       const updated = await prisma.campaignDraft.update({
         where: { id: draft.id },
         data: {
-          strategies: strategiesWithStatus,
+          strategies: strategiesWithStatus as unknown as Prisma.InputJsonValue,
           productTruthStatus: anyBlocked ? 'BLOCKED' : 'APPROVED',
           complianceStatus: anyBlocked ? 'BLOCKED' : 'APPROVED',
-          complianceFindings: findings,
+          complianceFindings: findings as unknown as Prisma.InputJsonValue,
           status,
         },
       })

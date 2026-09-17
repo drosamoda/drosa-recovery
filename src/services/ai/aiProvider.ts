@@ -1,8 +1,17 @@
 import { z } from 'zod'
+import { ResolvedDirection } from './strategyPlaybook'
 
 // Contrato de saída da IA. Validado por schema — nenhuma resposta que não
 // bater exatamente com isto chega a virar draft de campanha.
+//
+// `direction` (Strategy Lab v1): cada estratégia se autodeclara A/B/C,
+// amarrada à direção do playbook (strategyPlaybook.ts) que ela deveria
+// seguir. Isso é o que permite checar programaticamente que a estratégia no
+// índice 0 realmente seguiu a direção A do playbook daquele tipo de
+// oportunidade, em vez de confiar que a ordem de retorno da IA é a ordem
+// pedida.
 export const strategySchema = z.object({
+  direction: z.enum(['A', 'B', 'C']),
   name: z.string().min(1),
   angle: z.string().min(1),
   audience: z.string().min(1),
@@ -34,6 +43,12 @@ export type CampaignPromptInput = {
   recommendedChannel: string
   confidence: string
   candidateProducts: Array<{ productId: string; name: string | null; price: number | null; stockStatus: string }>
+  // Strategy Lab v1: direção determinística por tipo de oportunidade
+  // (strategyPlaybook.ts) — a IA deve gerar exatamente uma estratégia por
+  // direção, na ordem A/B/C, e nunca inventar o dado que falta quando uma
+  // direção estiver degradada (guidance já vem ajustada e requiredWarning
+  // diz qual aviso é obrigatório nesse caso).
+  playbook: ResolvedDirection[]
 }
 
 export class AiProviderConfigError extends Error {}
