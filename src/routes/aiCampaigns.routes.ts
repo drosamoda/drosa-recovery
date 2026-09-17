@@ -3,16 +3,24 @@ import { generateOpportunities } from '../services/aiOpportunityEngine'
 import { campaignService, CampaignNotFoundError, InvalidCampaignStateError } from '../services/ai/campaignService'
 import { getLearningSummary } from '../services/ai/learningService'
 import { AiProviderConfigError, AiProviderResponseError, AiProviderTimeoutError } from '../services/ai/aiProvider'
+import { logger } from '../config/logger'
 
 const router = Router()
 
+// Erros conhecidos (estado de negócio / IA) são seguros para expor ao cliente.
+// Qualquer outro erro (ex.: falha do Prisma expondo nome de tabela/schema) é
+// logado com detalhe completo no servidor e nunca repassado cru na resposta —
+// reproduzido ao vivo: uma falha de banco (migration pendente) vazava a
+// mensagem interna do Prisma ("table public.campaign_drafts does not exist")
+// direto no JSON de erro.
 function handleError(res: Response, error: unknown) {
   if (error instanceof CampaignNotFoundError) return res.status(404).json({ error: error.message })
   if (error instanceof InvalidCampaignStateError) return res.status(409).json({ error: error.message })
   if (error instanceof AiProviderConfigError) return res.status(503).json({ error: error.message, code: 'AI_PROVIDER_NOT_CONFIGURED' })
   if (error instanceof AiProviderTimeoutError) return res.status(504).json({ error: error.message })
   if (error instanceof AiProviderResponseError) return res.status(502).json({ error: error.message })
-  return res.status(500).json({ error: error instanceof Error ? error.message : 'Erro inesperado' })
+  logger.error('[ai/campaigns] erro inesperado', error)
+  return res.status(500).json({ error: 'Erro inesperado ao processar a campanha' })
 }
 
 // Leitura: protegida só pelo crmAuth já aplicado em /crm-api no index.ts
