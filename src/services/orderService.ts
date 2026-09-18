@@ -163,13 +163,14 @@ export const orderService = {
       // ----------------------------------------------------------------
       // Transação: order → converter carrinhos
       // ----------------------------------------------------------------
-      const { savedOrderId, isNew } = await prisma.$transaction(async (tx) => {
+      const { savedOrderId, isNew, previousPaymentStatus } = await prisma.$transaction(async (tx) => {
         const existingOrder = await tx.order.findUnique({
           where: { nuvemshopOrderId },
         })
 
         let savedOrder: { id: string }
         let isNew = false
+        const previousPaymentStatus = existingOrder?.paymentStatus ?? null
 
         if (existingOrder) {
           savedOrder = await tx.order.update({
@@ -243,7 +244,7 @@ export const orderService = {
           }
         }
 
-        return { savedOrderId: savedOrder.id, isNew }
+        return { savedOrderId: savedOrder.id, isNew, previousPaymentStatus }
       })
 
       // ----------------------------------------------------------------
@@ -268,8 +269,13 @@ export const orderService = {
           }
           await scheduleOrderMessage(savedOrderId, customer.id, customer.optOut, normalizedPhone, newOrderEvent)
         } else {
-          // Pedido atualizado — verifica transições de status
-          if (paymentStatus === 'rejected') {
+          // Pedido atualizado — agenda somente transições reais. Webhooks
+          // repetidos com o mesmo status continuam idempotentes.
+          const paidStatuses = new Set(['paid', 'confirmed', 'authorized'])
+          if (paidStatuses.has(paymentStatus) && !paidStatuses.has(previousPaymentStatus ?? '')) {
+            await scheduleOrderMessage(savedOrderId, customer.id, customer.optOut, normalizedPhone, EventType.payment_confirmed)
+          }
+          if (paymentStatus === 'rejected' && previousPaymentStatus !== 'rejected') {
             await scheduleOrderMessage(savedOrderId, customer.id, customer.optOut, normalizedPhone, EventType.payment_rejected)
           }
           if (status === 'cancelled' && paymentType === 'pix') {
