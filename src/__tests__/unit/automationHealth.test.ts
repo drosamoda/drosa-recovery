@@ -33,6 +33,7 @@ import { automationHealth } from '../../jobs/automationHealth'
 const original = {
   automationSendEnabled: env.AUTOMATION_SEND_ENABLED,
   whatsappDryRun: env.WHATSAPP_DRY_RUN,
+  inboxSendDryRun: env.INBOX_SEND_DRY_RUN,
   abandonedCartEnabled: env.ABANDONED_CART_ENABLED,
   remarketingEnabled: env.REMARKETING_ENABLED,
   allowed: [...env.AUTOMATION_ALLOWED_TEMPLATES],
@@ -57,6 +58,7 @@ beforeEach(() => {
 afterEach(() => {
   env.AUTOMATION_SEND_ENABLED = original.automationSendEnabled
   env.WHATSAPP_DRY_RUN = original.whatsappDryRun
+  env.INBOX_SEND_DRY_RUN = original.inboxSendDryRun
   env.ABANDONED_CART_ENABLED = original.abandonedCartEnabled
   env.REMARKETING_ENABLED = original.remarketingEnabled
   env.AUTOMATION_ALLOWED_TEMPLATES = [...original.allowed]
@@ -69,6 +71,22 @@ afterEach(() => {
 })
 
 describe('automationHealth send safety', () => {
+  it('reports the manual Inbox gate independently from automation send gates', async () => {
+    env.INBOX_SEND_DRY_RUN = true
+    let health = await automationHealth()
+    expect(health).toMatchObject({
+      inboxSendDryRun: true,
+      manualInboxRealSendArmed: false,
+    })
+
+    env.INBOX_SEND_DRY_RUN = false
+    health = await automationHealth()
+    expect(health).toMatchObject({
+      inboxSendDryRun: false,
+      manualInboxRealSendArmed: true,
+    })
+  })
+
   it('reports allowlist as mandatory when real-send gates are armed', async () => {
     env.AUTOMATION_SEND_ENABLED = true
     env.WHATSAPP_DRY_RUN = false
