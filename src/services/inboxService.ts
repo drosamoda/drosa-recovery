@@ -660,7 +660,7 @@ export const inboxService = {
       }
     }
 
-    if (env.NODE_ENV !== 'production' && env.INBOX_SEND_DRY_RUN) {
+    if (env.INBOX_SEND_DRY_RUN) {
       const now = new Date()
       const message = await prisma.chatMessage.create({
         data: {
@@ -775,6 +775,41 @@ export const inboxService = {
         statusCode: 400,
         error: 'replyToMessageId invalido ou fora da conversa atual',
       }
+    }
+
+    if (env.INBOX_SEND_DRY_RUN) {
+      const now = new Date()
+      const message = await prisma.chatMessage.create({
+        data: {
+          conversationId,
+          waMessageId: null,
+          direction: MessageDirection.outbound,
+          type: ChatMessageType.image,
+          body: caption || '[imagem]',
+          rawPayload: {
+            dry_run: true,
+            to: conversation.contact.phone,
+            mediaType: 'image',
+            caption: caption || null,
+            mimeType: normalizedMimeType,
+            fileName: params.fileName || null,
+            byteLength: params.fileBuffer.length,
+            replyToMessageId: replyToMessage?.id || null,
+            replyToWaMessageId: replyToMessage?.waMessageId || null,
+            replyToBody: replyToMessage?.body || null,
+            replyToType: replyToMessage?.type || null,
+          },
+          status: 'dry_run',
+          timestamp: now,
+        },
+      })
+
+      await prisma.conversation.update({
+        where: { id: conversationId },
+        data: { lastMessageAt: now },
+      })
+
+      return { success: true as const, dryRun: true as const, message }
     }
 
     const result = await whatsappService.sendImageMessage({
