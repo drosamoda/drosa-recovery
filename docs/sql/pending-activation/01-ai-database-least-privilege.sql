@@ -29,12 +29,12 @@ CREATE ROLE crm_ai_preview_writer WITH
   NOCREATEROLE
   NOREPLICATION
   CONNECTION LIMIT 2
-  PASSWORD '<definir no momento da ativação, fora do repositório>';
+  PASSWORD '<STRONG_PASSWORD_HERE>';
 
--- Conectar ao banco (ajustar <database_name> para o banco real do Supabase
--- deste projeto) e usar o schema public — sem isso, os GRANTs abaixo não têm
--- efeito nenhum.
-GRANT CONNECT ON DATABASE "<database_name>" TO crm_ai_preview_writer;
+-- Conectar ao banco (postgres — confirmado como o database real deste
+-- projeto Supabase, project ref hocrnjuvrufkqjbmmuoo) e usar o schema
+-- public — sem isso, os GRANTs abaixo não têm efeito nenhum.
+GRANT CONNECT ON DATABASE "postgres" TO crm_ai_preview_writer;
 GRANT USAGE ON SCHEMA public TO crm_ai_preview_writer;
 
 -- Único acesso concedido: leitura e escrita em campaign_drafts e ai_runs.
