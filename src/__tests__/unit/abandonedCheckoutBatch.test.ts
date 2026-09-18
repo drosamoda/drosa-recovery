@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 type CheckoutFixture = { id: string; normalizedPhone: string | null; customerName: string; customerEmail: string; abandonedCheckoutUrl: string; status: string; sourceCreatedAt: Date; sourceUpdatedAt: Date; abandonedAt: Date; nuvemshopCheckoutId: string; productsSummary: string; total: number; currency: string }
 
@@ -41,7 +41,14 @@ const now = new Date('2026-09-12T12:00:00Z')
 const base = (): CheckoutFixture => ({ id: 'checkout-1', normalizedPhone: phone, customerName: 'Cliente Teste', customerEmail: email, abandonedCheckoutUrl: 'https://www.drosamoda.com.br/checkout/test', status: 'abandoned', sourceCreatedAt: new Date('2026-09-11T11:00:00Z'), sourceUpdatedAt: new Date('2026-09-11T12:00:00Z'), abandonedAt: new Date('2026-09-11T12:00:00Z'), nuvemshopCheckoutId: 'n1', productsSummary: 'Produto', total: 10, currency: 'BRL' })
 
 describe('abandoned checkout batch eligibility', () => {
-  beforeEach(() => { state.facts = { suppressed: false, optOut: false, consent: true, template: true, sent: false, recent: false, queryFailure: false, orders: [] }; state.calls = []; state.checkouts = [] })
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(now)
+    state.facts = { suppressed: false, optOut: false, consent: true, template: true, sent: false, recent: false, queryFailure: false, orders: [] }
+    state.calls = []
+    state.checkouts = []
+  })
+  afterEach(() => { vi.useRealTimers() })
 
   const cases: Array<[string, (c: CheckoutFixture) => void, string | null]> = [
     ['eligible', () => {}, null],

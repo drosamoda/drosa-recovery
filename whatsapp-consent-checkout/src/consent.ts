@@ -22,13 +22,25 @@ export function isConsentChoice(value: unknown): value is ConsentChoice {
 }
 
 /**
- * Monta o objeto completo a ser enviado via `order:add:extra`. O evento
- * SUBSTITUI o `order.extra` inteiro (não faz merge), mas nesta extensão essa
- * é a única gravação feita no pedido, então não há risco de apagar outras
- * chaves.
+ * Monta o objeto completo a ser enviado via `order:add:extra`. Confirmado na
+ * documentação oficial (dev.tiendanube.com/docs/applications/nube-sdk/events/order):
+ * "The event replaces the entire `extra` object each time it is sent — it
+ * does not deep-merge." Ou seja, QUALQUER outro app (attribution, upsell,
+ * etc.) que já tenha gravado algo em `order.extra` seria apagado se
+ * enviássemos só o marcador D'Rosa. Por isso `existingExtra` (lido de
+ * `state.order?.extra` no momento do envio — ver `writeConsentMarkerIfDecided`)
+ * é espalhado PRIMEIRO, e as 5 chaves fixas do marcador D'Rosa são aplicadas
+ * por cima, sempre por último — preservando qualquer chave que não pertença
+ * a este protocolo, e garantindo que o marcador D'Rosa nunca seja
+ * sobrescrito por um valor antigo.
  */
-export function buildConsentExtra(storeId: string | number, choice: ConsentChoice): Record<string, string> {
+export function buildConsentExtra(
+  existingExtra: Record<string, string> | undefined,
+  storeId: string | number,
+  choice: ConsentChoice,
+): Record<string, string> {
   return {
+    ...(existingExtra ?? {}),
     drosa_whatsapp_marketing_version: CONSENT_MARKER_VERSION,
     drosa_whatsapp_marketing_store_id: String(storeId),
     drosa_whatsapp_marketing_source: CONSENT_MARKER_SOURCE,
@@ -57,6 +69,21 @@ export function renderConsentCheckbox(nube: NubeSDK, checked: boolean): void {
   );
 }
 
+// Proteção contra reenvio/loop: por instância de NubeSDK (ou seja, por
+// carregamento de página/worker — uma nova instância nasce a cada
+// page:loaded real), no máximo um `order:add:extra` é enviado por esta
+// extensão. Necessário porque `handleLocationChange` reage tanto a
+// `page:loaded` quanto a `location:updated`, e nada garante que
+// `location:updated` dispare no máximo uma vez com step="success" (ex.:
+// mudança de querystring/hash na mesma página). A documentação oficial não
+// especifica se `send("order:add:extra")` pode re-disparar o listener
+// `order:update` de volta para esta própria app — por isso esta extensão
+// deliberadamente NUNCA escuta `order:update` (só `page:loaded`/
+// `location:updated`, em main.tsx), o que já elimina esse caminho de loop
+// por construção; este WeakSet é uma segunda camada, independente, contra
+// qualquer reentrância pelo caminho que de fato usamos.
+const sentForInstance = new WeakSet<NubeSDK>();
+
 /**
  * No sucesso do checkout, materializa em order.extra a decisão que o
  * cliente tomou explicitamente (se alguma). Se o cliente nunca interagiu com
@@ -65,13 +92,26 @@ export function renderConsentCheckbox(nube: NubeSDK, checked: boolean): void {
  * a partir do silêncio do cliente).
  */
 export async function writeConsentMarkerIfDecided(nube: NubeSDK): Promise<void> {
+  // Reivindica a instância de forma SÍNCRONA, antes de qualquer `await` —
+  // fecha a janela de corrida entre chamadas concorrentes (ex.:
+  // `location:updated` disparando mais de uma vez seguida enquanto ainda na
+  // etapa success): se a verificação e a marcação acontecessem depois do
+  // `await` abaixo, todas as chamadas concorrentes veriam `sentForInstance`
+  // vazio ao mesmo tempo e cada uma enviaria seu próprio order:add:extra.
+  if (sentForInstance.has(nube)) return;
+  sentForInstance.add(nube);
+
   const stored = await nube.getBrowserAPIs().asyncSessionStorage.getItem(CONSENT_SESSION_KEY);
   if (!isConsentChoice(stored)) return;
 
   const storeId = nube.getState().store.id;
-  const extra = buildConsentExtra(storeId, stored);
-
-  nube.send("order:add:extra", () => ({ order: { extra } }));
+  // O modifier recebe o state MAIS FRESCO no momento do envio (não o lido
+  // antes do await acima) — é a única forma documentada de ler
+  // order.extra já existente (de outro app) antes de decidir o que enviar,
+  // já que order:add:extra substitui o objeto inteiro em vez de fazer merge.
+  nube.send("order:add:extra", (state) => ({
+    order: { extra: buildConsentExtra(state.order?.extra, storeId, stored) },
+  }));
 }
 
 /** Reage a navegação/carregamento: renderiza a checkbox no início e grava o marcador no sucesso. */
