@@ -2,6 +2,7 @@ import { env } from '../../config/env'
 import { AiProvider } from './aiProvider'
 import { AnthropicProvider } from './anthropicProvider'
 import { OpenAiProvider } from './openAiProvider'
+import { GroqProvider } from './groqProvider'
 
 // Ponto único de troca de provedor. Nada no domínio (opportunity engine,
 // compliance, campaignService) conhece qual provedor está ativo — só este
@@ -13,6 +14,8 @@ export function getAiProvider(): AiProvider {
       return new AnthropicProvider()
     case 'openai':
       return new OpenAiProvider()
+    case 'groq':
+      return new GroqProvider()
     default:
       throw new Error(`AI_PROVIDER desconhecido: ${env.AI_PROVIDER}`)
   }

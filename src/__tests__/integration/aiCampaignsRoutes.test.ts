@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterAll } from 'vitest'
 import request from 'supertest'
 
 // Reproduzido ao vivo: sem a migration de campaign_drafts aplicada, o Prisma
@@ -103,10 +103,36 @@ describe('POST /crm-api/ai/campaigns — idempotencyKey obrigatória', () => {
 // rota de IA responde 503 AI_DATABASE_NOT_CONFIGURED. Nenhum mock de
 // campaignService aqui: bate na implementação real (real getAiPrisma()),
 // contra o ambiente de teste onde AI_DATABASE_URL nunca é definida
-// (src/__tests__/setup.ts).
+// (src/__tests__/setup.ts já garante isso globalmente — reproduzido ao vivo:
+// com AI_DATABASE_URL setada na máquina real do desenvolvedor, este describe
+// bateu no Supabase de verdade em vez de simular a ausência).
 // I) GET /opportunities continua funcionando sem AI_DATABASE_URL (só banco
 // primário read-only).
+//
+// Defesa em profundidade além do setup.ts global: reafirma AI_DATABASE_URL
+// ausente antes de cada teste. NÃO usa vi.resetModules() aqui de propósito —
+// este arquivo mocka campaignService via vi.importActual() no topo (fora de
+// qualquer describe), e resetar módulos no meio do arquivo criaria uma
+// SEGUNDA instância de config/aiPrisma.ts (com sua própria classe
+// AiDatabaseNotConfiguredError) distinta da que o `actual` capturado no
+// import mockado já usa — o `instanceof` no handleError() da rota passaria a
+// falhar (500 genérico em vez de 503), um bug real reproduzido ao tentar
+// essa abordagem. env.ts já lê AI_DATABASE_URL como ausente desde o primeiro
+// import de ../../index neste arquivo (setup.ts roda antes de qualquer
+// coisa), e o import dinâmico cacheado mantém esse mesmo estado consistente
+// para todos os describes deste arquivo — não há necessidade de recarregar.
 describe('Rotas de IA sem AI_DATABASE_URL configurada', () => {
+  const ORIGINAL_AI_DATABASE_URL = process.env.AI_DATABASE_URL
+
+  beforeEach(() => {
+    delete process.env.AI_DATABASE_URL
+  })
+
+  afterAll(() => {
+    if (ORIGINAL_AI_DATABASE_URL === undefined) delete process.env.AI_DATABASE_URL
+    else process.env.AI_DATABASE_URL = ORIGINAL_AI_DATABASE_URL
+  })
+
   it('H) GET /crm-api/ai/campaigns => 503 AI_DATABASE_NOT_CONFIGURED', async () => {
     const { default: app } = await import('../../index')
     const res = await request(app).get('/crm-api/ai/campaigns').set('x-crm-read-secret', process.env.CRM_READ_SECRET as string)

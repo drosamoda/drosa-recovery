@@ -106,11 +106,17 @@ const envSchema = z.object({
   // só a geração de campanhas (AiProviderConfigError), preservando as 7
   // áreas existentes. A escolha de provedor é sempre explícita via
   // AI_PROVIDER — sem fallback automático entre eles nesta fase.
-  AI_PROVIDER: z.enum(['anthropic', 'openai']).default('anthropic'),
+  AI_PROVIDER: z.enum(['anthropic', 'openai', 'groq']).default('anthropic'),
   ANTHROPIC_API_KEY: z.string().default(''),
   ANTHROPIC_MODEL: z.string().default('claude-opus-5'),
   OPENAI_API_KEY: z.string().default(''),
   OPENAI_MODEL: z.string().default('gpt-5'),
+  // Groq — terceiro provedor independente, API compatível com a da OpenAI
+  // (mesmo SDK `openai`, só com baseURL trocada). Mesma regra dos outros
+  // dois: sem fallback automático, sem chave = geração indisponível.
+  GROQ_API_KEY: z.string().default(''),
+  GROQ_MODEL: z.string().default('openai/gpt-oss-120b'),
+  GROQ_BASE_URL: z.string().default('https://api.groq.com/openai/v1'),
 
   // Final Pre-Activation Readiness — banco isolado para campaign_drafts/
   // ai_runs. Vazio = não configurado = geração de campanha fica indisponível
