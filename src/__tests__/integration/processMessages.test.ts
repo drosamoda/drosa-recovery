@@ -205,7 +205,7 @@ describe('POST /jobs/process-messages', () => {
     const { runProcessMessages } = await import('../../jobs/processMessages')
     env.AUTOMATION_SEND_ENABLED = false
     const result = await runProcessMessages()
-    expect(result).toMatchObject({ sent: 0, deferred: 1 })
+    expect(result).toMatchObject({ sent: 0, dryRun: 1, deferred: 0 })
     expect(whatsappService.sendTemplateMessage).not.toHaveBeenCalled()
   })
 
@@ -377,7 +377,7 @@ describe('POST /jobs/process-messages', () => {
     env.MARKETING_SEND_HOUR_END = originalEnd
     env.WHATSAPP_DRY_RUN = originalDryRun
 
-    expect(result.sent).toBe(0)
+    expect(result).toMatchObject({ sent: 0, deferred: 1 })
     expect(whatsappService.sendTemplateMessage).not.toHaveBeenCalled()
     expect(prisma.messageLog.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'msg-001' },
@@ -525,7 +525,7 @@ describe('POST /jobs/process-messages', () => {
 
     env.ABANDONED_CART_ENABLED = originalCartEnabled
     env.WHATSAPP_DRY_RUN = originalDryRun
-    expect(result.sent).toBe(1)
+    expect(result).toMatchObject({ sent: 1, deferred: 2 })
     expect(whatsappService.sendTemplateMessage).toHaveBeenCalledTimes(1)
     expect(prisma.messageLog.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'checkout-2' }, data: expect.objectContaining({ status: 'pending', claimOwner: null }) }))
     expect(prisma.messageLog.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'checkout-3' }, data: expect.objectContaining({ status: 'pending', claimOwner: null }) }))
