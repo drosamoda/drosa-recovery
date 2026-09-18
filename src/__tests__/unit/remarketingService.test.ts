@@ -112,6 +112,22 @@ describe('remarketingService', () => {
     expect(result.reasons.consent_unproven).toBe(1)
   })
 
+  it('pix pendente nao exige URL que o template nao usa', async () => {
+    mocks.orderFindMany.mockResolvedValue([
+      {
+        ...paidOrder,
+        id: 'order-pix',
+        paymentStatus: 'pending',
+        paymentMethod: 'pix',
+        orderUrl: null,
+        sourceCreatedAt: new Date(Date.now() - 60 * 60 * 1000),
+      },
+    ])
+    const result = await remarketingPreview('pix_pending')
+    expect(result).toMatchObject({ found: 1, eligible: 1, skipped: 0 })
+    expect(result.reasons.missing_payment_url).toBeUndefined()
+  })
+
   it('exige segmento explicito para qualquer fila real', async () => {
     const result = await remarketingSend('all')
     expect(result.status).toBe(400)
