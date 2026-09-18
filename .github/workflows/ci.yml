@@ -56,3 +56,15 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Instalar dependências da extensão NubeSDK
+        run: npm ci --prefix whatsapp-consent-checkout
+
+      - name: Typecheck da extensão NubeSDK
+        run: npm run typecheck --prefix whatsapp-consent-checkout
+
+      - name: Testes da extensão NubeSDK
+        run: npm test --prefix whatsapp-consent-checkout
+
+      - name: Build da extensão NubeSDK
+        run: npm run build --prefix whatsapp-consent-checkout
