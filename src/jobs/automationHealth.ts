@@ -30,6 +30,8 @@ export async function automationHealth() {
     cronEnabled: env.ENABLE_INTERNAL_CRON,
     automationSendEnabled: env.AUTOMATION_SEND_ENABLED,
     whatsappDryRun: env.WHATSAPP_DRY_RUN,
+    inboxSendDryRun: env.INBOX_SEND_DRY_RUN,
+    manualInboxRealSendArmed: !env.INBOX_SEND_DRY_RUN,
     abandonedCartEnabled: env.ABANDONED_CART_ENABLED,
     remarketingEnabled: env.REMARKETING_ENABLED,
     automationAllowedTemplates: env.AUTOMATION_ALLOWED_TEMPLATES,
