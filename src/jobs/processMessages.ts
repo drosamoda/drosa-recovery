@@ -664,6 +664,7 @@ export async function runProcessMessages(): Promise<ProcessResult> {
 
   let abandonedCartSendAttempts = 0
   let remarketingSendAttempts = 0
+  let marketingSendAttempts = 0
 
   // 3. Processar cada mensagem com delay entre envios
   for (const msg of toProcess) {
@@ -756,10 +757,20 @@ export async function runProcessMessages(): Promise<ProcessResult> {
         continue
       }
 
-      if (isMarketingTemplate(sendParams.templateName) && !isMarketingSendWindowOpen()) {
+      const marketingTemplate = isMarketingTemplate(sendParams.templateName)
+      if (marketingTemplate && !isMarketingSendWindowOpen()) {
         await deferClaim(msg.id, 'marketing_send_window_closed')
         result.deferred++
         continue
+      }
+
+      if (marketingTemplate) {
+        if (marketingSendAttempts >= env.MARKETING_MAX_SENDS_PER_RUN) {
+          await releaseClaim(msg.id)
+          result.deferred++
+          continue
+        }
+        marketingSendAttempts++
       }
 
       if (msg.entityType === EntityType.abandoned_checkout) {
@@ -780,9 +791,13 @@ export async function runProcessMessages(): Promise<ProcessResult> {
         remarketingSendAttempts++
       }
 
-      if (msg.entityType === EntityType.abandoned_checkout || isRemarketingMessage(msg)) {
+      if (marketingTemplate) {
         const hours = Math.max(env.ABANDONED_CART_COOLDOWN_HOURS, env.REMARKETING_GLOBAL_COOLDOWN_HOURS)
-        const acquired = await messageService.acquireFrequencyLock(msg.normalizedPhone, msg.id, new Date(Date.now() + hours * 3600000))
+        const acquired = await messageService.acquireFrequencyLock(
+          msg.normalizedPhone,
+          msg.id,
+          new Date(Date.now() + hours * 3600000),
+        )
         if (!acquired) {
           await markSkipped(msg.id, 'cooldown_active')
           result.skipped++
