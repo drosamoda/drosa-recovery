@@ -9,7 +9,7 @@ import { logger } from '../config/logger'
 import { getFriendlyTemplatePreview, renderTemplatePreview } from '../helpers/inboxTemplatePreview'
 import { isValidBrazilianPhone } from '../helpers/phoneService'
 import { messageService } from '../services/messageService'
-import { verifyDispatchContract, renderContract } from '../services/templateContracts'
+import { verifyDispatchContract, renderContract, isMarketingTemplate } from '../services/templateContracts'
 import { hasActiveWhatsappConsent } from '../services/whatsappConsentService'
 
 export type ProcessResult = {
@@ -34,6 +34,27 @@ function calcNextRetryAt(retryCount: number): Date {
   // retryCount=1 → 1s | retryCount=2 → 2s | retryCount=3 → 4s
   const delay = env.RETRY_BASE_DELAY_MS * Math.pow(2, retryCount - 1)
   return new Date(Date.now() + delay)
+}
+
+export function isMarketingSendWindowOpen(now: Date = new Date()): boolean {
+  try {
+    const hourPart = new Intl.DateTimeFormat('en-US', {
+      timeZone: env.MARKETING_TIME_ZONE,
+      hour: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(now).find((part) => part.type === 'hour')?.value
+    const hour = Number(hourPart)
+    if (!Number.isInteger(hour)) return false
+
+    const start = env.MARKETING_SEND_HOUR_START
+    const end = env.MARKETING_SEND_HOUR_END
+    if (start < end) return hour >= start && hour < end
+    // Também suporta uma janela explícita que atravesse meia-noite.
+    if (start > end) return hour >= start || hour < end
+    return false
+  } catch {
+    return false
+  }
 }
 
 // Remove o 9 do celular brasileiro de 13 dígitos: 5531998021418 → 553198021418
@@ -393,6 +414,19 @@ async function releaseClaim(id: string): Promise<void> {
   })
 }
 
+async function deferClaim(id: string, reason: string, delayMinutes = 30): Promise<void> {
+  await prisma.messageLog.update({
+    where: { id },
+    data: {
+      status: MessageStatus.pending,
+      reason,
+      claimOwner: null,
+      claimExpiresAt: null,
+      nextRetryAt: new Date(Date.now() + delayMinutes * 60_000),
+    },
+  })
+}
+
 // -----------------------------------------------------------------------
 // Marca como enviado com sucesso
 // -----------------------------------------------------------------------
@@ -610,6 +644,24 @@ export async function runProcessMessages(): Promise<ProcessResult> {
       const sendParams = validation.params
       result.eligible++
 
+      // O dry run precisa passar pelos MESMOS gates de contrato e consentimento
+      // do envio real. A única diferença é que, depois de validado, ele não
+      // chama a Meta. Isso evita previews "verdes" para mensagens que seriam
+      // bloqueadas em produção por contrato divergente ou consentimento ausente.
+      const marketingConsentProven = await hasActiveWhatsappConsent(msg.normalizedPhone)
+      const contractError = await verifyDispatchContract(
+        sendParams.templateName,
+        sendParams.languageCode,
+        sendParams.bodyParams,
+        { marketingConsentProven },
+      )
+      if (contractError) {
+        await markSkipped(msg.id, contractError)
+        result.skipped++
+        continue
+      }
+      sendParams.renderedPreview = renderContract(sendParams.templateName, sendParams.bodyParams) ?? undefined
+
       // INBOX_SEND_DRY_RUN protege somente o envio manual da Inbox.
       // Automações exigem o gate global, o gate do fluxo e WHATSAPP_DRY_RUN=false.
       if (env.WHATSAPP_DRY_RUN || !env.AUTOMATION_SEND_ENABLED) {
@@ -632,6 +684,11 @@ export async function runProcessMessages(): Promise<ProcessResult> {
         continue
       }
 
+      if (isMarketingTemplate(sendParams.templateName) && !isMarketingSendWindowOpen()) {
+        await deferClaim(msg.id, 'marketing_send_window_closed')
+        continue
+      }
+
       if (msg.entityType === EntityType.abandoned_checkout) {
         if (abandonedCartSendAttempts >= env.ABANDONED_CART_MAX_SENDS_PER_RUN) {
           await releaseClaim(msg.id)
@@ -647,15 +704,6 @@ export async function runProcessMessages(): Promise<ProcessResult> {
         }
         remarketingSendAttempts++
       }
-
-      const marketingConsentProven = await hasActiveWhatsappConsent(msg.normalizedPhone)
-      const contractError = await verifyDispatchContract(sendParams.templateName, sendParams.languageCode, sendParams.bodyParams, { marketingConsentProven })
-      if (contractError) {
-        await markSkipped(msg.id, contractError)
-        result.skipped++
-        continue
-      }
-      sendParams.renderedPreview = renderContract(sendParams.templateName, sendParams.bodyParams) ?? undefined
 
       if (msg.entityType === EntityType.abandoned_checkout || isRemarketingMessage(msg)) {
         const hours = Math.max(env.ABANDONED_CART_COOLDOWN_HOURS, env.REMARKETING_GLOBAL_COOLDOWN_HOURS)

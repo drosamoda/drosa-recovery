@@ -215,6 +215,52 @@ describe('orderService.handleNuvemshopOrderWebhook', () => {
     expect(mocks.markError).toHaveBeenCalledWith('event-4', 'Nuvemshop order fetch failed')
   })
 
+  it('agenda payment_confirmed apenas na transicao de pendente para pago', async () => {
+    mocks.tx.order.findUnique.mockResolvedValue({
+      id: 'order-db-1',
+      paymentStatus: 'pending',
+    })
+    mocks.automationRuleFindFirst.mockResolvedValue({
+      id: 'rule-paid',
+      eventType: EventType.payment_confirmed,
+      templateName: 'pagamento_confirmado_drosa_01',
+      delayMinutes: 0,
+      active: true,
+    })
+    mocks.whatsappTemplateFindFirst.mockResolvedValue({
+      id: 'template-paid',
+      metaTemplateName: 'pagamento_confirmado_drosa_01',
+      active: true,
+    })
+
+    await orderService.handleNuvemshopOrderWebhook({
+      payload: { ...fullOrderPayload, payment_status: 'paid' },
+      headers: { 'x-linkedstore-topic': 'order/updated' },
+      webhookEventId: 'event-paid',
+    })
+
+    expect(mocks.createPendingMessageIfNotExists).toHaveBeenCalledWith(expect.objectContaining({
+      entityType: 'order',
+      entityId: 'order-db-1',
+      templateName: 'pagamento_confirmado_drosa_01',
+    }))
+  })
+
+  it('nao reagenda payment_confirmed em webhook repetido ja pago', async () => {
+    mocks.tx.order.findUnique.mockResolvedValue({
+      id: 'order-db-1',
+      paymentStatus: 'paid',
+    })
+
+    await orderService.handleNuvemshopOrderWebhook({
+      payload: { ...fullOrderPayload, payment_status: 'paid' },
+      headers: { 'x-linkedstore-topic': 'order/updated' },
+      webhookEventId: 'event-paid-repeat',
+    })
+
+    expect(mocks.createPendingMessageIfNotExists).not.toHaveBeenCalled()
+  })
+
   it('repassa order.extra e telefone normalizado para a sincronizacao de consentimento WhatsApp', async () => {
     const payloadWithExtra = {
       ...fullOrderPayload,

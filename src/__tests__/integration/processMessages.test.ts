@@ -105,6 +105,7 @@ const JOBS_SECRET = process.env.JOBS_SECRET!
 vi.mock('../../services/templateContracts', () => ({
   verifyDispatchContract: vi.fn().mockResolvedValue(null),
   renderContract: vi.fn().mockReturnValue('Recebemos o seu pedido'),
+  isMarketingTemplate: vi.fn().mockReturnValue(false),
 }))
 
 // Repopula a fila antes de cada teste.
@@ -250,6 +251,29 @@ describe('POST /jobs/process-messages', () => {
     }))
   })
 
+  it('dry-run aplica os mesmos gates de contrato e consentimento do envio real', async () => {
+    const { whatsappService } = await import('../../services/whatsappService')
+    const { verifyDispatchContract } = await import('../../services/templateContracts')
+    const originalWhatsappDryRun = env.WHATSAPP_DRY_RUN
+    env.WHATSAPP_DRY_RUN = true
+    vi.mocked(verifyDispatchContract).mockResolvedValueOnce('consent_unproven')
+
+    const res = await request(app)
+      .post('/jobs/process-messages')
+      .set('x-jobs-secret', JOBS_SECRET)
+
+    env.WHATSAPP_DRY_RUN = originalWhatsappDryRun
+
+    expect(res.status).toBe(200)
+    expect(res.body).toMatchObject({ dryRun: 0, sent: 0, skipped: 1 })
+    expect(verifyDispatchContract).toHaveBeenCalledTimes(1)
+    expect(whatsappService.sendTemplateMessage).not.toHaveBeenCalled()
+    expect(prisma.messageLog.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'msg-001' },
+      data: expect.objectContaining({ status: 'skipped', reason: 'consent_unproven' }),
+    }))
+  })
+
   it('dry-run nao chama Meta, nao marca sent e nao cria metaMessageId falso', async () => {
     const { whatsappService } = await import('../../services/whatsappService')
     const originalWhatsappDryRun = env.WHATSAPP_DRY_RUN
@@ -271,6 +295,37 @@ describe('POST /jobs/process-messages', () => {
         metaMessageId: null,
         sentAt: null,
         reason: 'dry_run',
+      }),
+    }))
+  })
+
+  it('marketing fora da janela e adiado sem chamar Meta nem ser descartado', async () => {
+    const { whatsappService } = await import('../../services/whatsappService')
+    const { isMarketingTemplate } = await import('../../services/templateContracts')
+    const originalStart = env.MARKETING_SEND_HOUR_START
+    const originalEnd = env.MARKETING_SEND_HOUR_END
+    const originalDryRun = env.WHATSAPP_DRY_RUN
+    env.MARKETING_SEND_HOUR_START = 9
+    env.MARKETING_SEND_HOUR_END = 9
+    env.WHATSAPP_DRY_RUN = false
+    vi.mocked(isMarketingTemplate).mockReturnValueOnce(true)
+
+    const result = await (await import('../../jobs/processMessages')).runProcessMessages()
+
+    env.MARKETING_SEND_HOUR_START = originalStart
+    env.MARKETING_SEND_HOUR_END = originalEnd
+    env.WHATSAPP_DRY_RUN = originalDryRun
+
+    expect(result.sent).toBe(0)
+    expect(whatsappService.sendTemplateMessage).not.toHaveBeenCalled()
+    expect(prisma.messageLog.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'msg-001' },
+      data: expect.objectContaining({
+        status: 'pending',
+        reason: 'marketing_send_window_closed',
+        claimOwner: null,
+        claimExpiresAt: null,
+        nextRetryAt: expect.any(Date),
       }),
     }))
   })

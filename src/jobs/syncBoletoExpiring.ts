@@ -18,16 +18,18 @@ export async function runSyncBoletoExpiring(): Promise<BoletoExpiringResult> {
   const notifyMs = env.BOLETO_NOTIFY_HOURS * 60 * 60 * 1000
   const cronWindowMs = env.CRON_BOLETO_EXPIRING_INTERVAL * 60 * 1000
 
-  // Busca pedidos criados na janela [now - NOTIFY_HOURS - CRON_INTERVAL, now - NOTIFY_HOURS]
-  // Ex: NOTIFY=48h, cron=60min → pedidos criados entre 49h e 48h atrás
-  // A chave de idempotência garante que cada pedido só recebe uma mensagem
+  // Usa sourceCreatedAt (horário original na Nuvemshop), nunca createdAt
+  // (horário de ingestão no CRM). Isso evita lembrar boleto antigo como se
+  // tivesse acabado de nascer após backfill/importação. Registros legados sem
+  // sourceCreatedAt ficam fora do fluxo (fail closed).
+  // Janela: [now - NOTIFY_HOURS - CRON_INTERVAL, now - NOTIFY_HOURS].
   const createdTo = new Date(now.getTime() - notifyMs)
   const createdFrom = new Date(createdTo.getTime() - cronWindowMs)
 
   const orders = await prisma.order.findMany({
     where: {
       paymentStatus: 'pending',
-      createdAt: { gte: createdFrom, lte: createdTo },
+      sourceCreatedAt: { gte: createdFrom, lte: createdTo },
     },
     include: { customer: true },
   })
