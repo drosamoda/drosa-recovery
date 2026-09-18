@@ -48,7 +48,7 @@ describe('abandoned checkout batch eligibility', () => {
     state.calls = []
     state.checkouts = []
   })
-  afterEach(() => vi.useRealTimers())
+  afterEach(() => { vi.useRealTimers() })
 
   const cases: Array<[string, (c: CheckoutFixture) => void, string | null]> = [
     ['eligible', () => {}, null],
