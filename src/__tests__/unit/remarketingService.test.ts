@@ -27,6 +27,7 @@ const testEnv = vi.hoisted(() => ({
   VIP_MIN_ORDERS: 3,
   VIP_MIN_SPEND: 500,
   REMARKETING_MAX_SENDS_PER_RUN: 1,
+  AUTOMATION_ALLOWED_TEMPLATES: ['cliente_recente_drosa_v1'],
   AUTOMATION_SEND_ENABLED: true,
   REMARKETING_ENABLED: true,
   WHATSAPP_DRY_RUN: false,
@@ -85,6 +86,7 @@ describe('remarketingService', () => {
     testEnv.REMARKETING_ENABLED = true
     testEnv.WHATSAPP_DRY_RUN = false
     testEnv.REMARKETING_MAX_SENDS_PER_RUN = 1
+    testEnv.AUTOMATION_ALLOWED_TEMPLATES = ['cliente_recente_drosa_v1']
 
     mocks.orderFindMany.mockResolvedValue([paidOrder])
     mocks.conversationFindMany.mockResolvedValue([])
@@ -143,6 +145,16 @@ describe('remarketingService', () => {
     testEnv.WHATSAPP_DRY_RUN = true
     const result = await remarketingSend('recent_customer')
     expect(result.status).toBe(423)
+    expect(mocks.runCreate).not.toHaveBeenCalled()
+    expect(mocks.createPendingMessage).not.toHaveBeenCalled()
+  })
+
+  it('nao cria fila se o template do segmento nao estiver na allowlist explicita', async () => {
+    testEnv.AUTOMATION_ALLOWED_TEMPLATES = ['carrinho_abandonado_drosa_v2']
+    const result = await remarketingSend('recent_customer')
+    expect(result.status).toBe(409)
+    expect(result.result.reasons.template_not_allowlisted).toBe(1)
+    expect(mocks.templateFindFirst).not.toHaveBeenCalled()
     expect(mocks.runCreate).not.toHaveBeenCalled()
     expect(mocks.createPendingMessage).not.toHaveBeenCalled()
   })
