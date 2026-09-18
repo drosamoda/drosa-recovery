@@ -71,17 +71,26 @@ async function main() {
 
   await prisma.whatsappTemplate.upsert({
     where: { id: 'tpl_boleto_expiring' },
-    update: {},
+    update: {
+      name: 'Boleto vencendo',
+      eventType: 'boleto_expiring',
+      metaTemplateName: 'boleto_vencendo_drosa_v2',
+      languageCode: 'pt_BR',
+      category: TemplateCategory.utility,
+      active: false,
+      messagePreview: 'Oi, [nome_cliente]! O boleto do pedido *[numero_pedido]* está próximo do vencimento. Se você já realizou o pagamento, desconsidere esta mensagem. Se precisar de ajuda, me chama por aqui. 💙',
+      variables: ['nome_cliente', 'numero_pedido'],
+    },
     create: {
       id: 'tpl_boleto_expiring',
       name: 'Boleto vencendo',
       eventType: 'boleto_expiring',
-      metaTemplateName: 'boleto_vencendo_drosa_01',
+      metaTemplateName: 'boleto_vencendo_drosa_v2',
       languageCode: 'pt_BR',
       category: TemplateCategory.utility,
       active: false,
-      messagePreview: `Oi, [nome_cliente]! 😊\n\nPassando só para avisar que o seu boleto está prestes a expirar nas próximas horas ⏰\nVocê pode realizar o pagamento pelo link abaixo:\n\n👉 [link_boleto_pix]\n\nSe preferir ou tiver qualquer dúvida, estou por aqui 💕`,
-      variables: ['nome_cliente', 'link_boleto_pix'],
+      messagePreview: 'Oi, [nome_cliente]! O boleto do pedido *[numero_pedido]* está próximo do vencimento. Se você já realizou o pagamento, desconsidere esta mensagem. Se precisar de ajuda, me chama por aqui. 💙',
+      variables: ['nome_cliente', 'numero_pedido'],
     },
   })
 
@@ -112,7 +121,16 @@ async function main() {
 
   await prisma.whatsappTemplate.upsert({
     where: { id: 'tpl_payment_confirmed' },
-    update: {},
+    update: {
+      name: 'Pagamento confirmado / pós-venda',
+      eventType: 'payment_confirmed',
+      metaTemplateName: 'pagamento_confirmado_drosa_01',
+      languageCode: 'pt_BR',
+      category: TemplateCategory.marketing,
+      active: false,
+      messagePreview: `Oi, [nome_cliente]! 😊\nSou a Dani da D'Rosa Moda.\n\nObrigada pela confiança 💕\nRecebemos o seu pedido *[numero_pedido]* e o pagamento foi confirmado com sucesso.\n\nSeu pedido já está sendo preparado com todo carinho e, assim que for postado, o *código de rastreio será enviado por e-mail* 📧📦\n\n💖 Aproveitando, quero te convidar para o nosso *GRUPO VIP*:\nLá você recebe lançamentos em primeira mão e preços especiais!\n\n👉 *Entre aqui:* [link_grupo_vip]\n\nQualquer dúvida, estou por aqui 😊`,
+      variables: ['nome_cliente', 'numero_pedido', 'link_grupo_vip'],
+    },
     create: {
       id: 'tpl_payment_confirmed',
       name: 'Pagamento confirmado / pós-venda',
@@ -128,7 +146,16 @@ async function main() {
 
   await prisma.whatsappTemplate.upsert({
     where: { id: 'tpl_payment_rejected' },
-    update: {},
+    update: {
+      name: 'Pagamento recusado',
+      eventType: 'payment_rejected',
+      metaTemplateName: 'pagamento_recusado_drosa_01',
+      languageCode: 'pt_BR',
+      category: TemplateCategory.utility,
+      active: false,
+      messagePreview: `Oi, [nome_cliente]! 😊\nSou a Dani da D'Rosa Moda.\n\nIdentificamos que o pagamento do pedido *[numero_pedido]* não foi aprovado pelo cartão.\nIsso pode acontecer por alguns motivos da própria operadora 💕\n\nPara facilitar, *podemos gerar um link de pagamento pelo Mercado Pago*, seguro e rápido 🔐\nPor lá, você também pode *parcelar em até 4x sem juros*.\n\nSe quiser, me avise que já te envio o link 😊`,
+      variables: ['nome_cliente', 'numero_pedido'],
+    },
     create: {
       id: 'tpl_payment_rejected',
       name: 'Pagamento recusado',
@@ -144,7 +171,16 @@ async function main() {
 
   await prisma.whatsappTemplate.upsert({
     where: { id: 'tpl_pix_cancelled' },
-    update: {},
+    update: {
+      name: 'QR Code ou pedido cancelado',
+      eventType: 'pix_cancelled',
+      metaTemplateName: 'pix_cancelado_drosa_01',
+      languageCode: 'pt_BR',
+      category: TemplateCategory.marketing,
+      active: false,
+      messagePreview: `Oi, [nome_cliente]! 😊\nSou a Dani da D'Rosa Moda.\n\nPassando para te informar que o pedido *[numero_pedido]* foi cancelado conforme status do sistema.\n\nSe desejar, posso te ajudar a realizar um novo pedido 💕\n\n💖 Aproveitando, quero te convidar para o nosso GRUPO VIP:\nLá você recebe lançamentos em primeira mão e preços especiais!\n\n👉 Entre aqui: [link_grupo_vip]\n\nQualquer dúvida, estou por aqui 😊`,
+      variables: ['nome_cliente', 'numero_pedido', 'link_grupo_vip'],
+    },
     create: {
       id: 'tpl_pix_cancelled',
       name: 'QR Code ou pedido cancelado',
@@ -205,7 +241,7 @@ async function main() {
   // Regras futuras — active=false
   const futureRules = [
     { id: 'rule_order_created_boleto', name: 'Pedido com boleto', eventType: EventType.order_created_boleto, templateName: 'pedido_boleto_drosa_01', delayMinutes: 5 },
-    { id: 'rule_boleto_expiring', name: 'Boleto vencendo', eventType: EventType.boleto_expiring, templateName: 'boleto_vencendo_drosa_01', delayMinutes: 0 },
+    { id: 'rule_boleto_expiring', name: 'Boleto vencendo', eventType: EventType.boleto_expiring, templateName: 'boleto_vencendo_drosa_v2', delayMinutes: 0 },
     { id: 'rule_order_created_pix', name: 'Pix pendente', eventType: EventType.order_created_pix, templateName: '_pix_pendente', delayMinutes: 30 },
     { id: 'rule_payment_confirmed', name: 'Pagamento confirmado', eventType: EventType.payment_confirmed, templateName: 'pagamento_confirmado_drosa_01', delayMinutes: 0 },
     { id: 'rule_payment_rejected', name: 'Pagamento recusado', eventType: EventType.payment_rejected, templateName: 'pagamento_recusado_drosa_01', delayMinutes: 5 },
