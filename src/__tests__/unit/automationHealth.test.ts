@@ -141,6 +141,54 @@ describe('automationHealth send safety', () => {
     })
   })
 
+  it('keeps global preflight strict while allowing a healthy explicit send scope', async () => {
+    env.META_ACCESS_TOKEN = 'meta-token'
+    env.META_PHONE_NUMBER_ID = 'phone-id'
+    env.META_APP_SECRET = 'app-secret'
+    env.META_WABA_ID = 'waba-id'
+    env.NUVEMSHOP_ACCESS_TOKEN = 'nuvem-token'
+    env.NUVEMSHOP_STORE_ID = '7716231'
+    env.AUTOMATION_ALLOWED_TEMPLATES = ['carrinho_abandonado_drosa_v2']
+
+    mocks.ruleFindMany.mockResolvedValue([
+      { id: 'rule-order', eventType: 'order_created', templateName: 'confirmacao_pedido_drosa' },
+      { id: 'rule-cart', eventType: 'abandoned_checkout', templateName: 'carrinho_abandonado_drosa_v2' },
+    ])
+    mocks.templateFindMany.mockResolvedValue([
+      {
+        id: 'tpl-order',
+        metaTemplateName: 'confirmacao_pedido_drosa',
+        languageCode: 'pt_BR',
+        category: 'utility',
+      },
+      {
+        id: 'tpl-cart',
+        metaTemplateName: 'carrinho_abandonado_drosa_v2',
+        languageCode: 'pt_BR',
+        category: 'marketing',
+      },
+    ])
+    mocks.verifyMetaTemplateContract.mockImplementation(async (name: string) =>
+      name === 'confirmacao_pedido_drosa' ? 'template_contract_mismatch' : null
+    )
+
+    const health = await automationHealth()
+
+    expect(health.preflightReady).toBe(false)
+    expect(health.sendScopeReady).toBe(true)
+    expect(health.sendScopeTemplates).toEqual(['carrinho_abandonado_drosa_v2'])
+    expect(health.sendScopeMetaTemplateChecks).toEqual([
+      { name: 'carrinho_abandonado_drosa_v2', error: null },
+    ])
+    expect(health.readinessIssues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'meta_template_not_ready',
+        detail: 'confirmacao_pedido_drosa: template_contract_mismatch',
+      }),
+    ]))
+    expect(health.sendScopeIssues).toEqual([])
+  })
+
   it('fails preflight when stale pending messages remain in the queue', async () => {
     env.META_ACCESS_TOKEN = 'meta-token'
     env.META_PHONE_NUMBER_ID = 'phone-id'
