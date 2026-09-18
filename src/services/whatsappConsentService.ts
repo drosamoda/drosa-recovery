@@ -1,6 +1,7 @@
 import { prisma } from '../config/prisma'
 import { env } from '../config/env'
 import { logger } from '../config/logger'
+import { isValidBrazilianPhone } from '../helpers/phoneService'
 
 type ConsentEvidence = { consented: boolean; consentedAt: Date | null; revokedAt: Date | null } | null | undefined
 
@@ -57,8 +58,8 @@ export async function recordConsentFromNuvemshopOrderExtra(params: {
 }): Promise<void> {
   const { normalizedPhone, extra, nuvemshopOrderId } = params
 
-  if (!normalizedPhone) {
-    logger.info('[whatsappConsentService] pedido sem telefone normalizado, consentimento nao registrado', {
+  if (!normalizedPhone || !isValidBrazilianPhone(normalizedPhone)) {
+    logger.info('[whatsappConsentService] pedido sem telefone normalizado valido, consentimento nao registrado', {
       nuvemshopOrderId,
     })
     return
