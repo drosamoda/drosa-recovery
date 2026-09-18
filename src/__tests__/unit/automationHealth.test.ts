@@ -141,6 +141,29 @@ describe('automationHealth send safety', () => {
     })
   })
 
+  it('fails preflight when blocked legacy messages are still pending', async () => {
+    env.META_ACCESS_TOKEN = 'meta-token'
+    env.META_PHONE_NUMBER_ID = 'phone-id'
+    env.META_APP_SECRET = 'app-secret'
+    env.META_WABA_ID = 'waba-id'
+    env.NUVEMSHOP_ACCESS_TOKEN = 'nuvem-token'
+    env.NUVEMSHOP_STORE_ID = '7716231'
+
+    mocks.messageCount.mockImplementation(async (args: unknown) => {
+      const where = (args as { where?: { status?: string; templateName?: unknown } })?.where
+      if (where?.status === 'pending' && where.templateName) return 3
+      return 0
+    })
+
+    const health = await automationHealth()
+
+    expect(health.preflightReady).toBe(false)
+    expect(health).toMatchObject({ legacyPendingMessages: 3 })
+    expect(health.readinessIssues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'legacy_pending_messages', detail: '3' }),
+    ]))
+  })
+
   it('fails preflight closed when an active rule has no active template or expired claims exist', async () => {
     env.META_ACCESS_TOKEN = 'meta-token'
     env.META_PHONE_NUMBER_ID = 'phone-id'
