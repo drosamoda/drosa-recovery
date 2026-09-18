@@ -118,6 +118,7 @@ describe('POST /jobs/process-messages', () => {
   beforeEach(async () => {
     vi.clearAllMocks()
     env.AUTOMATION_SEND_ENABLED = true
+    env.AUTOMATION_ALLOWED_TEMPLATES = ['confirmacao_pedido_drosa']
     await resetPrismaMock()
     // Restaura mocks não-findMany que clearAllMocks apaga
     const { prisma } = await import('../../config/prisma')
@@ -174,6 +175,27 @@ describe('POST /jobs/process-messages', () => {
     const results = await Promise.all([runProcessMessages(), runProcessMessages()])
     expect(results.reduce((sum, item) => sum + item.sent, 0)).toBe(1)
     expect(whatsappService.sendTemplateMessage).toHaveBeenCalledTimes(1)
+  })
+
+  it('envio real com allowlist vazia falha fechado antes de tocar a fila', async () => {
+    const { whatsappService } = await import('../../services/whatsappService')
+    const { runProcessMessages } = await import('../../jobs/processMessages')
+    const original = env.AUTOMATION_ALLOWED_TEMPLATES
+    env.AUTOMATION_ALLOWED_TEMPLATES = []
+    env.WHATSAPP_DRY_RUN = false
+
+    const result = await runProcessMessages()
+
+    env.AUTOMATION_ALLOWED_TEMPLATES = original
+
+    expect(result).toMatchObject({
+      found: 0,
+      sent: 0,
+      blockedReason: 'automation_allowlist_required',
+    })
+    expect(prisma.messageLog.findMany).not.toHaveBeenCalled()
+    expect(prisma.messageLog.updateMany).not.toHaveBeenCalled()
+    expect(whatsappService.sendTemplateMessage).not.toHaveBeenCalled()
   })
 
   it('automation gate fechado impede a chamada Meta', async () => {
