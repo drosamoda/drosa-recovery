@@ -124,7 +124,14 @@ describe('POST /jobs/process-messages', () => {
     const { prisma } = await import('../../config/prisma')
     vi.mocked(prisma.messageLog.updateMany).mockResolvedValue({ count: 1 })
     vi.mocked(prisma.messageLog.update).mockResolvedValue({ ...processingMsg, status: 'sent' } as never)
-    vi.mocked(prisma.messageLog.findUnique).mockResolvedValue({ status: 'processing' } as never)
+    vi.mocked(prisma.messageLog.findUnique).mockImplementation((async () => {
+      const claimCall = vi.mocked(prisma.messageLog.updateMany).mock.calls.find(([args]) => {
+        const data = (args as { data?: { status?: string; claimOwner?: string } })?.data
+        return data?.status === 'processing' && Boolean(data.claimOwner)
+      })
+      const claimOwner = (claimCall?.[0] as { data?: { claimOwner?: string } } | undefined)?.data?.claimOwner
+      return { status: 'processing', claimOwner } as never
+    }) as never)
     vi.mocked(prisma.messageLog.findFirst).mockResolvedValue(null)
     vi.mocked(prisma.customer.findUnique).mockResolvedValue({ id: 'cust-001', optOut: false } as never)
     vi.mocked(prisma.customer.findFirst).mockResolvedValue({ id: 'cust-001', optOut: false } as never)
@@ -161,6 +168,21 @@ describe('POST /jobs/process-messages', () => {
   it('retorna 401 sem jobs secret', async () => {
     const res = await request(app).post('/jobs/process-messages')
     expect(res.status).toBe(401)
+  })
+
+  it('claim de processamento recebe owner e expiracao explicitos', async () => {
+    const { runProcessMessages } = await import('../../jobs/processMessages')
+
+    await runProcessMessages()
+
+    expect(prisma.messageLog.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'msg-001', status: 'pending' },
+      data: expect.objectContaining({
+        status: 'processing',
+        claimOwner: expect.any(String),
+        claimExpiresAt: expect.any(Date),
+      }),
+    }))
   })
 
   it('dois workers concorrentes fazem uma unica chamada ao sender', async () => {
