@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => ({
   abandonedPreview: vi.fn(),
 }))
 
-const testEnv = {
+const testEnv = vi.hoisted(() => ({
   NODE_ENV: 'production',
   ABANDONED_CART_TEMPLATE: 'carrinho_abandonado_drosa_v2',
   REMARKETING_GLOBAL_COOLDOWN_HOURS: 24,
@@ -29,7 +29,7 @@ const testEnv = {
   AUTOMATION_SEND_ENABLED: true,
   REMARKETING_ENABLED: true,
   WHATSAPP_DRY_RUN: false,
-}
+}))
 
 vi.mock('../../config/env', () => ({ env: testEnv }))
 
