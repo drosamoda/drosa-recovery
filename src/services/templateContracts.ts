@@ -2,7 +2,7 @@ import axios from 'axios'
 import { env } from '../config/env'
 
 export type TemplateContract = { language: string; category: string; parameters: string[]; body: string; risk?: string }
-// Observed from the existing WABA on 2026-09-07. Approval is rechecked before dispatch.
+// Contratos locais exatos. A Meta continua sendo a fonte final: status, categoria e body são revalidados antes de cada dispatch.
 export const templateContracts: Record<string, TemplateContract> = {
   confirmacao_pedido_drosa: { language: 'pt_BR', category: 'UTILITY', parameters: ['name', 'orderNumber'],
     body: "Oi, {{1}}! 😊 Sou a Dani da D'Rosa Moda. Recebemos o seu pedido *{{2}}* com sucesso. Em breve você receberá as atualizações por aqui!" },
@@ -21,6 +21,48 @@ Se quiser continuar sua compra, acesse:
 Se precisar de ajuda com tamanho, tecido ou combinação, me chama por aqui.` },
   _pix_pendente: { language: 'pt_BR', category: 'MARKETING', parameters: ['name', 'orderNumber', 'total'],
     body: 'Oi, {{1}}! Pedido nº *{{2}}* no valor de *R$ {{3}}* aguardando pagamento PIX. Complete o pagamento para garantir seus itens! 💙' },
+  boleto_vencendo_drosa_v2: { language: 'pt_BR', category: 'UTILITY', parameters: ['name', 'orderNumber'],
+    body: 'Oi, {{1}}! O boleto do pedido *{{2}}* está próximo do vencimento. Se você já realizou o pagamento, desconsidere esta mensagem. Se precisar de ajuda, me chama por aqui. 💙' },
+  pagamento_confirmado_drosa_01: { language: 'pt_BR', category: 'MARKETING', parameters: ['name', 'orderNumber', 'vipLink'],
+    body: `Oi, {{1}}! 😊
+Sou a Dani da D'Rosa Moda.
+
+Obrigada pela confiança 💕
+Recebemos o seu pedido *{{2}}* e o pagamento foi confirmado com sucesso.
+
+Seu pedido já está sendo preparado com todo carinho e, assim que for postado, o *código de rastreio será enviado por e-mail* 📧📦
+
+💖 Aproveitando, quero te convidar para o nosso *GRUPO VIP*:
+Lá você recebe lançamentos em primeira mão e preços especiais!
+
+👉 *Entre aqui:* {{3}}
+
+Qualquer dúvida, estou por aqui 😊` },
+  pagamento_recusado_drosa_01: { language: 'pt_BR', category: 'UTILITY', parameters: ['name', 'orderNumber'],
+    body: `Oi, {{1}}! 😊
+Sou a Dani da D'Rosa Moda.
+
+Identificamos que o pagamento do pedido *{{2}}* não foi aprovado pelo cartão.
+Isso pode acontecer por alguns motivos da própria operadora 💕
+
+Para facilitar, *podemos gerar um link de pagamento pelo Mercado Pago*, seguro e rápido 🔐
+Por lá, você também pode *parcelar em até 4x sem juros*.
+
+Se quiser, me avise que já te envio o link 😊` },
+  pix_cancelado_drosa_01: { language: 'pt_BR', category: 'MARKETING', parameters: ['name', 'orderNumber', 'vipLink'],
+    body: `Oi, {{1}}! 😊
+Sou a Dani da D'Rosa Moda.
+
+Passando para te informar que o pedido *{{2}}* foi cancelado conforme status do sistema.
+
+Se desejar, posso te ajudar a realizar um novo pedido 💕
+
+💖 Aproveitando, quero te convidar para o nosso GRUPO VIP:
+Lá você recebe lançamentos em primeira mão e preços especiais!
+
+👉 Entre aqui: {{3}}
+
+Qualquer dúvida, estou por aqui 😊` },
 }
 
 export function isMarketingTemplate(name: string): boolean {

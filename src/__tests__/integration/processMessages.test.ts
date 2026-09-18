@@ -251,6 +251,42 @@ describe('POST /jobs/process-messages', () => {
     }))
   })
 
+  it('payment_confirmed envia ao contrato os 3 parametros incluindo o link VIP', async () => {
+    const { verifyDispatchContract } = await import('../../services/templateContracts')
+    const originalWhatsappDryRun = env.WHATSAPP_DRY_RUN
+    env.WHATSAPP_DRY_RUN = true
+
+    vi.mocked(prisma.messageLog.findMany).mockResolvedValue([
+      { ...pendingMsg, templateName: 'pagamento_confirmado_drosa_01' } as never,
+    ])
+    vi.mocked(prisma.whatsappTemplate.findFirst).mockResolvedValue({
+      id: 'tpl-paid',
+      metaTemplateName: 'pagamento_confirmado_drosa_01',
+      active: true,
+      languageCode: 'pt_BR',
+      eventType: 'payment_confirmed',
+      messagePreview: 'Pagamento confirmado [nome_cliente] [numero_pedido] [link_grupo_vip]',
+    } as never)
+    vi.mocked(prisma.automationRule.findFirst).mockResolvedValue({
+      id: 'rule-paid',
+      templateName: 'pagamento_confirmado_drosa_01',
+      active: true,
+      eventType: 'payment_confirmed',
+    } as never)
+
+    const result = await (await import('../../jobs/processMessages')).runProcessMessages()
+
+    env.WHATSAPP_DRY_RUN = originalWhatsappDryRun
+
+    expect(result).toMatchObject({ dryRun: 1, sent: 0 })
+    expect(verifyDispatchContract).toHaveBeenCalledWith(
+      'pagamento_confirmado_drosa_01',
+      'pt_BR',
+      ['Maria', '1001', env.GRUPO_VIP_LINK],
+      expect.any(Object),
+    )
+  })
+
   it('dry-run aplica os mesmos gates de contrato e consentimento do envio real', async () => {
     const { whatsappService } = await import('../../services/whatsappService')
     const { verifyDispatchContract } = await import('../../services/templateContracts')

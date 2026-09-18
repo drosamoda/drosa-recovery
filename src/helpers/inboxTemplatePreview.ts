@@ -2,9 +2,14 @@ import { interpolate } from './templateMapper'
 
 const TEMPLATE_PREVIEW_MAP: Record<string, string> = {
   confirmacao_pedido_drosa: 'Confirmação de pedido enviada',
-  pix_pendente_drosa_01: 'Lembrete de Pix pendente enviado',
+  _pix_pendente: 'Lembrete de Pix pendente enviado',
   pedido_boleto_drosa_01: 'Lembrete de boleto enviado',
+  boleto_vencendo_drosa_v2: 'Lembrete de boleto vencendo enviado',
   carrinho_abandonado_drosa_01: 'Mensagem de carrinho abandonado enviada',
+  carrinho_abandonado_drosa_v2: 'Mensagem de carrinho abandonado enviada',
+  pagamento_confirmado_drosa_01: 'Pagamento confirmado enviado',
+  pagamento_recusado_drosa_01: 'Aviso de pagamento recusado enviado',
+  pix_cancelado_drosa_01: 'Aviso de pedido Pix cancelado enviado',
 }
 
 const ORDER_CONFIRMATION_PREVIEW = `Oi, [nome_cliente]!

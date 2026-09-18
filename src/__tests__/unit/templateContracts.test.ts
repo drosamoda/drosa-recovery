@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { renderContract, verifyDispatchContract } from '../../services/templateContracts'
+import { isMarketingTemplate, renderContract, verifyDispatchContract } from '../../services/templateContracts'
 
 describe('verified template contracts', () => {
   it('rejects guessed Pix template names and wrong parameter counts', () => {
@@ -33,5 +33,28 @@ Se precisar de ajuda com tamanho, tecido ou combinação, me chama por aqui.`)
       .toContain('Pedido nº *1001* no valor de *R$ 129,90*')
     expect(renderContract('pedido_boleto_drosa_01', ['Ana', '1001']))
       .toContain('Seu pedido *1001* foi recebido')
+  })
+  it('renders phase 2 contracts with only reliable parameters', () => {
+    const boletoExpiring = renderContract('boleto_vencendo_drosa_v2', ['Ana', '1001'])
+    expect(boletoExpiring).toContain('boleto do pedido *1001*')
+    expect(boletoExpiring).not.toContain('http')
+
+    const rejected = renderContract('pagamento_recusado_drosa_01', ['Ana', '1001'])
+    expect(rejected).toContain('pedido *1001* não foi aprovado')
+
+    expect(renderContract('pagamento_confirmado_drosa_01', ['Ana', '1001'])).toBeNull()
+    expect(renderContract('pagamento_confirmado_drosa_01', ['Ana', '1001', 'https://vip.example']))
+      .toContain('https://vip.example')
+
+    expect(renderContract('pix_cancelado_drosa_01', ['Ana', '1001'])).toBeNull()
+    expect(renderContract('pix_cancelado_drosa_01', ['Ana', '1001', 'https://vip.example']))
+      .toContain('https://vip.example')
+  })
+
+  it('classifies marketing phase 2 templates so consent and send-window gates apply', () => {
+    expect(isMarketingTemplate('pagamento_confirmado_drosa_01')).toBe(true)
+    expect(isMarketingTemplate('pix_cancelado_drosa_01')).toBe(true)
+    expect(isMarketingTemplate('pagamento_recusado_drosa_01')).toBe(false)
+    expect(isMarketingTemplate('boleto_vencendo_drosa_v2')).toBe(false)
   })
 })

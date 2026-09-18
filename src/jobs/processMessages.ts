@@ -337,6 +337,10 @@ async function revalidate(msg: MessageLog): Promise<ValidationResult> {
       if (!Number.isFinite(total)) return { ok: false, reason: 'template_data_missing' }
       bodyParams.push(total.toFixed(2).replace('.', ','))
     }
+    if (rule.eventType === 'payment_confirmed' || rule.eventType === 'pix_cancelled') {
+      if (!env.GRUPO_VIP_LINK) return { ok: false, reason: 'template_data_missing' }
+      bodyParams.push(env.GRUPO_VIP_LINK)
+    }
 
     const templateVariables = buildTemplateVariables({
       templateName: msg.templateName,
