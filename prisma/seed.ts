@@ -181,7 +181,15 @@ async function main() {
 
   await prisma.automationRule.upsert({
     where: { id: 'rule_abandoned_checkout' },
-    update: {},
+    update: {
+      name: 'Carrinho abandonado 30 minutos',
+      eventType: EventType.abandoned_checkout,
+      templateName: 'carrinho_abandonado_drosa_v2',
+      delayMinutes: 30,
+      active: true,
+      maxSendsPerEntity: 1,
+      stopIfOrderExists: true,
+    },
     create: {
       id: 'rule_abandoned_checkout',
       name: 'Carrinho abandonado 30 minutos',
@@ -207,7 +215,15 @@ async function main() {
   for (const rule of futureRules) {
     await prisma.automationRule.upsert({
       where: { id: rule.id },
-      update: {},
+      update: {
+        name: rule.name,
+        eventType: rule.eventType,
+        templateName: rule.templateName,
+        delayMinutes: rule.delayMinutes,
+        active: false,
+        maxSendsPerEntity: 1,
+        stopIfOrderExists: true,
+      },
       create: {
         id: rule.id,
         name: rule.name,
