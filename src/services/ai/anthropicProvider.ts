@@ -21,7 +21,10 @@ export class AnthropicProvider implements AiProvider {
 
   private getClient(): Anthropic {
     this.assertConfigured()
-    if (!this.client) this.client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY })
+    // Timeout explícito (nunca o default do SDK) — mesmo controle de custo
+    // usado pelo OpenAiProvider, para que nenhum dos dois provedores possa
+    // ficar pendurado além do limite configurado.
+    if (!this.client) this.client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, timeout: env.AI_REQUEST_TIMEOUT_MS })
     return this.client
   }
 
@@ -32,7 +35,7 @@ export class AnthropicProvider implements AiProvider {
     try {
       response = await client.messages.parse({
         model: this.model,
-        max_tokens: 4096,
+        max_tokens: env.AI_MAX_OUTPUT_TOKENS,
         system: SYSTEM_PROMPT,
         output_config: { format: jsonSchemaOutputFormat(STRATEGIES_JSON_SCHEMA) },
         messages: [{ role: 'user', content: JSON.stringify(input) }],

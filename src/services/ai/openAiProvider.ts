@@ -28,7 +28,10 @@ export class OpenAiProvider implements AiProvider {
 
   private getClient(): OpenAI {
     this.assertConfigured()
-    if (!this.client) this.client = new OpenAI({ apiKey: env.OPENAI_API_KEY })
+    // Timeout explícito (nunca o default do SDK) — mesmo controle de custo
+    // usado pelo AnthropicProvider, para que nenhum dos dois provedores possa
+    // ficar pendurado além do limite configurado.
+    if (!this.client) this.client = new OpenAI({ apiKey: env.OPENAI_API_KEY, timeout: env.AI_REQUEST_TIMEOUT_MS })
     return this.client
   }
 
@@ -39,7 +42,7 @@ export class OpenAiProvider implements AiProvider {
     try {
       completion = await client.chat.completions.parse({
         model: this.model,
-        max_completion_tokens: 4096,
+        max_completion_tokens: env.AI_MAX_OUTPUT_TOKENS,
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: JSON.stringify(input) },

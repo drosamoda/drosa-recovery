@@ -111,6 +111,21 @@ const envSchema = z.object({
   ANTHROPIC_MODEL: z.string().default('claude-opus-5'),
   OPENAI_API_KEY: z.string().default(''),
   OPENAI_MODEL: z.string().default('gpt-5'),
+
+  // Final Pre-Activation Readiness — banco isolado para campaign_drafts/
+  // ai_runs. Vazio = não configurado = geração de campanha fica indisponível
+  // (503 AI_DATABASE_NOT_CONFIGURED), nunca cai de volta para gravar no
+  // DATABASE_URL do Preview. Nenhuma migração é aplicada por esta variável
+  // existir — ela só passa a ser lida quando alguém a configurar de propósito.
+  AI_DATABASE_URL: z.string().default(''),
+
+  // Controles pagos — nenhum provedor de IA é chamado sem estes limites
+  // explícitos. Aplicados igualmente aos dois provedores (nunca um limite
+  // "especial" para OpenAI ou Anthropic).
+  AI_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
+  AI_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().default(4096),
+  AI_MAX_CONCURRENT_GENERATIONS: z.coerce.number().int().positive().default(2),
+  AI_GENERATION_MAX_PER_MINUTE: z.coerce.number().int().positive().default(10),
 })
 
 const parsed = envSchema.safeParse(process.env)

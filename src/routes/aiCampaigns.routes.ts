@@ -1,8 +1,10 @@
 import { Request, Response, Router } from 'express'
 import { generateOpportunities } from '../services/aiOpportunityEngine'
-import { campaignService, CampaignNotFoundError, InvalidCampaignStateError } from '../services/ai/campaignService'
+import { campaignService, CampaignNotFoundError, InvalidCampaignStateError, CampaignTemplateNotApprovedError } from '../services/ai/campaignService'
 import { getLearningSummary } from '../services/ai/learningService'
 import { AiProviderConfigError, AiProviderResponseError, AiProviderTimeoutError } from '../services/ai/aiProvider'
+import { AiDatabaseNotConfiguredError } from '../config/aiPrisma'
+import { AiConcurrencyLimitError, AiRateLimitExceededError } from '../services/ai/aiRateLimiter'
 import { logger } from '../config/logger'
 import { adminAuth } from '../middlewares/adminAuth'
 
@@ -17,7 +19,10 @@ const router = Router()
 function handleError(res: Response, error: unknown) {
   if (error instanceof CampaignNotFoundError) return res.status(404).json({ error: error.message })
   if (error instanceof InvalidCampaignStateError) return res.status(409).json({ error: error.message })
+  if (error instanceof CampaignTemplateNotApprovedError) return res.status(409).json({ error: error.message, code: 'TEMPLATE_NOT_APPROVED' })
+  if (error instanceof AiDatabaseNotConfiguredError) return res.status(503).json({ error: error.message, code: 'AI_DATABASE_NOT_CONFIGURED' })
   if (error instanceof AiProviderConfigError) return res.status(503).json({ error: error.message, code: 'AI_PROVIDER_NOT_CONFIGURED' })
+  if (error instanceof AiConcurrencyLimitError || error instanceof AiRateLimitExceededError) return res.status(429).json({ error: error.message, code: 'AI_RATE_LIMITED' })
   if (error instanceof AiProviderTimeoutError) return res.status(504).json({ error: error.message })
   if (error instanceof AiProviderResponseError) return res.status(502).json({ error: error.message })
   logger.error('[ai/campaigns] erro inesperado', error)
@@ -54,8 +59,13 @@ router.get('/learning', async (_req: Request, res: Response) => {
 router.post('/campaigns', async (req: Request, res: Response) => {
   const opportunityId = String(req.body?.opportunityId ?? '')
   if (!opportunityId) return res.status(400).json({ error: 'opportunityId é obrigatório' })
+  // idempotencyKey é opcional (retrocompatível): quando o chamador envia uma
+  // key por clique humano, um retry com a MESMA key nunca chama a IA de novo
+  // — devolve o draft já criado. Sem key, comportamento inalterado.
+  const idempotencyKeyRaw = req.body?.idempotencyKey
+  const idempotencyKey = typeof idempotencyKeyRaw === 'string' && idempotencyKeyRaw.trim() ? idempotencyKeyRaw.trim() : undefined
   try {
-    res.status(201).json(await campaignService.createFromOpportunity(opportunityId))
+    res.status(201).json(await campaignService.createFromOpportunity(opportunityId, idempotencyKey))
   } catch (error) {
     handleError(res, error)
   }

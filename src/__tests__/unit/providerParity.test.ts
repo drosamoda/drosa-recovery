@@ -140,6 +140,28 @@ describe('Provider parity (OpenAI vs Anthropic) — mesmo contrato, sem chamar A
     }
   })
 
+  // Final Pre-Activation Readiness, seção 8: PII_TO_OPENAI=NO / PII_TO_ANTHROPIC=NO.
+  // O contrato (CampaignPromptInput/CampaignProductFact) nunca teve campo de
+  // telefone/e-mail/endereço — este teste é o guarda-corpo de regressão: se
+  // algum dia um campo desses for adicionado por engano ao input, ele estoura
+  // aqui antes de qualquer chamada real ao provedor.
+  it('PII_TO_OPENAI=NO / PII_TO_ANTHROPIC=NO — nenhum telefone, e-mail ou nome de cliente chega ao payload enviado a nenhum dos dois provedores', async () => {
+    mocks.anthropicParse.mockResolvedValue({ stop_reason: 'end_turn', parsed_output: validOutput() })
+    mocks.openaiParse.mockResolvedValue({ choices: [{ message: { refusal: null, parsed: validOutput() }, finish_reason: 'stop' }] })
+
+    await new AnthropicProvider('claude-opus-5').generateCampaignStrategies(input)
+    await new OpenAiProvider('gpt-5').generateCampaignStrategies(input)
+
+    const anthropicPayload = mocks.anthropicParse.mock.calls[0][0].messages[0].content as string
+    const openaiPayload = mocks.openaiParse.mock.calls[0][0].messages.find((m: { role: string }) => m.role === 'user').content as string
+    const phonePattern = /\+?55\s*\d{2}\s*9?\d{4}-?\d{4}/ // telefone BR normalizado, formato usado em todo o projeto
+
+    for (const payload of [anthropicPayload, openaiPayload]) {
+      expect(payload.toLowerCase()).not.toMatch(/"phone"|"telefone"|"email"|"e-mail"|"normalizedphone"|"maskedphone"/)
+      expect(payload).not.toMatch(phonePattern)
+    }
+  })
+
   it('o JSON Schema manual do Anthropic (STRATEGIES_JSON_SCHEMA) exige exatamente os mesmos campos do strategySchema (Zod) usado pela OpenAI', () => {
     const zodFields = Object.keys(strategySchema.shape).sort()
     const jsonSchemaFields = [...STRATEGIES_JSON_SCHEMA.properties.strategies.items.required].sort()
