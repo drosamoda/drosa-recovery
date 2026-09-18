@@ -90,6 +90,7 @@ const fullOrderPayload = {
   total: '199.90',
   currency: 'BRL',
   checkout_url: 'https://www.drosamoda.com.br/checkout/abc',
+  extra: {},
 }
 
 describe('orderService.handleNuvemshopOrderWebhook', () => {
@@ -259,6 +260,55 @@ describe('orderService.handleNuvemshopOrderWebhook', () => {
     })
 
     expect(mocks.createPendingMessageIfNotExists).not.toHaveBeenCalled()
+  })
+
+  it('busca o pedido completo quando o webhook tem campos essenciais mas omite order.extra', async () => {
+    const { extra: _extra, ...webhookWithoutExtra } = fullOrderPayload
+    const fetchedWithConsent = {
+      ...fullOrderPayload,
+      extra: {
+        drosa_whatsapp_marketing_version: 'v1',
+        drosa_whatsapp_marketing_store_id: '7716231',
+        drosa_whatsapp_marketing_source: 'nuvemshop_checkout_whatsapp_optin',
+        drosa_whatsapp_marketing_scope: 'marketing',
+        drosa_whatsapp_marketing_choice: 'granted',
+      },
+    }
+    mocks.fetchOrderById.mockResolvedValue(fetchedWithConsent)
+
+    await orderService.handleNuvemshopOrderWebhook({
+      payload: webhookWithoutExtra,
+      headers: { 'x-linkedstore-topic': 'order/created' },
+      webhookEventId: 'event-extra-fetch',
+    })
+
+    expect(nuvemshopService.fetchOrderById).toHaveBeenCalledWith('1944167967')
+    expect(recordConsentFromNuvemshopOrderExtra).toHaveBeenCalledWith({
+      normalizedPhone: '5583998765432',
+      extra: fetchedWithConsent.extra,
+      nuvemshopOrderId: '1944167967',
+    })
+    expect(mocks.markProcessed).toHaveBeenCalledWith('event-extra-fetch')
+  })
+
+  it('falha ao enriquecer somente order.extra nao derruba o processamento do pedido', async () => {
+    const { extra: _extra, ...webhookWithoutExtra } = fullOrderPayload
+    mocks.fetchOrderById.mockRejectedValue(new Error('metadata fetch unavailable'))
+
+    await orderService.handleNuvemshopOrderWebhook({
+      payload: webhookWithoutExtra,
+      headers: { 'x-linkedstore-topic': 'order/created' },
+      webhookEventId: 'event-extra-fetch-fail',
+    })
+
+    expect(mocks.tx.order.create).toHaveBeenCalled()
+    expect(recordConsentFromNuvemshopOrderExtra).toHaveBeenCalledWith({
+      normalizedPhone: '5583998765432',
+      extra: undefined,
+      nuvemshopOrderId: '1944167967',
+    })
+    expect(mocks.markProcessed).toHaveBeenCalledWith('event-extra-fetch-fail')
+    expect(mocks.markError).not.toHaveBeenCalled()
   })
 
   it('repassa order.extra e telefone normalizado para a sincronizacao de consentimento WhatsApp', async () => {
