@@ -105,6 +105,7 @@ const JOBS_SECRET = process.env.JOBS_SECRET!
 vi.mock('../../services/templateContracts', () => ({
   verifyDispatchContract: vi.fn().mockResolvedValue(null),
   renderContract: vi.fn().mockReturnValue('Recebemos o seu pedido'),
+  isMarketingTemplate: vi.fn().mockReturnValue(false),
 }))
 
 // Repopula a fila antes de cada teste.
