@@ -49,7 +49,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
-function needsFullOrderFetch(payload: NuvemshopOrderPayload): boolean {
+function needsRequiredOrderFetch(payload: NuvemshopOrderPayload): boolean {
   return !payload.contact_phone || !payload.contact_name || !payload.status || !payload.payment_status || !payload.total
 }
 
@@ -70,18 +70,46 @@ function safeSourceDate(value?: string): Date | null {
 async function resolveOrderPayload(
   payload: NuvemshopOrderPayload
 ): Promise<{ payload: NuvemshopOrderPayload; fetched: boolean }> {
-  if (!needsFullOrderFetch(payload)) return { payload, fetched: false }
-
   const nuvemshopOrderId = String(payload.id)
-  logger.info('[orderService] buscando detalhes do pedido Nuvemshop', {
-    nuvemshopOrderId,
-    reason: 'payload_resumido',
-  })
 
-  return {
-    payload: asOrderPayload(await nuvemshopService.fetchOrderById(nuvemshopOrderId)),
-    fetched: true,
+  // Campos essenciais ausentes tornam o webhook insuficiente para persistir o
+  // pedido com segurança. Nesse caso o fetch autenticado é obrigatório e a
+  // falha continua derrubando o processamento para permitir retry do webhook.
+  if (needsRequiredOrderFetch(payload)) {
+    logger.info('[orderService] buscando detalhes do pedido Nuvemshop', {
+      nuvemshopOrderId,
+      reason: 'payload_resumido',
+    })
+    return {
+      payload: asOrderPayload(await nuvemshopService.fetchOrderById(nuvemshopOrderId)),
+      fetched: true,
+    }
   }
+
+  // order.extra é opcional no payload do webhook, mas contém a evidência do
+  // consentimento explícito gravada pelo NubeSDK. Quando somente esse campo
+  // estiver ausente, fazemos um enriquecimento best-effort: falhar ao buscar
+  // metadata nunca pode impedir a gravação do pedido; apenas mantém o
+  // consentimento como UNKNOWN até uma oportunidade posterior de sincronizar.
+  if (payload.extra === undefined) {
+    try {
+      logger.info('[orderService] buscando order.extra ausente no webhook', {
+        nuvemshopOrderId,
+        reason: 'consent_extra_ausente',
+      })
+      return {
+        payload: asOrderPayload(await nuvemshopService.fetchOrderById(nuvemshopOrderId)),
+        fetched: true,
+      }
+    } catch (error) {
+      logger.warn('[orderService] nao foi possivel enriquecer order.extra; consentimento permanece UNKNOWN', {
+        nuvemshopOrderId,
+        error: error instanceof Error ? error.message : 'unknown_error',
+      })
+    }
+  }
+
+  return { payload, fetched: false }
 }
 
 // Agenda mensagem para um pedido dado um EventType — idempotente via chave única
