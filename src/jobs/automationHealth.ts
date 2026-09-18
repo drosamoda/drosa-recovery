@@ -1,6 +1,7 @@
 import { env } from '../config/env'
 import { prisma } from '../config/prisma'
 import { templateContracts, verifyMetaTemplateContract } from '../services/templateContracts'
+import { legacyBlockedTemplateNames } from '../config/recoveryCanonicalConfig'
 
 type ReadinessIssue = {
   code: string
@@ -57,6 +58,7 @@ export async function automationHealth() {
       activeMarketingConsents,
       suppressedContacts,
       expiredClaims,
+      legacyPendingMessages,
     ] = await Promise.all([
       prisma.messageLog.count({ where: { status: 'pending' } }),
       prisma.messageLog.count({ where: { status: 'processing' } }),
@@ -85,6 +87,12 @@ export async function automationHealth() {
         where: {
           status: 'processing',
           claimExpiresAt: { lt: now },
+        },
+      }),
+      prisma.messageLog.count({
+        where: {
+          status: 'pending',
+          templateName: { in: [...legacyBlockedTemplateNames] },
         },
       }),
     ])
@@ -149,6 +157,13 @@ export async function automationHealth() {
       })
     }
 
+    if (legacyPendingMessages > 0) {
+      issues.push({
+        code: 'legacy_pending_messages',
+        detail: String(legacyPendingMessages),
+      })
+    }
+
     const templatesToVerify = [...new Set(activeRuleRows.map((rule) => rule.templateName))]
       .filter((name) => Boolean(templateContracts[name]))
 
@@ -189,6 +204,7 @@ export async function automationHealth() {
       deliveryUnknownMessages,
       failedMessages,
       expiredClaims,
+      legacyPendingMessages,
       activeRules: activeRuleRows.length,
       activeTemplates: activeTemplateRows.length,
       activeMarketingConsents,
