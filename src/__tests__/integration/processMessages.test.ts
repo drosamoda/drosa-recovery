@@ -312,6 +312,47 @@ describe('POST /jobs/process-messages', () => {
     )
   })
 
+  it('falha temporaria na verificacao Meta adia a mensagem sem consumir idempotencia', async () => {
+    const { whatsappService } = await import('../../services/whatsappService')
+    const { verifyDispatchContract } = await import('../../services/templateContracts')
+    const originalWhatsappDryRun = env.WHATSAPP_DRY_RUN
+    env.WHATSAPP_DRY_RUN = true
+    vi.mocked(verifyDispatchContract).mockResolvedValueOnce('meta_template_verification_failed')
+
+    const result = await (await import('../../jobs/processMessages')).runProcessMessages()
+
+    env.WHATSAPP_DRY_RUN = originalWhatsappDryRun
+
+    expect(result).toMatchObject({ sent: 0, skipped: 0, deferred: 1 })
+    expect(whatsappService.sendTemplateMessage).not.toHaveBeenCalled()
+    expect(prisma.messageLog.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'msg-001' },
+      data: expect.objectContaining({
+        status: 'pending',
+        reason: 'meta_template_verification_failed',
+        nextRetryAt: expect.any(Date),
+      }),
+    }))
+  })
+
+  it('template temporariamente inativo adia a mensagem em vez de marcar skipped', async () => {
+    const { whatsappService } = await import('../../services/whatsappService')
+    vi.mocked(prisma.whatsappTemplate.findFirst).mockResolvedValueOnce(null)
+
+    const result = await (await import('../../jobs/processMessages')).runProcessMessages()
+
+    expect(result).toMatchObject({ sent: 0, skipped: 0, deferred: 1 })
+    expect(whatsappService.sendTemplateMessage).not.toHaveBeenCalled()
+    expect(prisma.messageLog.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'msg-001' },
+      data: expect.objectContaining({
+        status: 'pending',
+        reason: 'inactive_template',
+        nextRetryAt: expect.any(Date),
+      }),
+    }))
+  })
+
   it('dry-run aplica os mesmos gates de contrato e consentimento do envio real', async () => {
     const { whatsappService } = await import('../../services/whatsappService')
     const { verifyDispatchContract } = await import('../../services/templateContracts')
