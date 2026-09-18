@@ -103,7 +103,7 @@ async function main() {
       languageCode: 'pt_BR',
       category: TemplateCategory.marketing,
       active: false,
-      messagePreview: 'Oi, [nome_cliente]! Pedido nº *[numero_pedido]* no valor de *R$ [valor_total]* aguardando pagamento PIX. Complete o pagamento para garantir seus itens! 💙',
+      messagePreview: 'Oi, [nome_cliente]! Pedido nº *[numero_pedido]* no valor de *[valor_total]* aguardando pagamento PIX. Complete o pagamento para garantir seus itens! 💙',
       variables: ['nome_cliente', 'numero_pedido', 'valor_total'],
     },
     create: {
