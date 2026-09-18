@@ -35,7 +35,7 @@ describe('WhatsApp consent registry', () => {
   ] as const)('classifies consent evidence consistently: %j', async (record, expected) => {
     vi.mocked(prisma.whatsappConsent.findUnique).mockResolvedValue(record as never)
     expect(classifyWhatsappConsent(record)).toBe(expected)
-    expect(await hasActiveWhatsappConsent('5531999999999')).toBe(expected === 'GRANTED')
+    expect(await hasActiveWhatsappConsent('5531998021418')).toBe(expected === 'GRANTED')
   })
   beforeEach(() => {
     vi.clearAllMocks()
@@ -53,7 +53,7 @@ describe('WhatsApp consent registry', () => {
       revokedAt: null,
     } as never)
 
-    expect(await hasActiveWhatsappConsent('5531999999999')).toBe(true)
+    expect(await hasActiveWhatsappConsent('5531998021418')).toBe(true)
   })
 
   it.each([
@@ -63,7 +63,7 @@ describe('WhatsApp consent registry', () => {
     { consented: true, consentedAt: new Date('2026-09-10T12:00:00Z'), revokedAt: new Date('2026-09-10T13:00:00Z') },
   ])('fails closed for absent, incomplete or revoked consent', async (record) => {
     vi.mocked(prisma.whatsappConsent.findUnique).mockResolvedValue(record as never)
-    expect(await hasActiveWhatsappConsent('5531999999999')).toBe(false)
+    expect(await hasActiveWhatsappConsent('5531998021418')).toBe(false)
   })
 })
 
