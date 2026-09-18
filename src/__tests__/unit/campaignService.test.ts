@@ -1,30 +1,29 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { Prisma } from '@prisma/client'
 
 const mocks = vi.hoisted(() => ({
   campaignDraftCreate: vi.fn(),
   campaignDraftUpdate: vi.fn(),
   campaignDraftFindUnique: vi.fn(),
   campaignDraftFindMany: vi.fn(),
-  campaignDraftFindFirst: vi.fn(),
   aiRunCreate: vi.fn(),
   getOpportunityById: vi.fn(),
   getAiProvider: vi.fn(),
   enrichOpportunityEvidence: vi.fn(),
-  assertAiDatabaseConfigured: vi.fn(),
   getAiPrisma: vi.fn(),
   verifyMetaTemplateContract: vi.fn(),
 }))
 
-// Final Pre-Activation Readiness: campaignService agora fala com
-// campaign_drafts/ai_runs através de getAiPrisma() (config/aiPrisma.ts), não
-// mais diretamente com config/prisma — por isso o mock mudou de alvo, mas as
-// mesmas spies (campaignDraftCreate/campaignDraftUpdate/...) continuam sendo
-// o que os testes inspecionam.
+// Activation Wiring v2: campaignService fala com campaign_drafts/ai_runs só
+// através de getAiPrisma() (config/aiPrisma.ts) — nunca mais com
+// config/prisma diretamente, e getAiPrisma() nunca tem um caminho de
+// fallback (seção 5). Aqui mockamos o módulo inteiro; o comportamento real
+// de "sem AI_DATABASE_URL, lança AiDatabaseNotConfiguredError" é testado à
+// parte em aiPrisma.test.ts, contra a implementação real.
 vi.mock('../../config/aiPrisma', () => {
   class AiDatabaseNotConfiguredError extends Error {}
   return {
     getAiPrisma: mocks.getAiPrisma,
-    assertAiDatabaseConfigured: mocks.assertAiDatabaseConfigured,
     AiDatabaseNotConfiguredError,
   }
 })
@@ -54,7 +53,6 @@ vi.mock('../../services/templateContracts', () => ({
 
 import { campaignService, CampaignNotFoundError, InvalidCampaignStateError, CampaignTemplateNotApprovedError } from '../../services/ai/campaignService'
 import { AiProviderConfigError, AiProviderTimeoutError } from '../../services/ai/aiProvider'
-import { AiDatabaseNotConfiguredError } from '../../config/aiPrisma'
 
 const opportunity = {
   id: 'opp_recent_customer_2026-09-15',
@@ -91,42 +89,52 @@ function aiPrismaStub() {
       update: mocks.campaignDraftUpdate,
       findUnique: mocks.campaignDraftFindUnique,
       findMany: mocks.campaignDraftFindMany,
-      findFirst: mocks.campaignDraftFindFirst,
     },
     aiRun: { create: mocks.aiRunCreate },
+  }
+}
+
+function uniqueConstraintViolation(): Prisma.PrismaClientKnownRequestError {
+  return new Prisma.PrismaClientKnownRequestError('Unique constraint failed on the fields: (`idempotencyKey`)', { code: 'P2002', clientVersion: '5.14.0' })
+}
+
+function successfulProvider() {
+  return {
+    name: 'anthropic',
+    model: 'claude-test',
+    assertConfigured: vi.fn(),
+    generateCampaignStrategies: vi.fn().mockResolvedValue({
+      output: {
+        opportunityId: opportunity.id,
+        summary: 'x',
+        strategies: [
+          { direction: 'A', name: 'A', angle: 'a', audience: 'a', productId: null, message: 'Mensagem A real.', cta: 'x', creativeBrief: 'x', warnings: [] },
+          { direction: 'B', name: 'B', angle: 'b', audience: 'b', productId: null, message: 'Mensagem B real.', cta: 'x', creativeBrief: 'x', warnings: [] },
+          { direction: 'C', name: 'C', angle: 'c', audience: 'c', productId: null, message: 'Mensagem C real.', cta: 'x', creativeBrief: 'x', warnings: [] },
+        ],
+      },
+      rawOutputText: '{}',
+    }),
   }
 }
 
 describe('campaignService — criação a partir de oportunidade real', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.assertAiDatabaseConfigured.mockImplementation(() => {})
     mocks.getAiPrisma.mockReturnValue(aiPrismaStub())
     mocks.campaignDraftCreate.mockResolvedValue({ id: 'draft_1' })
     mocks.campaignDraftUpdate.mockImplementation(async (args) => ({ id: 'draft_1', ...args.data }))
-    mocks.campaignDraftFindFirst.mockResolvedValue(null)
+    mocks.campaignDraftFindUnique.mockResolvedValue(null)
     mocks.enrichOpportunityEvidence.mockResolvedValue(emptyEvidence())
-  })
-
-  // Final Pre-Activation Readiness (seção 3): sem AI_DATABASE_URL, geração
-  // falha na primeira linha da função — antes até de buscar a oportunidade.
-  it('AI_DATABASE_NOT_CONFIGURED: sem AI_DATABASE_URL, geração falha ANTES de qualquer coisa — zero writes, zero chamada paga ao provider', async () => {
-    mocks.assertAiDatabaseConfigured.mockImplementation(() => { throw new AiDatabaseNotConfiguredError('AI_DATABASE_URL ausente') })
-
-    await expect(campaignService.createFromOpportunity(opportunity.id)).rejects.toThrow(AiDatabaseNotConfiguredError)
-    expect(mocks.getOpportunityById).not.toHaveBeenCalled()
-    expect(mocks.getAiProvider).not.toHaveBeenCalled()
-    expect(mocks.campaignDraftCreate).not.toHaveBeenCalled()
-    expect(mocks.aiRunCreate).not.toHaveBeenCalled()
   })
 
   it('lança CampaignNotFoundError se a oportunidade não existe (não gera campanha do nada)', async () => {
     mocks.getOpportunityById.mockResolvedValue(null)
-    await expect(campaignService.createFromOpportunity('opp_inexistente')).rejects.toThrow(CampaignNotFoundError)
+    await expect(campaignService.createFromOpportunity('opp_inexistente', 'key-1')).rejects.toThrow(CampaignNotFoundError)
     expect(mocks.campaignDraftCreate).not.toHaveBeenCalled()
   })
 
-  it('registra AiRun com status=error e propaga o erro quando o provedor falha (timeout)', async () => {
+  it('registra AiRun com status=error (categoria AI_TIMEOUT) e propaga o erro quando o provedor falha (timeout)', async () => {
     mocks.getOpportunityById.mockResolvedValue(opportunity)
     mocks.getAiProvider.mockReturnValue({
       name: 'anthropic',
@@ -135,28 +143,26 @@ describe('campaignService — criação a partir de oportunidade real', () => {
       generateCampaignStrategies: vi.fn().mockRejectedValue(new AiProviderTimeoutError('timeout')),
     })
 
-    await expect(campaignService.createFromOpportunity(opportunity.id)).rejects.toThrow(AiProviderTimeoutError)
-    expect(mocks.aiRunCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'error' }) }))
+    await expect(campaignService.createFromOpportunity(opportunity.id, 'key-1')).rejects.toThrow(AiProviderTimeoutError)
+    expect(mocks.aiRunCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'error', errorMessage: 'AI_TIMEOUT' }) }))
     expect(mocks.campaignDraftUpdate).not.toHaveBeenCalled()
   })
 
-  // Final Pre-Activation Readiness (seção 8): o erro persistido nunca pode
-  // ecoar um segredo real configurado no ambiente, mesmo que a mensagem de
-  // exceção original o contenha (ex.: um erro de auth do SDK ecoando a
-  // própria chave, ou um erro de conexão citando a connection string).
-  it('AI_ERROR_STORAGE_SANITIZED: erro salvo em aiRun nunca contém credenciais de connection string cruas', async () => {
+  // K) Activation Wiring v2, seção 8: nunca a mensagem original — só uma
+  // categoria fechada. Nem prompt, nem resposta, nem stack, nem segredo.
+  it('K) AI_ERROR_STORAGE: erro salvo em aiRun é uma categoria fechada, nunca a mensagem/stack original', async () => {
     mocks.getOpportunityById.mockResolvedValue(opportunity)
     mocks.getAiProvider.mockReturnValue({
       name: 'anthropic',
       model: 'claude-test',
       assertConfigured: vi.fn(),
-      generateCampaignStrategies: vi.fn().mockRejectedValue(new Error('falha ao conectar em postgres://ai_user:s3nh4-secreta@db.internal:5432/ai')),
+      generateCampaignStrategies: vi.fn().mockRejectedValue(new Error('falha ao conectar em postgres://ai_user:s3nh4-secreta@db.internal:5432/ai — prompt bruto: "cliente João da Silva, telefone 5583988887777"')),
     })
 
-    await expect(campaignService.createFromOpportunity(opportunity.id)).rejects.toThrow()
+    await expect(campaignService.createFromOpportunity(opportunity.id, 'key-1')).rejects.toThrow()
     const call = mocks.aiRunCreate.mock.calls[0][0]
-    expect(call.data.errorMessage).not.toContain('s3nh4-secreta')
-    expect(call.data.errorMessage).toContain('[REDACTED]')
+    expect(call.data.errorMessage).toBe('AI_UNKNOWN_ERROR')
+    expect(['AI_TIMEOUT', 'AI_RATE_LIMIT', 'AI_PROVIDER_ERROR', 'AI_SCHEMA_ERROR', 'AI_CONFIG_ERROR', 'AI_UNKNOWN_ERROR']).toContain(call.data.errorMessage)
   })
 
   it('provedor de IA não configurado (ex.: ANTHROPIC_API_KEY ausente) falha ANTES de qualquer escrita — zero campaignDraft, zero aiRun', async () => {
@@ -168,7 +174,7 @@ describe('campaignService — criação a partir de oportunidade real', () => {
       generateCampaignStrategies: vi.fn(),
     })
 
-    await expect(campaignService.createFromOpportunity(opportunity.id)).rejects.toThrow(AiProviderConfigError)
+    await expect(campaignService.createFromOpportunity(opportunity.id, 'key-1')).rejects.toThrow(AiProviderConfigError)
     expect(mocks.campaignDraftCreate).not.toHaveBeenCalled()
     expect(mocks.aiRunCreate).not.toHaveBeenCalled()
   })
@@ -196,7 +202,7 @@ describe('campaignService — criação a partir de oportunidade real', () => {
         rawOutputText: '{}',
       }),
     })
-    const result = await campaignService.createFromOpportunity(opportunity.id)
+    const result = await campaignService.createFromOpportunity(opportunity.id, 'key-1')
     expect(result.status).toBe('AWAITING_HUMAN_APPROVAL')
     expect(result.status).not.toBe('APPROVED')
   })
@@ -215,7 +221,7 @@ describe('campaignService — criação a partir de oportunidade real', () => {
     const generateCampaignStrategies = vi.fn().mockRejectedValue(new Error('stop-after-capture'))
     mocks.getAiProvider.mockReturnValue({ name: 'anthropic', model: 'claude-test', assertConfigured: vi.fn(), generateCampaignStrategies })
 
-    await expect(campaignService.createFromOpportunity(opportunity.id)).rejects.toThrow('stop-after-capture')
+    await expect(campaignService.createFromOpportunity(opportunity.id, 'key-1')).rejects.toThrow()
 
     const promptInput = generateCampaignStrategies.mock.calls[0][0]
     expect(promptInput.purchasedProducts).toEqual(purchased)
@@ -224,57 +230,38 @@ describe('campaignService — criação a partir de oportunidade real', () => {
   })
 })
 
-describe('campaignService — idempotência (Final Pre-Activation Readiness, seção 5)', () => {
+describe('campaignService — idempotência (Activation Wiring v2, seções 2-4)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.assertAiDatabaseConfigured.mockImplementation(() => {})
     mocks.getAiPrisma.mockReturnValue(aiPrismaStub())
     mocks.campaignDraftUpdate.mockImplementation(async (args) => ({ id: 'draft_1', ...args.data }))
     mocks.enrichOpportunityEvidence.mockResolvedValue(emptyEvidence())
     mocks.getOpportunityById.mockResolvedValue(opportunity)
   })
 
-  function successfulProvider() {
-    return {
-      name: 'anthropic',
-      model: 'claude-test',
-      assertConfigured: vi.fn(),
-      generateCampaignStrategies: vi.fn().mockResolvedValue({
-        output: {
-          opportunityId: opportunity.id,
-          summary: 'x',
-          strategies: [
-            { direction: 'A', name: 'A', angle: 'a', audience: 'a', productId: null, message: 'Mensagem A real.', cta: 'x', creativeBrief: 'x', warnings: [] },
-            { direction: 'B', name: 'B', angle: 'b', audience: 'b', productId: null, message: 'Mensagem B real.', cta: 'x', creativeBrief: 'x', warnings: [] },
-            { direction: 'C', name: 'C', angle: 'c', audience: 'c', productId: null, message: 'Mensagem C real.', cta: 'x', creativeBrief: 'x', warnings: [] },
-          ],
-        },
-        rawOutputText: '{}',
-      }),
-    }
-  }
-
-  it('mesmo idempotencyKey em duas chamadas (retry) => uma única chamada à IA — a segunda devolve o draft já criado', async () => {
+  // E) mesma key sequencial => 1 provider call
+  it('E) mesma idempotencyKey em duas chamadas sequenciais (retry) => uma única chamada à IA — a segunda devolve o draft já criado', async () => {
     mocks.campaignDraftCreate.mockResolvedValue({ id: 'draft_1' })
     const provider = successfulProvider()
     mocks.getAiProvider.mockReturnValue(provider)
 
     // 1ª chamada: nenhum draft com esta key ainda existe.
-    mocks.campaignDraftFindFirst.mockResolvedValueOnce(null)
+    mocks.campaignDraftFindUnique.mockResolvedValueOnce(null)
     const first = await campaignService.createFromOpportunity(opportunity.id, 'human-click-abc123')
     expect(provider.generateCampaignStrategies).toHaveBeenCalledTimes(1)
 
     // 2ª chamada (retry da MESMA ação humana, mesma key): agora já existe.
-    mocks.campaignDraftFindFirst.mockResolvedValueOnce({ id: first.id, status: first.status, strategies: first.strategies, complianceFindings: first.complianceFindings })
+    mocks.campaignDraftFindUnique.mockResolvedValueOnce({ id: first.id, status: first.status, strategies: first.strategies, complianceFindings: first.complianceFindings })
     const second = await campaignService.createFromOpportunity(opportunity.id, 'human-click-abc123')
 
     expect(provider.generateCampaignStrategies).toHaveBeenCalledTimes(1)
     expect(second.id).toBe(first.id)
     expect(mocks.campaignDraftCreate).toHaveBeenCalledTimes(1)
+    expect(mocks.campaignDraftFindUnique).toHaveBeenCalledWith({ where: { idempotencyKey: 'human-click-abc123' } })
   })
 
   it('DOUBLE_CLICK_SECOND_PROVIDER_CALL=NO — uma nova idempotencyKey (nova ação humana) SEMPRE gera uma nova chamada à IA', async () => {
-    mocks.campaignDraftFindFirst.mockResolvedValue(null)
+    mocks.campaignDraftFindUnique.mockResolvedValue(null)
     mocks.campaignDraftCreate.mockResolvedValue({ id: 'draft_1' })
     const provider = successfulProvider()
     mocks.getAiProvider.mockReturnValue(provider)
@@ -285,20 +272,47 @@ describe('campaignService — idempotência (Final Pre-Activation Readiness, se�
     expect(provider.generateCampaignStrategies).toHaveBeenCalledTimes(2)
   })
 
-  it('sem idempotencyKey (chamador não enviou), nenhum check de duplicidade é feito — comportamento anterior preservado', async () => {
-    mocks.campaignDraftCreate.mockResolvedValue({ id: 'draft_1' })
+  // F) P2002 concorrente => 1 geração/provider call
+  it('F) duas requisições concorrentes com a MESMA key: a que perde a corrida do create() recebe P2002 e devolve o draft vencedor, sem chamar a IA', async () => {
     const provider = successfulProvider()
     mocks.getAiProvider.mockReturnValue(provider)
 
-    await campaignService.createFromOpportunity(opportunity.id)
-    expect(mocks.campaignDraftFindFirst).not.toHaveBeenCalled()
+    // As duas passaram pelo findUnique ANTES de qualquer create() existir —
+    // por isso as duas veem null (a corrida real acontece entre esse check
+    // e o create(), não antes dele).
+    mocks.campaignDraftFindUnique.mockResolvedValueOnce(null) // 1ª requisição: check inicial
+    mocks.campaignDraftCreate.mockRejectedValueOnce(uniqueConstraintViolation()) // 1ª requisição: perde a corrida no create()
+    mocks.campaignDraftFindUnique.mockResolvedValueOnce({ id: 'draft_winner', status: 'DRAFT', strategies: null, complianceFindings: null }) // 1ª requisição: busca o vencedor
+
+    const loser = await campaignService.createFromOpportunity(opportunity.id, 'concurrent-key')
+
+    expect(loser.id).toBe('draft_winner')
+    expect(provider.generateCampaignStrategies).not.toHaveBeenCalled()
+    expect(mocks.aiRunCreate).not.toHaveBeenCalled()
+  })
+
+  it('um erro de create() que NÃO é P2002 propaga normalmente (não é tratado como corrida de idempotência)', async () => {
+    mocks.campaignDraftFindUnique.mockResolvedValue(null)
+    mocks.campaignDraftCreate.mockRejectedValue(new Error('connection refused'))
+    mocks.getAiProvider.mockReturnValue(successfulProvider())
+
+    await expect(campaignService.createFromOpportunity(opportunity.id, 'key-1')).rejects.toThrow('connection refused')
+  })
+
+  // G) schema/migration têm UNIQUE idempotencyKey — prova contra o client
+  // Prisma REAL gerado (DMMF), não só o texto do schema.prisma.
+  it('G) o client Prisma gerado declara CampaignDraft.idempotencyKey como campo único', async () => {
+    const { Prisma: RealPrisma } = await vi.importActual<typeof import('@prisma/client')>('@prisma/client')
+    const model = RealPrisma.dmmf.datamodel.models.find((m) => m.name === 'CampaignDraft')
+    const field = model?.fields.find((f) => f.name === 'idempotencyKey')
+    expect(field).toBeDefined()
+    expect(field?.isUnique).toBe(true)
   })
 })
 
 describe('campaignService — approval gate (IA nunca aprova sozinha)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.assertAiDatabaseConfigured.mockImplementation(() => {})
     mocks.getAiPrisma.mockReturnValue(aiPrismaStub())
     mocks.verifyMetaTemplateContract.mockResolvedValue(null) // aprovado, por padrão, nos testes que não são sobre o gate de template
   })
@@ -332,10 +346,9 @@ describe('campaignService — approval gate (IA nunca aprova sozinha)', () => {
   })
 })
 
-describe('campaignService — TEMPLATE_EXECUTION_GATE (Final Pre-Activation Readiness, seção 9)', () => {
+describe('campaignService — TEMPLATE_EXECUTION_GATE', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.assertAiDatabaseConfigured.mockImplementation(() => {})
     mocks.getAiPrisma.mockReturnValue(aiPrismaStub())
     mocks.campaignDraftFindUnique.mockResolvedValue({ id: 'draft_1', status: 'APPROVED', opportunityType: 'ABANDONED_CART' })
   })
@@ -361,5 +374,18 @@ describe('campaignService — envio real permanece desligado nesta fase', () => 
     const text = fs.readFileSync(path.join(process.cwd(), 'src/services/ai/campaignService.ts'), 'utf8')
     expect(text).not.toMatch(/whatsappService/)
     expect(text).not.toMatch(/sendTemplate|sendTextMessage/)
+  })
+
+  // J) campaigns/learning/admin usam apenas aiPrisma — nenhum destes
+  // arquivos importa config/prisma diretamente para tocar campaign_drafts/
+  // ai_runs.
+  it('J) campaignService.ts e learningService.ts nunca importam config/prisma — só config/aiPrisma', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    for (const file of ['src/services/ai/campaignService.ts', 'src/services/ai/learningService.ts']) {
+      const text = fs.readFileSync(path.join(process.cwd(), file), 'utf8')
+      expect(text).not.toMatch(/from ['"](\.\.\/)*config\/prisma['"]/)
+      expect(text).toMatch(/from ['"](\.\.\/)*config\/aiPrisma['"]/)
+    }
   })
 })

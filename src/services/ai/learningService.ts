@@ -1,4 +1,4 @@
-import { prisma } from '../../config/prisma'
+import { getAiPrisma } from '../../config/aiPrisma'
 import { env } from '../../config/env'
 
 // Sem MessageLog.campaignDraftId (não existe ainda — adicioná-lo exigiria
@@ -7,9 +7,15 @@ import { env } from '../../config/env'
 // específica. E como REAL_SEND_ENABLED=false nesta fase, nenhuma campanha
 // gerada aqui jamais dispara envio real — então essas métricas são
 // genuinamente inexistentes ainda, não "zero por falta de tracking".
+//
+// Final Pre-Activation Readiness — Activation Wiring v2 (seção 5): lê
+// campaignDraft através do client isolado — sem AI_DATABASE_URL, este
+// summary fica indisponível (503 AI_DATABASE_NOT_CONFIGURED) igual a
+// list()/getById()/etc., nunca cai de volta para o banco compartilhado.
 export async function getLearningSummary() {
+  const aiPrisma = getAiPrisma()
   const [byStatus] = await Promise.all([
-    prisma.campaignDraft.groupBy({ by: ['status'], _count: { _all: true } }),
+    aiPrisma.campaignDraft.groupBy({ by: ['status'], _count: { _all: true } }),
   ])
 
   return {

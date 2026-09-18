@@ -29,14 +29,34 @@ function handleError(res: Response, error: unknown) {
   return res.status(500).json({ error: 'Erro inesperado ao processar a campanha' })
 }
 
+// Uma por ação humana, gerada no cliente (crypto.randomUUID(), só em
+// memória — ver public/crm-v2/app.js). Formato não é travado em UUID
+// especificamente (evita acoplar o contrato HTTP a uma implementação de
+// geração específica), só um tamanho/charset razoável — suficiente para
+// rejeitar vazio, espaços, ou um valor absurdamente longo.
+const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9._-]{8,200}$/
+
+function parseIdempotencyKey(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const trimmed = raw.trim()
+  return IDEMPOTENCY_KEY_PATTERN.test(trimmed) ? trimmed : null
+}
+
 // Leitura: protegida só pelo crmAuth já aplicado em /crm-api no index.ts
-// (mesmo nível de acesso somente-leitura das outras 7 áreas).
+// (mesmo nível de acesso somente-leitura das outras 7 áreas). opportunities
+// usa só o banco primário read-only (aiOpportunityEngine/remarketingService)
+// — nunca toca campaign_drafts/ai_runs, por isso nunca depende de
+// AI_DATABASE_URL.
 router.get('/opportunities', async (_req: Request, res: Response) => {
   res.json({ data: await generateOpportunities() })
 })
 
 router.get('/campaigns', async (_req: Request, res: Response) => {
-  res.json({ data: await campaignService.list() })
+  try {
+    res.json({ data: await campaignService.list() })
+  } catch (error) {
+    handleError(res, error)
+  }
 })
 
 router.get('/campaigns/:id', async (req: Request, res: Response) => {
@@ -48,22 +68,28 @@ router.get('/campaigns/:id', async (req: Request, res: Response) => {
 })
 
 router.get('/learning', async (_req: Request, res: Response) => {
-  res.json(await getLearningSummary())
+  try {
+    res.json(await getLearningSummary())
+  } catch (error) {
+    handleError(res, error)
+  }
 })
 
 // Escrita: mesmo x-crm-read-secret do resto do preview (é o único segredo
 // que a tela já coleta). Seguro porque estas rotas nunca tocam WhatsApp,
-// Nuvemshop ou dado de cliente existente — só as tabelas novas e isoladas
-// campaign_drafts/ai_runs, e só quando CRM_PREVIEW_READONLY libera a exceção
-// de escrita em index.ts.
+// Nuvemshop ou dado de cliente existente — só as tabelas isoladas
+// campaign_drafts/ai_runs, através do client dedicado (getAiPrisma()), nunca
+// do banco compartilhado.
 router.post('/campaigns', async (req: Request, res: Response) => {
   const opportunityId = String(req.body?.opportunityId ?? '')
   if (!opportunityId) return res.status(400).json({ error: 'opportunityId é obrigatório' })
-  // idempotencyKey é opcional (retrocompatível): quando o chamador envia uma
-  // key por clique humano, um retry com a MESMA key nunca chama a IA de novo
-  // — devolve o draft já criado. Sem key, comportamento inalterado.
-  const idempotencyKeyRaw = req.body?.idempotencyKey
-  const idempotencyKey = typeof idempotencyKeyRaw === 'string' && idempotencyKeyRaw.trim() ? idempotencyKeyRaw.trim() : undefined
+  const idempotencyKey = parseIdempotencyKey(req.body?.idempotencyKey)
+  if (!idempotencyKey) {
+    return res.status(400).json({
+      error: 'idempotencyKey é obrigatória (uma por ação humana, gerada no cliente) — 8 a 200 caracteres alfanuméricos/._-',
+      code: 'IDEMPOTENCY_KEY_REQUIRED',
+    })
+  }
   try {
     res.status(201).json(await campaignService.createFromOpportunity(opportunityId, idempotencyKey))
   } catch (error) {

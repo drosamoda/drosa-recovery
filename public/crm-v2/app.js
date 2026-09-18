@@ -710,13 +710,26 @@ function renderOpportunityCard(o) {
     <div class="opp-error" id="oppErr-${esc(o.id)}"></div>
   </div>`
 }
+// Idempotency key por AÇÃO HUMANA (Final Pre-Activation Readiness, seção 1):
+// vive só neste Map em memória — nunca em nenhum storage persistente do
+// navegador — não deve sobreviver a um reload. Um retry da MESMA tentativa
+// (erro, clique de novo) reusa a key já gerada; um clique deliberado NOVO
+// (após sucesso, ou para uma oportunidade diferente) sempre recebe uma key
+// nova.
+const pendingCampaignIdempotencyKeys = new Map()
+
 async function generateCampaignFromOpportunity(opportunityId, btn) {
   const errEl = $('oppErr-' + opportunityId)
   const originalLabel = btn.textContent
   btn.disabled = true; btn.textContent = 'Gerando…'
   if (errEl) errEl.innerHTML = ''
+  if (!pendingCampaignIdempotencyKeys.has(opportunityId)) {
+    pendingCampaignIdempotencyKeys.set(opportunityId, crypto.randomUUID())
+  }
+  const idempotencyKey = pendingCampaignIdempotencyKeys.get(opportunityId)
   try {
-    const draft = await apiPost('ai/campaigns', { opportunityId })
+    const draft = await apiPost('ai/campaigns', { opportunityId, idempotencyKey })
+    pendingCampaignIdempotencyKeys.delete(opportunityId) // sucesso: a próxima geração desta oportunidade é uma ação nova, não um retry
     state.tab = 'campaigns'; state.campaignId = draft.id; state.page = 1
     load()
   } catch (e) {

@@ -1,17 +1,16 @@
 import { createHash } from 'crypto'
 import { Prisma } from '@prisma/client'
-import { env } from '../../config/env'
-import { getAiPrisma, assertAiDatabaseConfigured } from '../../config/aiPrisma'
+import { getAiPrisma } from '../../config/aiPrisma'
 import { getOpportunityById, Opportunity } from '../aiOpportunityEngine'
 import { productTruthService } from '../productTruthService'
 import { enrichOpportunityEvidence } from '../campaignEvidenceService'
 import { segmentContracts, Segment } from '../remarketingService'
 import { verifyMetaTemplateContract } from '../templateContracts'
 import { getAiProvider } from './providerFactory'
-import { acquireGenerationSlot } from './aiRateLimiter'
+import { acquireGenerationSlot, AiConcurrencyLimitError, AiRateLimitExceededError } from './aiRateLimiter'
 import { PROMPT_VERSION } from './campaignPromptContract'
 import { auditAllStrategies, auditClaimCategories, ComplianceFinding } from './complianceService'
-import { CampaignPromptInput, Strategy } from './aiProvider'
+import { AiProviderConfigError, AiProviderResponseError, AiProviderTimeoutError, CampaignPromptInput, Strategy } from './aiProvider'
 import { resolveStrategyDirections, auditDirectionAdherence } from './strategyPlaybook'
 import { evaluateCreativeDistance } from './strategyDistanceService'
 import { evaluateStrategyQuality } from './strategyQualityRubric'
@@ -24,24 +23,32 @@ export class CampaignNotFoundError extends Error {}
 export class InvalidCampaignStateError extends Error {}
 export class CampaignTemplateNotApprovedError extends Error {}
 
-// Sanitização defensiva do erro ANTES de persistir em aiRun.errorMessage (uma
-// coluna que humanos leem na tela de campanhas) — nunca confia que a
-// mensagem de exceção do SDK/Prisma/axios já veio limpa. Redige tanto os
-// valores reais dos segredos configurados (o caso mais provável de
-// vazamento: um erro de auth ecoando o header enviado) quanto o padrão
-// genérico usuário:senha de connection string, para cobrir erros de outras
-// origens que citem uma URL de banco.
-const SECRET_VALUES = [
-  env.OPENAI_API_KEY, env.ANTHROPIC_API_KEY, env.ADMIN_SECRET, env.JOBS_SECRET,
-  env.CRM_READ_SECRET, env.WEBHOOK_SECRET, env.META_ACCESS_TOKEN, env.NUVEMSHOP_ACCESS_TOKEN,
-  env.AI_DATABASE_URL, env.DATABASE_URL, env.DIRECT_URL,
-].filter((value) => value.length > 0)
+// Activation Wiring v2, seção 8: nunca persiste a mensagem de exceção
+// (mesmo redigida) em ai_runs.errorMessage — só uma categoria fechada. A
+// categoria é suficiente para um humano decidir "tentar de novo agora" vs.
+// "isso precisa de configuração", sem risco de a coluna um dia ecoar prompt
+// bruto, resposta bruta, stack trace ou segredo.
+export type AiErrorCategory = 'AI_TIMEOUT' | 'AI_RATE_LIMIT' | 'AI_PROVIDER_ERROR' | 'AI_SCHEMA_ERROR' | 'AI_CONFIG_ERROR' | 'AI_UNKNOWN_ERROR'
 
-function sanitizeErrorMessage(message: string): string {
-  let sanitized = message
-  for (const secret of SECRET_VALUES) sanitized = sanitized.split(secret).join('[REDACTED]')
-  sanitized = sanitized.replace(/:\/\/[^\s:/@]+:[^\s@]+@/g, '://[REDACTED]:[REDACTED]@')
-  return sanitized
+function categorizeAiError(error: unknown): AiErrorCategory {
+  if (error instanceof AiProviderTimeoutError) return 'AI_TIMEOUT'
+  if (error instanceof AiConcurrencyLimitError || error instanceof AiRateLimitExceededError) return 'AI_RATE_LIMIT'
+  if (error instanceof AiProviderConfigError) return 'AI_CONFIG_ERROR'
+  if (error instanceof AiProviderResponseError) {
+    // AiProviderResponseError cobre vários casos hoje (refusal, rate limit
+    // 429, validação de schema, erro genérico da API) — todos com mensagens
+    // que NÓS escrevemos em anthropicProvider.ts/openAiProvider.ts (nunca o
+    // texto bruto do SDK), então checar por essas duas palavras-chave é
+    // seguro, não um parsing de conteúdo de terceiros.
+    if (/rate limit/i.test(error.message)) return 'AI_RATE_LIMIT'
+    if (/valida(ç|c)ão de schema/i.test(error.message)) return 'AI_SCHEMA_ERROR'
+    return 'AI_PROVIDER_ERROR'
+  }
+  return 'AI_UNKNOWN_ERROR'
+}
+
+function isUniqueConstraintViolation(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002'
 }
 
 // REPEAT_PURCHASE reaproveita o template de recent_customer (mesma escolha
@@ -58,13 +65,12 @@ const OPPORTUNITY_TEMPLATE_SEGMENT: Record<Opportunity['type'], Segment> = {
   ENGAGED_NO_PURCHASE: 'engaged_no_purchase',
 }
 
-// Fail-closed por design (seção 9, Final Pre-Activation Readiness): copy
-// gerada pela IA nunca implica que o template correspondente está aprovado
-// no WhatsApp Business — só verifyMetaTemplateContract() contra a Meta
-// (mesma função já usada por remarketingService) prova isso. Chamado no
-// único ponto que hoje se aproxima de "execução" (schedule); nenhum envio
-// real acontece aqui nem em lugar nenhum desta rodada (REAL_SEND_ENABLED
-// continua não existindo como caminho de código, só como intenção).
+// Fail-closed por design: copy gerada pela IA nunca implica que o template
+// correspondente está aprovado no WhatsApp Business — só
+// verifyMetaTemplateContract() contra a Meta (mesma função já usada por
+// remarketingService) prova isso. Chamado no único ponto que hoje se
+// aproxima de "execução" (schedule); nenhum envio real acontece aqui nem em
+// lugar nenhum desta rodada.
 async function assertTemplateApprovedForSend(opportunityType: Opportunity['type']): Promise<void> {
   const segment = OPPORTUNITY_TEMPLATE_SEGMENT[opportunityType]
   const templateName = segmentContracts[segment].template
@@ -102,37 +108,29 @@ async function buildPromptInput(opportunity: Opportunity): Promise<CampaignPromp
 
 type CreateResult = { id: string; status: string; strategies: Strategy[] | null; complianceFindings: unknown }
 
+function fromExistingDraft(draft: { id: string; status: string; strategies: unknown; complianceFindings: unknown }): CreateResult {
+  return { id: draft.id, status: draft.status, strategies: draft.strategies as Strategy[] | null, complianceFindings: draft.complianceFindings }
+}
+
 export const campaignService = {
   // Gera um novo draft a partir de uma oportunidade real. Nunca chamado
   // automaticamente — sempre a partir de um clique humano em "Gerar campanha".
   //
-  // idempotencyKey (Final Pre-Activation Readiness, seção 5): opcional, vindo
-  // de uma ação humana específica (um clique = uma key nova). Guardado dentro
-  // de audienceSnapshot (Json já existente) em vez de uma coluna nova — evita
-  // qualquer alteração de schema.prisma nesta rodada, o que evitaria também
-  // que list()/getById() (que hoje continuam lendo o banco compartilhado
-  // quando AI_DATABASE_URL está ausente) quebrassem contra colunas que a
-  // migração real ainda não criou. A proteção de corrida verdadeira (dois
-  // cliques simultâneos, não um retry sequencial) só passa a existir de
-  // verdade quando o índice único preparado em
-  // docs/sql/pending-activation/02-campaign-draft-idempotency-key.sql for
-  // aplicado — até lá, o check abaixo (findFirst antes de create) já cobre o
-  // caso pedido explicitamente: "mesmo retry => uma única chamada à IA".
-  async createFromOpportunity(opportunityId: string, idempotencyKey?: string): Promise<CreateResult> {
-    // Ordem importa: nenhuma chamada paga, nenhuma escrita, quando o banco de
-    // IA não está configurado — a primeira linha da função, antes até da
-    // busca da oportunidade.
-    assertAiDatabaseConfigured()
+  // idempotencyKey (Activation Wiring v2, seção 2-4): OBRIGATÓRIA — o
+  // frontend gera uma por ação humana (crypto.randomUUID(), só em memória).
+  // Reenviar a MESMA key (retry sequencial) devolve o draft já criado, sem
+  // chamar a IA de novo. Duas requisições concorrentes com a MESMA key
+  // (corrida real) são resolvidas pela constraint UNIQUE de
+  // CampaignDraft.idempotencyKey: a que perder a corrida do create() recebe
+  // P2002 do Postgres, busca o draft vencedor e o devolve — nunca chama o
+  // provedor uma segunda vez.
+  async createFromOpportunity(opportunityId: string, idempotencyKey: string): Promise<CreateResult> {
+    // Primeira linha: nenhuma chamada paga, nenhuma escrita, quando o banco
+    // de IA não está configurado.
     const aiPrisma = getAiPrisma()
 
-    if (idempotencyKey) {
-      const existing = await aiPrisma.campaignDraft.findFirst({
-        where: { audienceSnapshot: { path: ['idempotencyKey'], equals: idempotencyKey } },
-      })
-      if (existing) {
-        return { id: existing.id, status: existing.status, strategies: existing.strategies as Strategy[] | null, complianceFindings: existing.complianceFindings }
-      }
-    }
+    const existing = await aiPrisma.campaignDraft.findUnique({ where: { idempotencyKey } })
+    if (existing) return fromExistingDraft(existing)
 
     const opportunity = await getOpportunityById(opportunityId)
     if (!opportunity) throw new CampaignNotFoundError(`Oportunidade não encontrada ou sem dados suficientes: ${opportunityId}`)
@@ -143,111 +141,120 @@ export const campaignService = {
     const provider = getAiProvider()
     provider.assertConfigured()
 
-    // Controles pagos (seção 6): concorrência e taxa por minuto, checados
-    // ANTES da primeira escrita — um limite atingido também é zero writes.
-    const releaseGenerationSlot = acquireGenerationSlot()
-
+    let draft
     try {
-      const draft = await aiPrisma.campaignDraft.create({
+      draft = await aiPrisma.campaignDraft.create({
         data: {
           opportunityId: opportunity.id,
           opportunityType: opportunity.type,
           opportunityTitle: opportunity.title,
           status: 'DRAFT',
+          idempotencyKey,
           audienceSnapshot: {
             audienceCount: opportunity.audienceCount,
             eligibleCount: opportunity.eligibleCount,
             blockedCount: opportunity.blockedCount,
             evidence: opportunity.evidence,
             generatedAt: opportunity.generatedAt,
-            ...(idempotencyKey ? { idempotencyKey } : {}),
           },
         },
       })
-
-      const promptInput = await buildPromptInput(opportunity)
-      const inputHash = hash(JSON.stringify(promptInput))
-
-      try {
-        const { output, rawOutputText } = await provider.generateCampaignStrategies(promptInput)
-
-        const productResults = await Promise.all(output.strategies.map(s => productTruthService.verify(s.productId)))
-        const complianceFindings = auditAllStrategies(output.strategies, productResults.map(r => r.product))
-        // Strategy Lab v1.1 — Truth Hardening: claims IMPLÍCITAS (ex.: "continua
-        // disponível") que não usam nenhuma palavra de GUARDED_CLAIMS mas
-        // pressupõem um fato que promptInput.evidence não comprova.
-        const claimCategoryFindings = output.strategies.flatMap((strategy, index) =>
-          auditClaimCategories(strategy, index, opportunity.type, promptInput.evidence))
-
-        // Strategy Lab v1: dois gates adicionais, tão hard-block quanto compliance.
-        // Adesão de direção garante que a IA não embaralhou/pulou A/B/C; distância
-        // criativa garante que A/B/C não são a mesma ideia reescrita. Nenhum dos
-        // dois é previsão de venda — são checagens estruturais do texto gerado.
-        const directionFindings = auditDirectionAdherence(output.strategies, promptInput.playbook)
-        const distanceFindings = evaluateCreativeDistance(output.strategies)
-
-        const findings: ComplianceFinding[] = [
-          ...complianceFindings,
-          ...claimCategoryFindings,
-          ...directionFindings.map(f => ({ strategyIndex: f.strategyIndex, claim: 'direction_mismatch', reason: f.reason })),
-          ...distanceFindings.flatMap(f => ([
-            { strategyIndex: f.strategyIndexA, claim: 'creative_distance', reason: f.reason },
-            { strategyIndex: f.strategyIndexB, claim: 'creative_distance', reason: f.reason },
-          ])),
-        ]
-
-        const strategiesWithStatus = output.strategies.map((strategy, index) => {
-          const strategyFindings = findings.filter(f => f.strategyIndex === index)
-          const qualityRubric = evaluateStrategyQuality(strategy, {
-            product: productResults[index]?.product ?? null,
-            complianceFindings,
-            distanceFindings,
-            strategyIndex: index,
-          })
-          return { ...strategy, status: strategyFindings.length ? 'BLOCKED' : 'OK', findings: strategyFindings, qualityRubric }
-        })
-
-        const anyBlocked = findings.length > 0
-        const status = anyBlocked ? 'DRAFT' : 'AWAITING_HUMAN_APPROVAL'
-
-        await aiPrisma.aiRun.create({
-          data: {
-            campaignDraftId: draft.id,
-            provider: provider.name,
-            model: provider.model,
-            promptVersion: PROMPT_VERSION,
-            inputHash,
-            outputHash: hash(rawOutputText),
-            status: 'ok',
-          },
-        })
-
-        const updated = await aiPrisma.campaignDraft.update({
-          where: { id: draft.id },
-          data: {
-            strategies: strategiesWithStatus as unknown as Prisma.InputJsonValue,
-            productTruthStatus: anyBlocked ? 'BLOCKED' : 'APPROVED',
-            complianceStatus: anyBlocked ? 'BLOCKED' : 'APPROVED',
-            complianceFindings: findings as unknown as Prisma.InputJsonValue,
-            status,
-          },
-        })
-
-        return { id: updated.id, status: updated.status, strategies: strategiesWithStatus, complianceFindings: findings }
-      } catch (error) {
-        await aiPrisma.aiRun.create({
-          data: {
-            campaignDraftId: draft.id,
-            provider: provider.name,
-            model: provider.model,
-            promptVersion: PROMPT_VERSION,
-            inputHash,
-            status: 'error',
-            errorMessage: sanitizeErrorMessage(error instanceof Error ? error.message : String(error)),
-          },
-        })
-        throw error
+    } catch (error) {
+      if (isUniqueConstraintViolation(error)) {
+        // Corrida real: outra requisição com a MESMA key venceu a criação
+        // entre o findUnique acima e este create — busca o draft vencedor e
+        // devolve, em vez de duplicar a chamada à IA.
+        const winner = await aiPrisma.campaignDraft.findUnique({ where: { idempotencyKey } })
+        if (winner) return fromExistingDraft(winner)
       }
+      throw error
+    }
+
+    const promptInput = await buildPromptInput(opportunity)
+    const inputHash = hash(JSON.stringify(promptInput))
+
+    // Controles pagos: concorrência e taxa por minuto, checados
+    // imediatamente antes da chamada paga em si.
+    const releaseGenerationSlot = acquireGenerationSlot()
+    try {
+      const { output, rawOutputText } = await provider.generateCampaignStrategies(promptInput)
+
+      const productResults = await Promise.all(output.strategies.map(s => productTruthService.verify(s.productId)))
+      const complianceFindings = auditAllStrategies(output.strategies, productResults.map(r => r.product))
+      // Strategy Lab v1.1 — Truth Hardening: claims IMPLÍCITAS (ex.: "continua
+      // disponível") que não usam nenhuma palavra de GUARDED_CLAIMS mas
+      // pressupõem um fato que promptInput.evidence não comprova.
+      const claimCategoryFindings = output.strategies.flatMap((strategy, index) =>
+        auditClaimCategories(strategy, index, opportunity.type, promptInput.evidence))
+
+      // Strategy Lab v1: dois gates adicionais, tão hard-block quanto compliance.
+      // Adesão de direção garante que a IA não embaralhou/pulou A/B/C; distância
+      // criativa garante que A/B/C não são a mesma ideia reescrita. Nenhum dos
+      // dois é previsão de venda — são checagens estruturais do texto gerado.
+      const directionFindings = auditDirectionAdherence(output.strategies, promptInput.playbook)
+      const distanceFindings = evaluateCreativeDistance(output.strategies)
+
+      const findings: ComplianceFinding[] = [
+        ...complianceFindings,
+        ...claimCategoryFindings,
+        ...directionFindings.map(f => ({ strategyIndex: f.strategyIndex, claim: 'direction_mismatch', reason: f.reason })),
+        ...distanceFindings.flatMap(f => ([
+          { strategyIndex: f.strategyIndexA, claim: 'creative_distance', reason: f.reason },
+          { strategyIndex: f.strategyIndexB, claim: 'creative_distance', reason: f.reason },
+        ])),
+      ]
+
+      const strategiesWithStatus = output.strategies.map((strategy, index) => {
+        const strategyFindings = findings.filter(f => f.strategyIndex === index)
+        const qualityRubric = evaluateStrategyQuality(strategy, {
+          product: productResults[index]?.product ?? null,
+          complianceFindings,
+          distanceFindings,
+          strategyIndex: index,
+        })
+        return { ...strategy, status: strategyFindings.length ? 'BLOCKED' : 'OK', findings: strategyFindings, qualityRubric }
+      })
+
+      const anyBlocked = findings.length > 0
+      const status = anyBlocked ? 'DRAFT' : 'AWAITING_HUMAN_APPROVAL'
+
+      await aiPrisma.aiRun.create({
+        data: {
+          campaignDraftId: draft.id,
+          provider: provider.name,
+          model: provider.model,
+          promptVersion: PROMPT_VERSION,
+          inputHash,
+          outputHash: hash(rawOutputText),
+          status: 'ok',
+        },
+      })
+
+      const updated = await aiPrisma.campaignDraft.update({
+        where: { id: draft.id },
+        data: {
+          strategies: strategiesWithStatus as unknown as Prisma.InputJsonValue,
+          productTruthStatus: anyBlocked ? 'BLOCKED' : 'APPROVED',
+          complianceStatus: anyBlocked ? 'BLOCKED' : 'APPROVED',
+          complianceFindings: findings as unknown as Prisma.InputJsonValue,
+          status,
+        },
+      })
+
+      return { id: updated.id, status: updated.status, strategies: strategiesWithStatus, complianceFindings: findings }
+    } catch (error) {
+      await aiPrisma.aiRun.create({
+        data: {
+          campaignDraftId: draft.id,
+          provider: provider.name,
+          model: provider.model,
+          promptVersion: PROMPT_VERSION,
+          inputHash,
+          status: 'error',
+          errorMessage: categorizeAiError(error),
+        },
+      })
+      throw error
     } finally {
       releaseGenerationSlot()
     }

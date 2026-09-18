@@ -507,6 +507,14 @@ model CampaignDraft {
   opportunityType    OpportunityType
   opportunityTitle   String
   status             CampaignStatus      @default(DRAFT)
+  // Final Pre-Activation Readiness — Activation Wiring v2: uma key por ação
+  // humana (gerada no frontend via crypto.randomUUID()), garantindo que um
+  // retry da mesma tentativa nunca chame a IA duas vezes. Nullable porque só
+  // passou a ser exigida a partir desta rodada (drafts antigos não têm). A
+  // UNIQUE nasce junto com campaign_drafts na própria migration inicial
+  // (prisma/migrations/20260915173122_add_ai_campaign_intelligence) — NÃO
+  // aplicada no banco ainda (nenhuma migration foi rodada nesta rodada).
+  idempotencyKey     String?             @unique
   audienceSnapshot   Json
   strategies         Json?
   selectedStrategy   Int?

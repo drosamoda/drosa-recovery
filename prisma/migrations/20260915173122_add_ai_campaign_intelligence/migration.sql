@@ -20,6 +20,7 @@ CREATE TABLE "campaign_drafts" (
     "opportunityType" "OpportunityType" NOT NULL,
     "opportunityTitle" TEXT NOT NULL,
     "status" "CampaignStatus" NOT NULL DEFAULT 'DRAFT',
+    "idempotencyKey" TEXT,
     "audienceSnapshot" JSONB NOT NULL,
     "strategies" JSONB,
     "selectedStrategy" INTEGER,
@@ -53,6 +54,9 @@ CREATE TABLE "ai_runs" (
 
     CONSTRAINT "ai_runs_pkey" PRIMARY KEY ("id")
 );
+
+-- CreateIndex
+CREATE UNIQUE INDEX "campaign_drafts_idempotencyKey_key" ON "campaign_drafts"("idempotencyKey");
 
 -- CreateIndex
 CREATE INDEX "campaign_drafts_status_idx" ON "campaign_drafts"("status");
