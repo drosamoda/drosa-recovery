@@ -127,7 +127,7 @@ async function evaluateCandidates(segment: Segment | 'all'): Promise<CandidateEv
         order.customerId,
         order.normalizedPhone,
         pendingSegment,
-        [...(!order.sourceCreatedAt ? ['order_timing_uncertain'] : []), ...(!order.orderUrl ? ['missing_payment_url'] : [])],
+        [...(!order.sourceCreatedAt ? ['order_timing_uncertain'] : [])],
       )
     }
   }
