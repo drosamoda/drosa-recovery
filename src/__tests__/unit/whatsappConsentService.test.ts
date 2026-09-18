@@ -41,6 +41,11 @@ describe('WhatsApp consent registry', () => {
     vi.clearAllMocks()
   })
 
+  it('does not query consent registry for an invalid normalized phone', async () => {
+    expect(await hasActiveWhatsappConsent('5511000000000')).toBe(false)
+    expect(prisma.whatsappConsent.findUnique).not.toHaveBeenCalled()
+  })
+
   it('accepts only an explicit, active and timestamped consent record', async () => {
     vi.mocked(prisma.whatsappConsent.findUnique).mockResolvedValue({
       consented: true,
