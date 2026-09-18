@@ -23,6 +23,10 @@ Se precisar de ajuda com tamanho, tecido ou combinação, me chama por aqui.` },
     body: 'Oi, {{1}}! Pedido nº *{{2}}* no valor de *R$ {{3}}* aguardando pagamento PIX. Complete o pagamento para garantir seus itens! 💙' },
 }
 
+export function isMarketingTemplate(name: string): boolean {
+  return templateContracts[name]?.category === 'MARKETING'
+}
+
 export function renderContract(name: string, values: string[]): string | null {
   const contract = templateContracts[name]
   if (!contract || values.length !== contract.parameters.length || values.some(value => !value.trim() || /�|\?\?|{{|}}/.test(value))) return null
