@@ -114,6 +114,21 @@ describe('recordConsentFromNuvemshopOrderExtra', () => {
     expect(prisma.whatsappConsent.upsert).not.toHaveBeenCalled()
   })
 
+  it.each([
+    '551199999999',
+    '5511000000000',
+    '5599999999999',
+    '5583123456789',
+  ])('telefone normalizado estruturalmente invalido (%s) falha fechado', async (phone) => {
+    await recordConsentFromNuvemshopOrderExtra({
+      normalizedPhone: phone,
+      extra: validGrantedExtra,
+      nuvemshopOrderId: '4-invalid',
+    })
+
+    expect(prisma.whatsappConsent.upsert).not.toHaveBeenCalled()
+  })
+
   it.each([null, undefined, ''])('telefone ausente/inválido (%j) falha fechado — nunca grava', async (phone) => {
     await recordConsentFromNuvemshopOrderExtra({
       normalizedPhone: phone,
