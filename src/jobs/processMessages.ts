@@ -19,6 +19,7 @@ export type ProcessResult = {
   dryRun: number
   sent: number
   skipped: number
+  deferred: number
   failed: number
   errors: number
   retryScheduled: number
@@ -578,6 +579,7 @@ export async function runProcessMessages(): Promise<ProcessResult> {
     dryRun: 0,
     sent: 0,
     skipped: 0,
+    deferred: 0,
     failed: 0,
     errors: 0,
     retryScheduled: 0,
@@ -638,8 +640,11 @@ export async function runProcessMessages(): Promise<ProcessResult> {
     try {
       const disabledReason = disabledFlowReason(msg)
       if (disabledReason) {
-        await markSkipped(msg.id, disabledReason)
-        result.skipped++
+        // Gate operacional fechado não invalida a elegibilidade histórica da
+        // mensagem. Mantém pending para uma futura ativação em vez de consumir
+        // definitivamente a idempotency key como skipped.
+        await deferClaim(msg.id, disabledReason)
+        result.deferred++
         continue
       }
 
@@ -699,12 +704,14 @@ export async function runProcessMessages(): Promise<ProcessResult> {
 
       if (isMarketingTemplate(sendParams.templateName) && !isMarketingSendWindowOpen()) {
         await deferClaim(msg.id, 'marketing_send_window_closed')
+        result.deferred++
         continue
       }
 
       if (msg.entityType === EntityType.abandoned_checkout) {
         if (abandonedCartSendAttempts >= env.ABANDONED_CART_MAX_SENDS_PER_RUN) {
           await releaseClaim(msg.id)
+          result.deferred++
           continue
         }
         abandonedCartSendAttempts++
@@ -713,6 +720,7 @@ export async function runProcessMessages(): Promise<ProcessResult> {
       if (isRemarketingMessage(msg)) {
         if (remarketingSendAttempts >= env.REMARKETING_MAX_SENDS_PER_RUN) {
           await releaseClaim(msg.id)
+          result.deferred++
           continue
         }
         remarketingSendAttempts++
