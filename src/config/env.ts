@@ -64,6 +64,7 @@ const envSchema = z.object({
   VIP_MIN_SPEND: z.coerce.number().positive().default(500),
   MARKETING_SEND_HOUR_START: z.coerce.number().int().min(0).max(23).default(9),
   MARKETING_SEND_HOUR_END: z.coerce.number().int().min(1).max(24).default(20),
+  MARKETING_TIME_ZONE: z.string().default('America/Sao_Paulo'),
   MESSAGE_CLAIM_LEASE_SECONDS: z.coerce.number().int().min(30).default(300),
 
   CRON_ABANDONED_CART_INTERVAL: z.coerce.number().default(15),
