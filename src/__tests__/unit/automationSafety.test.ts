@@ -11,4 +11,8 @@ describe('automation safety defaults', () => {
   it('mantem remarketing desligado por padrao no ambiente de teste', () => {
     expect(env.REMARKETING_ENABLED).toBe(false)
   })
+  it('mantem a Inbox manual em dry-run por padrao', () => {
+    expect(env.INBOX_SEND_DRY_RUN).toBe(true)
+  })
+
 })
