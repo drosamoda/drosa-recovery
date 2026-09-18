@@ -2,7 +2,7 @@ import { prisma } from '../config/prisma'
 import { EntityType, MessageStatus, MessageLog } from '@prisma/client'
 
 type CreatePendingParams = {
-  entityType: 'order' | 'abandoned_checkout'
+  entityType: 'order' | 'abandoned_checkout' | 'conversation'
   entityId: string
   customerId?: string | null
   normalizedPhone: string
@@ -39,7 +39,7 @@ export const messageService = {
     await prisma.contactFrequencyLock.deleteMany({ where: { normalizedPhone, messageLogId } })
   },
   generateIdempotencyKey(
-    entityType: 'order' | 'abandoned_checkout',
+    entityType: 'order' | 'abandoned_checkout' | 'conversation',
     entityId: string,
     templateName: string
   ): string {
@@ -83,7 +83,7 @@ export const messageService = {
 
   // Verifica se já existe log não-cancelável para esse entity+template
   async existsBlockingLog(
-    entityType: 'order' | 'abandoned_checkout',
+    entityType: 'order' | 'abandoned_checkout' | 'conversation',
     entityId: string,
     templateName: string
   ): Promise<boolean> {

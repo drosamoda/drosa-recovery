@@ -51,6 +51,20 @@ Se precisar de ajuda com tamanho, tecido ou combinação, me chama por aqui.`)
       .toContain('https://vip.example')
   })
 
+  it('renders approved remarketing templates as marketing with one name parameter', () => {
+    const names = [
+      'cliente_recente_drosa_v1',
+      'cliente_vip_drosa_v1',
+      'cliente_inativo_drosa_v1',
+      'atendimento_retomada_drosa_v1',
+    ]
+    for (const name of names) {
+      expect(renderContract(name, ['Ana'])).toContain('Ana')
+      expect(renderContract(name, [])).toBeNull()
+      expect(isMarketingTemplate(name)).toBe(true)
+    }
+  })
+
   it('classifies marketing phase 2 templates so consent and send-window gates apply', () => {
     expect(isMarketingTemplate('pagamento_confirmado_drosa_01')).toBe(true)
     expect(isMarketingTemplate('pix_cancelado_drosa_01')).toBe(true)

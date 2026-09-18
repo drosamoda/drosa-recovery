@@ -244,6 +244,7 @@ model MessageLog {
 enum EntityType {
   order
   abandoned_checkout
+  conversation
 }
 
 enum MessageStatus {
