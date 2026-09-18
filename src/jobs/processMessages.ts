@@ -213,11 +213,15 @@ async function revalidate(msg: MessageLog): Promise<ValidationResult> {
     return { ok: false, reason: 'inactive_template' }
   }
 
-  // 4. Regra ativa
-  const rule = await prisma.automationRule.findFirst({
-    where: { templateName: msg.templateName, active: true },
-  })
-  if (!rule) {
+  // 4. Regra ativa para automações transacionais. Remarketing usa o
+  // contrato de segmento + template ativo e não depende de EventType.
+  const remarketingMessage = isRemarketingMessage(msg)
+  const rule = remarketingMessage
+    ? null
+    : await prisma.automationRule.findFirst({
+        where: { templateName: msg.templateName, active: true },
+      })
+  if (!remarketingMessage && !rule) {
     return { ok: false, reason: 'inactive_rule' }
   }
 
@@ -319,6 +323,53 @@ async function revalidate(msg: MessageLog): Promise<ValidationResult> {
   }
 
   // ----------------------------------------------------------------
+  // Conversa — somente retomada de atendimento em remarketing
+  // ----------------------------------------------------------------
+  if (msg.entityType === EntityType.conversation) {
+    if (!remarketingMessage || msg.source !== 'remarketing:engaged_no_purchase') {
+      return { ok: false, reason: 'invalid_remarketing_segment' }
+    }
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: msg.entityId },
+      include: { contact: true },
+    })
+    if (!conversation || conversation.contact.phone !== msg.normalizedPhone || !conversation.lastInboundAt) {
+      return { ok: false, reason: 'segment_no_longer_eligible' }
+    }
+    const purchasedAfterConversation = await prisma.order.findFirst({
+      where: {
+        normalizedPhone: msg.normalizedPhone,
+        sourceCreatedAt: { gte: conversation.lastInboundAt },
+      },
+      select: { id: true },
+    })
+    if (purchasedAfterConversation) return { ok: false, reason: 'converted_before_send' }
+
+    const customerName = conversation.contact.name ?? 'Cliente'
+    const templateVariables = buildTemplateVariables({
+      templateName: msg.templateName,
+      customerName,
+    })
+    const renderedPreview = renderTemplatePreview(msg.templateName, {
+      templatePreview: template.messagePreview,
+      templateVariables,
+    }).renderedPreview
+
+    return {
+      ok: true,
+      params: {
+        to: msg.normalizedPhone,
+        templateName: msg.templateName,
+        languageCode: template.languageCode,
+        bodyParams: [firstName(customerName)],
+        templatePreview: template.messagePreview,
+        templateVariables,
+        renderedPreview,
+      },
+    }
+  }
+
+  // ----------------------------------------------------------------
   // Pedido — revalidações específicas
   // ----------------------------------------------------------------
   if (msg.entityType === EntityType.order) {
@@ -332,37 +383,101 @@ async function revalidate(msg: MessageLog): Promise<ValidationResult> {
         paymentStatus: true,
         paymentMethod: true,
         status: true,
+        sourceCreatedAt: true,
       },
     })
     if (!order) {
       return { ok: false, reason: 'invalid_phone' }
     }
-    if (['order_created_pix', 'order_created_boleto', 'boleto_expiring'].includes(rule.eventType)) {
-      if (['cancelled', 'canceled'].includes(order.status)) return { ok: false, reason: 'order_cancelled' }
-      if (order.paymentStatus !== 'pending' || ['paid', 'confirmed', 'authorized', 'refunded'].includes(order.paymentStatus)) {
-        return { ok: false, reason: 'payment_already_completed' }
-      }
-      const method = order.paymentMethod?.toLowerCase() ?? ''
-      if (rule.eventType === 'order_created_pix' ? !method.includes('pix') : !/boleto|ticket/.test(method)) {
-        return { ok: false, reason: 'payment_method_mismatch' }
-      }
-    }
-
     const customerName = order.customerName ?? 'Cliente'
     const orderNumber = order.orderNumber
     if (!customerName.trim() || !orderNumber) {
       return { ok: false, reason: 'template_data_missing' }
     }
 
-    const bodyParams = [customerName.trim().split(' ')[0], orderNumber]
-    if (rule.eventType === 'order_created_pix') {
-      const total = Number(order.total)
-      if (!Number.isFinite(total)) return { ok: false, reason: 'template_data_missing' }
-      bodyParams.push(total.toFixed(2).replace('.', ','))
-    }
-    if (rule.eventType === 'payment_confirmed' || rule.eventType === 'pix_cancelled') {
-      if (!env.GRUPO_VIP_LINK) return { ok: false, reason: 'template_data_missing' }
-      bodyParams.push(env.GRUPO_VIP_LINK)
+    const first = customerName.trim().split(' ')[0]
+    const bodyParams: string[] = [first]
+
+    if (remarketingMessage) {
+      const segment = msg.source?.startsWith('remarketing:') ? msg.source.slice('remarketing:'.length) : ''
+
+      if (segment === 'pix_pending' || segment === 'boleto_pending') {
+        if (['cancelled', 'canceled', 'refunded'].includes(order.status)) return { ok: false, reason: 'order_cancelled' }
+        if (order.paymentStatus !== 'pending') return { ok: false, reason: 'payment_already_completed' }
+        const method = order.paymentMethod?.toLowerCase() ?? ''
+        if (segment === 'pix_pending' ? !method.includes('pix') : !/boleto|ticket/.test(method)) {
+          return { ok: false, reason: 'payment_method_mismatch' }
+        }
+        bodyParams.push(orderNumber)
+        if (segment === 'pix_pending') {
+          const total = Number(order.total)
+          if (!Number.isFinite(total)) return { ok: false, reason: 'template_data_missing' }
+          bodyParams.push(total.toFixed(2).replace('.', ','))
+        }
+      } else if (segment === 'recent_customer') {
+        if (order.paymentStatus !== 'paid' || ['cancelled', 'canceled', 'refunded'].includes(order.status) || !order.sourceCreatedAt) {
+          return { ok: false, reason: 'segment_no_longer_eligible' }
+        }
+        const ageDays = (Date.now() - order.sourceCreatedAt.getTime()) / 86_400_000
+        if (ageDays < 0 || ageDays > env.REMARKETING_RECENT_CUSTOMER_DAYS) {
+          return { ok: false, reason: 'segment_no_longer_eligible' }
+        }
+      } else if (segment === 'inactive_customer') {
+        const latestPaid = await prisma.order.findFirst({
+          where: {
+            normalizedPhone: msg.normalizedPhone,
+            paymentStatus: 'paid',
+            status: { notIn: ['cancelled', 'canceled', 'refunded'] },
+            sourceCreatedAt: { not: null },
+          },
+          orderBy: { sourceCreatedAt: 'desc' },
+          select: { id: true, sourceCreatedAt: true },
+        })
+        if (!latestPaid?.sourceCreatedAt || latestPaid.id !== msg.entityId) {
+          return { ok: false, reason: 'segment_no_longer_eligible' }
+        }
+        const ageDays = (Date.now() - latestPaid.sourceCreatedAt.getTime()) / 86_400_000
+        if (ageDays < env.REMARKETING_INACTIVE_DAYS) return { ok: false, reason: 'segment_no_longer_eligible' }
+      } else if (segment === 'vip_customer') {
+        const paidHistory = await prisma.order.findMany({
+          where: {
+            normalizedPhone: msg.normalizedPhone,
+            paymentStatus: 'paid',
+            status: { notIn: ['cancelled', 'canceled', 'refunded'] },
+          },
+          select: { total: true },
+          take: 10000,
+        })
+        const spend = paidHistory.reduce((sum, item) => sum + Number(item.total), 0)
+        if (paidHistory.length < env.VIP_MIN_ORDERS || spend < env.VIP_MIN_SPEND) {
+          return { ok: false, reason: 'segment_no_longer_eligible' }
+        }
+      } else {
+        return { ok: false, reason: 'invalid_remarketing_segment' }
+      }
+    } else {
+      if (!rule) return { ok: false, reason: 'inactive_rule' }
+      if (['order_created_pix', 'order_created_boleto', 'boleto_expiring'].includes(rule.eventType)) {
+        if (['cancelled', 'canceled'].includes(order.status)) return { ok: false, reason: 'order_cancelled' }
+        if (order.paymentStatus !== 'pending' || ['paid', 'confirmed', 'authorized', 'refunded'].includes(order.paymentStatus)) {
+          return { ok: false, reason: 'payment_already_completed' }
+        }
+        const method = order.paymentMethod?.toLowerCase() ?? ''
+        if (rule.eventType === 'order_created_pix' ? !method.includes('pix') : !/boleto|ticket/.test(method)) {
+          return { ok: false, reason: 'payment_method_mismatch' }
+        }
+      }
+
+      bodyParams.push(orderNumber)
+      if (rule.eventType === 'order_created_pix') {
+        const total = Number(order.total)
+        if (!Number.isFinite(total)) return { ok: false, reason: 'template_data_missing' }
+        bodyParams.push(total.toFixed(2).replace('.', ','))
+      }
+      if (rule.eventType === 'payment_confirmed' || rule.eventType === 'pix_cancelled') {
+        if (!env.GRUPO_VIP_LINK) return { ok: false, reason: 'template_data_missing' }
+        bodyParams.push(env.GRUPO_VIP_LINK)
+      }
     }
 
     const templateVariables = buildTemplateVariables({
