@@ -10,7 +10,7 @@ const TEMPLATE_PREVIEW_MAP: Record<string, string> = {
   pagamento_confirmado_drosa_01: 'Pagamento confirmado enviado',
   pagamento_recusado_drosa_01: 'Aviso de pagamento recusado enviado',
   pix_cancelado_drosa_01: 'Aviso de pedido Pix cancelado enviado',
-  cliente_recente_drosa_v1: 'Mensagem para cliente recente enviada',
+  cliente_recente_drosa_v2: 'Mensagem para cliente recente enviada',
   cliente_vip_drosa_v1: 'Mensagem para cliente VIP enviada',
   cliente_inativo_drosa_v1: 'Mensagem de reativação enviada',
   atendimento_retomada_drosa_v1: 'Mensagem de retomada de atendimento enviada',
