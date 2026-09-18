@@ -101,6 +101,26 @@ function disabledFlowReason(msg: MessageLog): string | null {
   return null
 }
 
+const RECOVERABLE_REVALIDATION_REASONS = new Set([
+  'inactive_template',
+  'inactive_rule',
+])
+
+const RECOVERABLE_CONTRACT_REASONS = new Set([
+  'missing_meta_waba_id',
+  'meta_template_verification_failed',
+  'template_contract_mismatch',
+  'unsupported_template_components',
+])
+
+function isRecoverableRevalidationReason(reason: string): boolean {
+  return RECOVERABLE_REVALIDATION_REASONS.has(reason)
+}
+
+function isRecoverableContractReason(reason: string): boolean {
+  return RECOVERABLE_CONTRACT_REASONS.has(reason)
+}
+
 function firstName(fullName?: string | null): string {
   const normalized = fullName?.trim()
   if (!normalized) return 'Cliente'
@@ -652,9 +672,18 @@ export async function runProcessMessages(): Promise<ProcessResult> {
       const validation = await revalidate(msg)
 
       if (!validation.ok) {
-        await markSkipped(msg.id, validation.reason)
-        result.skipped++
-        logger.info('[processMessages] mensagem ignorada', { msgId: msg.id, reason: validation.reason })
+        if (isRecoverableRevalidationReason(validation.reason)) {
+          await deferClaim(msg.id, validation.reason)
+          result.deferred++
+        } else {
+          await markSkipped(msg.id, validation.reason)
+          result.skipped++
+        }
+        logger.info('[processMessages] mensagem bloqueada na revalidacao', {
+          msgId: msg.id,
+          reason: validation.reason,
+          recoverable: isRecoverableRevalidationReason(validation.reason),
+        })
         await sleep(env.MESSAGE_SEND_DELAY_MS)
         continue
       }
@@ -674,8 +703,13 @@ export async function runProcessMessages(): Promise<ProcessResult> {
         { marketingConsentProven },
       )
       if (contractError) {
-        await markSkipped(msg.id, contractError)
-        result.skipped++
+        if (isRecoverableContractReason(contractError)) {
+          await deferClaim(msg.id, contractError)
+          result.deferred++
+        } else {
+          await markSkipped(msg.id, contractError)
+          result.skipped++
+        }
         continue
       }
       sendParams.renderedPreview = renderContract(sendParams.templateName, sendParams.bodyParams) ?? undefined
