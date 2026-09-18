@@ -290,6 +290,8 @@ export async function automationHealth() {
       sendScopeReady: false,
       sendScopeIssues: [{ code: 'database_unreachable', detail: 'database health query failed' }],
       sendScopeTemplates: env.AUTOMATION_ALLOWED_TEMPLATES,
+      metaTemplateChecks: [],
+      sendScopeMetaTemplateChecks: [],
     }
   }
 }
