@@ -180,10 +180,13 @@ export async function automationHealth() {
       })
     }
 
-    const templatesToVerify = [...new Set(activeRuleRows.map((rule) => rule.templateName))]
+    const activeTemplatesToVerify = [...new Set(activeRuleRows.map((rule) => rule.templateName))]
+      .filter((name) => Boolean(templateContracts[name]))
+    const sendScopeTemplates = [...new Set(env.AUTOMATION_ALLOWED_TEMPLATES)]
+    const templatesToVerify = [...new Set([...activeTemplatesToVerify, ...sendScopeTemplates])]
       .filter((name) => Boolean(templateContracts[name]))
 
-    const metaTemplateChecks = metaConfigured
+    const allMetaTemplateChecks = metaConfigured
       ? await Promise.all(
           templatesToVerify.map(async (name) => ({
             name,
@@ -191,6 +194,13 @@ export async function automationHealth() {
           })),
         )
       : templatesToVerify.map((name) => ({ name, error: 'meta_not_configured' }))
+
+    const metaChecksByName = new Map(allMetaTemplateChecks.map((check) => [check.name, check]))
+    const metaTemplateChecks = activeTemplatesToVerify
+      .map((name) => metaChecksByName.get(name))
+      .filter((check): check is { name: string; error: string | null } => Boolean(check))
+    const sendScopeMetaTemplateChecks = sendScopeTemplates
+      .map((name) => metaChecksByName.get(name) ?? { name, error: 'template_contract_missing' })
 
     for (const check of metaTemplateChecks) {
       if (check.error) {
@@ -208,13 +218,53 @@ export async function automationHealth() {
       issues.push({ code: 'nuvemshop_not_configured', detail: 'Nuvemshop credentials incomplete' })
     }
 
+    const sendScopeIssues: ReadinessIssue[] = []
+    if (sendScopeTemplates.length === 0) {
+      sendScopeIssues.push({ code: 'automation_allowlist_required', detail: 'No template is allowlisted for controlled send' })
+    }
+    for (const templateName of sendScopeTemplates) {
+      if (!templatesByName.has(templateName)) {
+        sendScopeIssues.push({ code: 'allowlist_template_not_active', detail: templateName })
+      }
+      if (!templateContracts[templateName]) {
+        sendScopeIssues.push({ code: 'allowlist_template_without_local_contract', detail: templateName })
+      }
+    }
+    for (const check of sendScopeMetaTemplateChecks) {
+      if (check.error) {
+        sendScopeIssues.push({
+          code: 'meta_template_not_ready',
+          detail: `${check.name}: ${check.error}`,
+        })
+      }
+    }
+    if (!metaConfigured) {
+      sendScopeIssues.push({ code: 'meta_not_configured', detail: 'Meta/WABA credentials incomplete' })
+    }
+    if (!nuvemshopConfigured) {
+      sendScopeIssues.push({ code: 'nuvemshop_not_configured', detail: 'Nuvemshop credentials incomplete' })
+    }
+    if (expiredClaims > 0) {
+      sendScopeIssues.push({ code: 'expired_processing_claims', detail: String(expiredClaims) })
+    }
+    if (legacyPendingMessages > 0) {
+      sendScopeIssues.push({ code: 'legacy_pending_messages', detail: String(legacyPendingMessages) })
+    }
+    if (stalePendingMessages > 0) {
+      sendScopeIssues.push({ code: 'stale_pending_messages', detail: String(stalePendingMessages) })
+    }
+
     const preflightReady = issues.length === 0
+    const sendScopeReady = sendScopeIssues.length === 0
 
     return {
       ...flags,
       databaseReachable: true,
       preflightReady,
       readinessIssues: issues,
+      sendScopeReady,
+      sendScopeIssues,
+      sendScopeTemplates,
       pendingMessages,
       processingMessages,
       deliveryUnknownMessages,
@@ -229,6 +279,7 @@ export async function automationHealth() {
       activeRuleDetails: activeRuleRows,
       activeTemplateDetails: activeTemplateRows,
       metaTemplateChecks,
+      sendScopeMetaTemplateChecks,
     }
   } catch {
     return {
@@ -236,6 +287,11 @@ export async function automationHealth() {
       databaseReachable: false,
       preflightReady: false,
       readinessIssues: [{ code: 'database_unreachable', detail: 'database health query failed' }],
+      sendScopeReady: false,
+      sendScopeIssues: [{ code: 'database_unreachable', detail: 'database health query failed' }],
+      sendScopeTemplates: env.AUTOMATION_ALLOWED_TEMPLATES,
+      metaTemplateChecks: [],
+      sendScopeMetaTemplateChecks: [],
     }
   }
 }
