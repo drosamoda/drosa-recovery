@@ -328,6 +328,13 @@ export async function remarketingSend(segment: Segment | 'all' = 'all') {
   }
 
   const templateName = segmentContracts[segment].template
+  if (!env.AUTOMATION_ALLOWED_TEMPLATES.includes(templateName)) {
+    return {
+      status: 409,
+      result: { ...result, reasons: { ...result.reasons, template_not_allowlisted: preview.found } },
+    }
+  }
+
   const localTemplate = await prisma.whatsappTemplate.findFirst({
     where: { metaTemplateName: templateName, active: true },
     select: { id: true },
