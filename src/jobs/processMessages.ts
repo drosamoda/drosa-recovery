@@ -23,6 +23,7 @@ export type ProcessResult = {
   errors: number
   retryScheduled: number
   unknown: number
+  blockedReason?: 'automation_allowlist_required'
 }
 
 // -----------------------------------------------------------------------
@@ -584,6 +585,14 @@ export async function runProcessMessages(): Promise<ProcessResult> {
   }
 
   const now = new Date()
+
+  // Envio real é fail-closed: ligar o gate global sem uma allowlist explícita
+  // nunca pode transformar toda a fila histórica em candidata a envio.
+  if (env.AUTOMATION_SEND_ENABLED && !env.WHATSAPP_DRY_RUN && env.AUTOMATION_ALLOWED_TEMPLATES.length === 0) {
+    result.blockedReason = 'automation_allowlist_required'
+    logger.warn('[processMessages] envio real bloqueado: allowlist de templates vazia')
+    return result
+  }
 
   // 1. Busca candidatos pendentes prontos para envio
   const templateFilter = env.AUTOMATION_ALLOWED_TEMPLATES.length > 0
