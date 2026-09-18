@@ -156,7 +156,13 @@ describe('automationHealth send safety', () => {
       activeMarketingConsents: 3,
       suppressedContacts: 2,
       metaTemplateChecks: [{ name: 'carrinho_abandonado_drosa_v2', error: null }],
+      canonicalTemplatesReady: true,
     })
+    expect(health.canonicalTemplateNames).toContain('cliente_recente_drosa_v2')
+    expect(health.canonicalMetaTemplateChecks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'cliente_recente_drosa_v2', activeByDefault: false, error: null }),
+      expect.objectContaining({ name: 'cliente_vip_drosa_v1', activeByDefault: false, error: null }),
+    ]))
   })
 
   it('keeps global preflight strict while allowing a healthy explicit send scope', async () => {
