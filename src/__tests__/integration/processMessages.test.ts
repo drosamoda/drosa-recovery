@@ -181,12 +181,14 @@ describe('POST /jobs/process-messages', () => {
     const { whatsappService } = await import('../../services/whatsappService')
     const { runProcessMessages } = await import('../../jobs/processMessages')
     const original = env.AUTOMATION_ALLOWED_TEMPLATES
+    const originalDryRun = env.WHATSAPP_DRY_RUN
     env.AUTOMATION_ALLOWED_TEMPLATES = []
     env.WHATSAPP_DRY_RUN = false
 
     const result = await runProcessMessages()
 
     env.AUTOMATION_ALLOWED_TEMPLATES = original
+    env.WHATSAPP_DRY_RUN = originalDryRun
 
     expect(result).toMatchObject({
       found: 0,
