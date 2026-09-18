@@ -64,7 +64,7 @@ describe('canonical recovery configuration', () => {
       '_pix_pendente',
       'pagamento_confirmado_drosa_01',
       'pix_cancelado_drosa_01',
-      'cliente_recente_drosa_v1',
+      'cliente_recente_drosa_v2',
       'cliente_vip_drosa_v1',
       'cliente_inativo_drosa_v1',
       'atendimento_retomada_drosa_v1',

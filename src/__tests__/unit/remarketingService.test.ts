@@ -27,7 +27,7 @@ const testEnv = vi.hoisted(() => ({
   VIP_MIN_ORDERS: 3,
   VIP_MIN_SPEND: 500,
   REMARKETING_MAX_SENDS_PER_RUN: 1,
-  AUTOMATION_ALLOWED_TEMPLATES: ['cliente_recente_drosa_v1'],
+  AUTOMATION_ALLOWED_TEMPLATES: ['cliente_recente_drosa_v2'],
   AUTOMATION_SEND_ENABLED: true,
   REMARKETING_ENABLED: true,
   WHATSAPP_DRY_RUN: false,
@@ -86,7 +86,7 @@ describe('remarketingService', () => {
     testEnv.REMARKETING_ENABLED = true
     testEnv.WHATSAPP_DRY_RUN = false
     testEnv.REMARKETING_MAX_SENDS_PER_RUN = 1
-    testEnv.AUTOMATION_ALLOWED_TEMPLATES = ['cliente_recente_drosa_v1']
+    testEnv.AUTOMATION_ALLOWED_TEMPLATES = ['cliente_recente_drosa_v2']
 
     mocks.orderFindMany.mockResolvedValue([paidOrder])
     mocks.conversationFindMany.mockResolvedValue([])
@@ -178,7 +178,7 @@ describe('remarketingService', () => {
       entityId: 'order-1',
       customerId: 'customer-1',
       normalizedPhone: phone,
-      templateName: 'cliente_recente_drosa_v1',
+      templateName: 'cliente_recente_drosa_v2',
       source: 'remarketing:recent_customer',
     }))
     expect(mocks.runUpdate).toHaveBeenCalledWith(expect.objectContaining({

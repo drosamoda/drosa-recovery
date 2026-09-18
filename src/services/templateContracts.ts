@@ -63,7 +63,7 @@ Lá você recebe lançamentos em primeira mão e preços especiais!
 👉 Entre aqui: {{3}}
 
 Qualquer dúvida, estou por aqui 😊` },
-  cliente_recente_drosa_v1: { language: 'pt_BR', category: 'MARKETING', parameters: ['name'],
+  cliente_recente_drosa_v2: { language: 'pt_BR', category: 'MARKETING', parameters: ['name'],
     body: "Oi, {{1}}! 😊 Que bom ter você como cliente da D'Rosa Moda! Se precisar de ajuda para escolher a próxima peça, é só chamar por aqui." },
   cliente_vip_drosa_v1: { language: 'pt_BR', category: 'MARKETING', parameters: ['name'],
     body: "Oi, {{1}}! 😊 Você é uma cliente especial da D'Rosa Moda. Estamos sempre por aqui se precisar de ajuda para escolher looks ou tirar dúvidas sobre pedidos." },

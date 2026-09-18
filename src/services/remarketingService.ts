@@ -13,7 +13,7 @@ export const segmentContracts: Record<Segment, { priority: number; template: str
   pix_pending: { priority: 1, template: '_pix_pendente', marketing: true },
   boleto_pending: { priority: 2, template: 'pedido_boleto_drosa_01', marketing: false },
   abandoned_cart: { priority: 3, template: env.ABANDONED_CART_TEMPLATE, marketing: true },
-  recent_customer: { priority: 4, template: 'cliente_recente_drosa_v1', marketing: true },
+  recent_customer: { priority: 4, template: 'cliente_recente_drosa_v2', marketing: true },
   vip_customer: { priority: 5, template: 'cliente_vip_drosa_v1', marketing: true },
   inactive_customer: { priority: 6, template: 'cliente_inativo_drosa_v1', marketing: true },
   engaged_no_purchase: { priority: 7, template: 'atendimento_retomada_drosa_v1', marketing: true },
