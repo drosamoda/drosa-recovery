@@ -29,16 +29,25 @@ async function main() {
 
   await prisma.whatsappTemplate.upsert({
     where: { id: 'tpl_abandoned_checkout' },
-    update: {},
+    update: {
+      name: 'Carrinho abandonado 30 minutos',
+      eventType: 'abandoned_checkout',
+      metaTemplateName: 'carrinho_abandonado_drosa_v2',
+      languageCode: 'pt_BR',
+      category: TemplateCategory.marketing,
+      active: true,
+      messagePreview: `Oi, [nome_cliente]! 😊\nVocê deixou algumas peças no carrinho da D’Rosa Moda.\n\nSe quiser continuar sua compra, acesse:\n[link_checkout]\n\nSe precisar de ajuda com tamanho, tecido ou combinação, me chama por aqui.`,
+      variables: ['nome_cliente', 'link_checkout'],
+    },
     create: {
       id: 'tpl_abandoned_checkout',
       name: 'Carrinho abandonado 30 minutos',
       eventType: 'abandoned_checkout',
-      metaTemplateName: 'carrinho_abandonado_drosa_01',
+      metaTemplateName: 'carrinho_abandonado_drosa_v2',
       languageCode: 'pt_BR',
       category: TemplateCategory.marketing,
       active: true,
-      messagePreview: `Oi, [nome_cliente]! 😊\nSou a Dani da D'Rosa Moda.\n\nVi que você iniciou um pedido no nosso site, mas não conseguiu finalizar.\nPara facilitar, você pode continuar exatamente de onde parou pelo link abaixo:\n\n👉 [link_checkout]\n\nSe ficou alguma dúvida ou precisar de ajuda para concluir, estou por aqui 💕`,
+      messagePreview: `Oi, [nome_cliente]! 😊\nVocê deixou algumas peças no carrinho da D’Rosa Moda.\n\nSe quiser continuar sua compra, acesse:\n[link_checkout]\n\nSe precisar de ajuda com tamanho, tecido ou combinação, me chama por aqui.`,
       variables: ['nome_cliente', 'link_checkout'],
     },
   })
@@ -78,16 +87,25 @@ async function main() {
 
   await prisma.whatsappTemplate.upsert({
     where: { id: 'tpl_order_created_pix' },
-    update: {},
+    update: {
+      name: 'Pix pendente',
+      eventType: 'order_created_pix',
+      metaTemplateName: '_pix_pendente',
+      languageCode: 'pt_BR',
+      category: TemplateCategory.marketing,
+      active: false,
+      messagePreview: 'Oi, [nome_cliente]! Pedido nº *[numero_pedido]* no valor de *R$ [valor_total]* aguardando pagamento PIX. Complete o pagamento para garantir seus itens! 💙',
+      variables: ['nome_cliente', 'numero_pedido', 'valor_total'],
+    },
     create: {
       id: 'tpl_order_created_pix',
       name: 'Pix pendente',
       eventType: 'order_created_pix',
-      metaTemplateName: 'pix_pendente_drosa_01',
+      metaTemplateName: '_pix_pendente',
       languageCode: 'pt_BR',
-      category: TemplateCategory.utility,
+      category: TemplateCategory.marketing,
       active: false,
-      messagePreview: `Oi, [nome_cliente]! 😊\nSou a Dani da D'Rosa Moda.\n\nVi que o pedido nº *[numero_pedido]*, no valor de *R$ [valor_total]*, ainda está aguardando o pagamento.\n\nCaso o QR Code tenha expirado, você pode realizar o pagamento pela nossa chave *PIX (Debora Melo)*:\n📲 *31998021418*\n\nAssim que enviar o comprovante por aqui, damos sequência ao seu pedido 📦💕\n\nQualquer dúvida, estou por aqui 💕`,
+      messagePreview: 'Oi, [nome_cliente]! Pedido nº *[numero_pedido]* no valor de *R$ [valor_total]* aguardando pagamento PIX. Complete o pagamento para garantir seus itens! 💙',
       variables: ['nome_cliente', 'numero_pedido', 'valor_total'],
     },
   })
@@ -168,7 +186,7 @@ async function main() {
       id: 'rule_abandoned_checkout',
       name: 'Carrinho abandonado 30 minutos',
       eventType: EventType.abandoned_checkout,
-      templateName: 'carrinho_abandonado_drosa_01',
+      templateName: 'carrinho_abandonado_drosa_v2',
       delayMinutes: 30,
       active: true,
       maxSendsPerEntity: 1,
@@ -180,7 +198,7 @@ async function main() {
   const futureRules = [
     { id: 'rule_order_created_boleto', name: 'Pedido com boleto', eventType: EventType.order_created_boleto, templateName: 'pedido_boleto_drosa_01', delayMinutes: 5 },
     { id: 'rule_boleto_expiring', name: 'Boleto vencendo', eventType: EventType.boleto_expiring, templateName: 'boleto_vencendo_drosa_01', delayMinutes: 0 },
-    { id: 'rule_order_created_pix', name: 'Pix pendente', eventType: EventType.order_created_pix, templateName: 'pix_pendente_drosa_01', delayMinutes: 30 },
+    { id: 'rule_order_created_pix', name: 'Pix pendente', eventType: EventType.order_created_pix, templateName: '_pix_pendente', delayMinutes: 30 },
     { id: 'rule_payment_confirmed', name: 'Pagamento confirmado', eventType: EventType.payment_confirmed, templateName: 'pagamento_confirmado_drosa_01', delayMinutes: 0 },
     { id: 'rule_payment_rejected', name: 'Pagamento recusado', eventType: EventType.payment_rejected, templateName: 'pagamento_recusado_drosa_01', delayMinutes: 5 },
     { id: 'rule_pix_cancelled', name: 'QR Code ou pedido cancelado', eventType: EventType.pix_cancelled, templateName: 'pix_cancelado_drosa_01', delayMinutes: 0 },
@@ -279,7 +297,7 @@ async function main() {
     },
   })
 
-  const checkoutIdempotencyKey = `abandoned_checkout:${checkout.id}:carrinho_abandonado_drosa_01`
+  const checkoutIdempotencyKey = `abandoned_checkout:${checkout.id}:carrinho_abandonado_drosa_v2`
   await prisma.messageLog.upsert({
     where: { idempotencyKey: checkoutIdempotencyKey },
     update: {},
@@ -289,7 +307,7 @@ async function main() {
       entityId: checkout.id,
       customerId: customer.id,
       normalizedPhone: '5531998021418',
-      templateName: 'carrinho_abandonado_drosa_01',
+      templateName: 'carrinho_abandonado_drosa_v2',
       status: MessageStatus.pending,
       scheduledAt: new Date(Date.now() + 30 * 60 * 1000),
       source: 'seed_test',
