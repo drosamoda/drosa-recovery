@@ -1,7 +1,7 @@
 import { env } from '../config/env'
 import { prisma } from '../config/prisma'
 import { templateContracts, verifyMetaTemplateContract } from '../services/templateContracts'
-import { legacyBlockedTemplateNames } from '../config/recoveryCanonicalConfig'
+import { canonicalWhatsappTemplates, legacyBlockedTemplateNames } from '../config/recoveryCanonicalConfig'
 
 type ReadinessIssue = {
   code: string
@@ -256,6 +256,22 @@ export async function automationHealth() {
       sendScopeIssues.push({ code: 'stale_pending_messages', detail: String(stalePendingMessages) })
     }
 
+    const canonicalTemplateNames = canonicalWhatsappTemplates.map((template) => template.metaTemplateName)
+    const canonicalMetaTemplateChecks = metaConfigured
+      ? await Promise.all(
+          canonicalWhatsappTemplates.map(async (template) => ({
+            name: template.metaTemplateName,
+            activeByDefault: template.active,
+            error: await verifyMetaTemplateContract(template.metaTemplateName, template.languageCode),
+          })),
+        )
+      : canonicalWhatsappTemplates.map((template) => ({
+          name: template.metaTemplateName,
+          activeByDefault: template.active,
+          error: 'meta_not_configured',
+        }))
+    const canonicalTemplatesReady = canonicalMetaTemplateChecks.every((check) => check.error === null)
+
     const preflightReady = issues.length === 0
     const sendScopeReady = sendScopeIssues.length === 0
 
@@ -282,6 +298,9 @@ export async function automationHealth() {
       activeTemplateDetails: activeTemplateRows,
       metaTemplateChecks,
       sendScopeMetaTemplateChecks,
+      canonicalTemplateNames,
+      canonicalTemplatesReady,
+      canonicalMetaTemplateChecks,
     }
   } catch {
     return {
@@ -294,6 +313,13 @@ export async function automationHealth() {
       sendScopeTemplates: env.AUTOMATION_ALLOWED_TEMPLATES,
       metaTemplateChecks: [],
       sendScopeMetaTemplateChecks: [],
+      canonicalTemplateNames: canonicalWhatsappTemplates.map((template) => template.metaTemplateName),
+      canonicalTemplatesReady: false,
+      canonicalMetaTemplateChecks: canonicalWhatsappTemplates.map((template) => ({
+        name: template.metaTemplateName,
+        activeByDefault: template.active,
+        error: 'database_unreachable',
+      })),
     }
   }
 }
