@@ -59,6 +59,7 @@ export async function automationHealth() {
       suppressedContacts,
       expiredClaims,
       legacyPendingMessages,
+      stalePendingMessages,
     ] = await Promise.all([
       prisma.messageLog.count({ where: { status: 'pending' } }),
       prisma.messageLog.count({ where: { status: 'processing' } }),
@@ -93,6 +94,14 @@ export async function automationHealth() {
         where: {
           status: 'pending',
           templateName: { in: [...legacyBlockedTemplateNames] },
+        },
+      }),
+      prisma.messageLog.count({
+        where: {
+          status: 'pending',
+          scheduledAt: {
+            lt: new Date(now.getTime() - env.AUTOMATION_MAX_MESSAGE_AGE_HOURS * 60 * 60 * 1000),
+          },
         },
       }),
     ])
@@ -164,6 +173,13 @@ export async function automationHealth() {
       })
     }
 
+    if (stalePendingMessages > 0) {
+      issues.push({
+        code: 'stale_pending_messages',
+        detail: String(stalePendingMessages),
+      })
+    }
+
     const templatesToVerify = [...new Set(activeRuleRows.map((rule) => rule.templateName))]
       .filter((name) => Boolean(templateContracts[name]))
 
@@ -205,6 +221,7 @@ export async function automationHealth() {
       failedMessages,
       expiredClaims,
       legacyPendingMessages,
+      stalePendingMessages,
       activeRules: activeRuleRows.length,
       activeTemplates: activeTemplateRows.length,
       activeMarketingConsents,
