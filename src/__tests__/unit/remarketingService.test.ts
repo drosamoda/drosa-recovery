@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   customerFindMany: vi.fn(),
   messageLogFindMany: vi.fn(),
   consentFindMany: vi.fn(),
+  templateFindFirst: vi.fn(),
   runCreate: vi.fn(),
   runUpdate: vi.fn(),
   recipientCreate: vi.fn(),
@@ -41,6 +42,7 @@ vi.mock('../../config/prisma', () => ({
     customer: { findMany: mocks.customerFindMany },
     messageLog: { findMany: mocks.messageLogFindMany },
     whatsappConsent: { findMany: mocks.consentFindMany },
+    whatsappTemplate: { findFirst: mocks.templateFindFirst },
     remarketingRun: { create: mocks.runCreate, update: mocks.runUpdate },
     remarketingRecipient: { create: mocks.recipientCreate, update: mocks.recipientUpdate },
   },
@@ -91,6 +93,7 @@ describe('remarketingService', () => {
     mocks.messageLogFindMany.mockResolvedValue([])
     mocks.consentFindMany.mockResolvedValue([{ normalizedPhone: phone }])
     mocks.verifyMeta.mockResolvedValue(null)
+    mocks.templateFindFirst.mockResolvedValue({ id: 'tpl-active' })
     mocks.abandonedPreview.mockResolvedValue({ found: 0, eligible: 0, skipped: 0, reasons: {} })
     mocks.runCreate.mockResolvedValue({ id: 'run-1' })
     mocks.runUpdate.mockResolvedValue({ id: 'run-1' })
@@ -140,6 +143,15 @@ describe('remarketingService', () => {
     testEnv.WHATSAPP_DRY_RUN = true
     const result = await remarketingSend('recent_customer')
     expect(result.status).toBe(423)
+    expect(mocks.runCreate).not.toHaveBeenCalled()
+    expect(mocks.createPendingMessage).not.toHaveBeenCalled()
+  })
+
+  it('nao cria fila se o template ainda estiver inativo no CRM', async () => {
+    mocks.templateFindFirst.mockResolvedValue(null)
+    const result = await remarketingSend('recent_customer')
+    expect(result.status).toBe(409)
+    expect(result.result.reasons.inactive_template).toBe(1)
     expect(mocks.runCreate).not.toHaveBeenCalled()
     expect(mocks.createPendingMessage).not.toHaveBeenCalled()
   })
