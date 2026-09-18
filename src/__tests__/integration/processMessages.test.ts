@@ -79,6 +79,13 @@ vi.mock('../../config/prisma', () => ({
         status: 'abandoned',
       }),
     },
+    conversation: {
+      findUnique: vi.fn().mockResolvedValue({
+        id: 'conv-001',
+        lastInboundAt: new Date(Date.now() - 3600000),
+        contact: { phone: '5531998021418', name: 'Maria Silva' },
+      }),
+    },
     $transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn({
       messageLog: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     })),
@@ -152,6 +159,11 @@ describe('POST /jobs/process-messages', () => {
       customerName: 'Maria Silva', customerEmail: 'maria@example.com', customerPhone: '5531998021418',
       normalizedPhone: '5531998021418', abandonedCheckoutUrl: 'https://www.drosamoda.com.br/checkout/test',
       firstSeenAt: new Date(Date.now() - 3600000), sourceCreatedAt: new Date(Date.now() - 3600000), status: 'abandoned',
+    } as never)
+    vi.mocked(prisma.conversation.findUnique).mockResolvedValue({
+      id: 'conv-001',
+      lastInboundAt: new Date(Date.now() - 3600000),
+      contact: { phone: '5531998021418', name: 'Maria Silva' },
     } as never)
     vi.mocked(prisma.$transaction).mockImplementation((async (fn: (tx: unknown) => Promise<unknown>) => fn({
       messageLog: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
@@ -578,6 +590,52 @@ describe('POST /jobs/process-messages', () => {
 
     expect(res.status).toBe(200)
     expect(typeof res.body.failed).toBe('number')
+  })
+
+  it('retomada de atendimento revalida conversa e pedido posterior antes do dry-run', async () => {
+    const { verifyDispatchContract } = await import('../../services/templateContracts')
+    const originalRemarketing = env.REMARKETING_ENABLED
+    const originalDryRun = env.WHATSAPP_DRY_RUN
+    const originalAllowlist = env.AUTOMATION_ALLOWED_TEMPLATES
+
+    env.REMARKETING_ENABLED = true
+    env.WHATSAPP_DRY_RUN = true
+    env.AUTOMATION_ALLOWED_TEMPLATES = ['atendimento_retomada_drosa_v1']
+    vi.mocked(prisma.messageLog.findMany).mockResolvedValue([
+      {
+        ...pendingMsg,
+        id: 'msg-conv',
+        idempotencyKey: 'conversation:conv-001:atendimento_retomada_drosa_v1',
+        entityType: 'conversation',
+        entityId: 'conv-001',
+        customerId: null,
+        templateName: 'atendimento_retomada_drosa_v1',
+        source: 'remarketing:engaged_no_purchase',
+      } as never,
+    ])
+    vi.mocked(prisma.whatsappTemplate.findFirst).mockResolvedValue({
+      id: 'tpl-engaged',
+      metaTemplateName: 'atendimento_retomada_drosa_v1',
+      active: true,
+      languageCode: 'pt_BR',
+      eventType: 'remarketing_engaged_no_purchase',
+      messagePreview: 'Oi, [nome_cliente]!',
+    } as never)
+    vi.mocked(prisma.order.findFirst).mockResolvedValue(null)
+
+    const result = await (await import('../../jobs/processMessages')).runProcessMessages()
+
+    env.REMARKETING_ENABLED = originalRemarketing
+    env.WHATSAPP_DRY_RUN = originalDryRun
+    env.AUTOMATION_ALLOWED_TEMPLATES = originalAllowlist
+
+    expect(result).toMatchObject({ eligible: 1, dryRun: 1, sent: 0 })
+    expect(verifyDispatchContract).toHaveBeenCalledWith(
+      'atendimento_retomada_drosa_v1',
+      'pt_BR',
+      ['Maria'],
+      expect.any(Object),
+    )
   })
 
   it('allowlist processa apenas o template permitido e mantém os demais pendentes', async () => {
