@@ -468,6 +468,32 @@ describe('POST /jobs/process-messages', () => {
     expect(whatsappService.sendTemplateMessage).toHaveBeenCalledTimes(1)
   })
 
+  it('mensagem vencida e descartada antes de qualquer envio mesmo se o gate for aberto depois', async () => {
+    const { whatsappService } = await import('../../services/whatsappService')
+    const originalMaxAge = env.AUTOMATION_MAX_MESSAGE_AGE_HOURS
+    env.AUTOMATION_MAX_MESSAGE_AGE_HOURS = 24
+    vi.mocked(prisma.messageLog.findMany).mockResolvedValue([
+      {
+        ...pendingMsg,
+        scheduledAt: new Date(Date.now() - 25 * 60 * 60 * 1000),
+      } as never,
+    ])
+
+    const result = await (await import('../../jobs/processMessages')).runProcessMessages()
+
+    env.AUTOMATION_MAX_MESSAGE_AGE_HOURS = originalMaxAge
+
+    expect(result).toMatchObject({ sent: 0, skipped: 1 })
+    expect(whatsappService.sendTemplateMessage).not.toHaveBeenCalled()
+    expect(prisma.messageLog.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'msg-001' },
+      data: expect.objectContaining({
+        status: 'skipped',
+        reason: 'message_expired',
+      }),
+    }))
+  })
+
   it('gate desabilitado bloqueia carrinho antes de chamar Meta', async () => {
     const { whatsappService } = await import('../../services/whatsappService')
     const originalEnabled = env.ABANDONED_CART_ENABLED

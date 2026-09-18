@@ -671,6 +671,13 @@ export async function runProcessMessages(): Promise<ProcessResult> {
     let accepted = false
     let acceptedMetaMessageId: string | null = null
     try {
+      const maxAgeMs = env.AUTOMATION_MAX_MESSAGE_AGE_HOURS * 60 * 60 * 1000
+      if (Date.now() - msg.scheduledAt.getTime() > maxAgeMs) {
+        await markSkipped(msg.id, 'message_expired')
+        result.skipped++
+        continue
+      }
+
       const disabledReason = disabledFlowReason(msg)
       if (disabledReason) {
         // Gate operacional fechado não invalida a elegibilidade histórica da

@@ -40,6 +40,7 @@ const envSchema = z.object({
   RETRY_BASE_DELAY_MS: z.coerce.number().default(1000),
   MESSAGES_BATCH_SIZE: z.coerce.number().default(20),
   MESSAGE_SEND_DELAY_MS: z.coerce.number().default(250),
+  AUTOMATION_MAX_MESSAGE_AGE_HOURS: z.coerce.number().positive().default(24),
 
   ENABLE_INTERNAL_CRON: z.string().default('false').transform((v) => v === 'true'),
   // Quando preenchida, somente estes templates podem ser processados pelo job
