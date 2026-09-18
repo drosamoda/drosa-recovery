@@ -250,6 +250,29 @@ describe('POST /jobs/process-messages', () => {
     }))
   })
 
+  it('dry-run aplica os mesmos gates de contrato e consentimento do envio real', async () => {
+    const { whatsappService } = await import('../../services/whatsappService')
+    const { verifyDispatchContract } = await import('../../services/templateContracts')
+    const originalWhatsappDryRun = env.WHATSAPP_DRY_RUN
+    env.WHATSAPP_DRY_RUN = true
+    vi.mocked(verifyDispatchContract).mockResolvedValueOnce('consent_unproven')
+
+    const res = await request(app)
+      .post('/jobs/process-messages')
+      .set('x-jobs-secret', JOBS_SECRET)
+
+    env.WHATSAPP_DRY_RUN = originalWhatsappDryRun
+
+    expect(res.status).toBe(200)
+    expect(res.body).toMatchObject({ dryRun: 0, sent: 0, skipped: 1 })
+    expect(verifyDispatchContract).toHaveBeenCalledTimes(1)
+    expect(whatsappService.sendTemplateMessage).not.toHaveBeenCalled()
+    expect(prisma.messageLog.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'msg-001' },
+      data: expect.objectContaining({ status: 'skipped', reason: 'consent_unproven' }),
+    }))
+  })
+
   it('dry-run nao chama Meta, nao marca sent e nao cria metaMessageId falso', async () => {
     const { whatsappService } = await import('../../services/whatsappService')
     const originalWhatsappDryRun = env.WHATSAPP_DRY_RUN
