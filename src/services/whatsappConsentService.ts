@@ -13,7 +13,7 @@ export function classifyWhatsappConsent(consent: ConsentEvidence): 'GRANTED' | '
 }
 
 export async function hasActiveWhatsappConsent(normalizedPhone: string, scope = 'marketing'): Promise<boolean> {
-  if (!normalizedPhone) return false
+  if (!normalizedPhone || !isValidBrazilianPhone(normalizedPhone)) return false
 
   const registry = prisma.whatsappConsent
   if (!registry) return false
