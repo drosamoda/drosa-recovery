@@ -36,9 +36,16 @@ export async function remarketingSend(segment: Segment | 'all' = 'all') {
   if (!env.REMARKETING_ENABLED) return { status: 423, result: { ...result, reasons: { ...result.reasons, remarketing_disabled: preview.found } } }
   if (env.WHATSAPP_DRY_RUN) return { status: 423, result: { ...result, reasons: { ...result.reasons, whatsapp_dry_run: preview.found } } }
 
-  // The preview is the source of eligibility and currently fails closed until
-  // consent and the live Meta contract are proven for every candidate.
-  return { status: 200, result }
+  // O endpoint amplo de remarketing ainda é somente preview/eligibility.
+  // Não retornar 200/sent=0 como se um envio tivesse acontecido: isso poderia
+  // induzir operação a acreditar em uma campanha que nunca foi enfileirada.
+  return {
+    status: 501,
+    result: {
+      ...result,
+      reasons: { ...result.reasons, remarketing_send_not_implemented: preview.found },
+    },
+  }
 }
 
 type Candidate = { entityId: string; phone: string; segment: Segment; reasons: string[] }
