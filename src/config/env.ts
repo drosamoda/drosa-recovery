@@ -27,7 +27,8 @@ const envSchema = z.object({
   JOBS_SECRET: z.string().min(1, 'JOBS_SECRET é obrigatório'),
   INBOX_ADMIN_SECRET: z.string().default(''),
   CRM_READ_SECRET: z.string().default(''),
-  INBOX_SEND_DRY_RUN: z.string().default('false').transform((v) => v === 'true'),
+  // Fail-closed: envio manual da Inbox exige opt-in explícito para sair do dry-run.
+  INBOX_SEND_DRY_RUN: z.string().default('true').transform((v) => v === 'true'),
 
   ORDER_CONFIRMATION_TEMPLATE: z.string().default('confirmacao_pedido_drosa'),
   ABANDONED_CART_TEMPLATE: z.string().default('carrinho_abandonado_drosa_v2'),
