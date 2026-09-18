@@ -292,19 +292,8 @@ export async function remarketingSend(segment: Segment | 'all' = 'all') {
     runId: null as string | null,
   }
 
-  // Nunca permitir um disparo amplo por acidente. Preview aceita "all", fila real não.
-  if (segment === 'all') {
-    return {
-      status: 400,
-      result: { ...result, reasons: { ...result.reasons, explicit_segment_required: preview.found } },
-    }
-  }
-  if (segment === 'abandoned_cart') {
-    return {
-      status: 409,
-      result: { ...result, reasons: { ...result.reasons, use_abandoned_cart_pipeline: preview.found } },
-    }
-  }
+  // Gates operacionais têm precedência: com automação fechada, nenhuma
+  // tentativa deve avançar nem revelar um caminho de fila "quase aberto".
   if (!env.AUTOMATION_SEND_ENABLED) {
     return {
       status: 423,
@@ -321,6 +310,20 @@ export async function remarketingSend(segment: Segment | 'all' = 'all') {
     return {
       status: 423,
       result: { ...result, reasons: { ...result.reasons, whatsapp_dry_run: preview.found } },
+    }
+  }
+
+  // Nunca permitir um disparo amplo por acidente. Preview aceita "all", fila real não.
+  if (segment === 'all') {
+    return {
+      status: 400,
+      result: { ...result, reasons: { ...result.reasons, explicit_segment_required: preview.found } },
+    }
+  }
+  if (segment === 'abandoned_cart') {
+    return {
+      status: 409,
+      result: { ...result, reasons: { ...result.reasons, use_abandoned_cart_pipeline: preview.found } },
     }
   }
 
