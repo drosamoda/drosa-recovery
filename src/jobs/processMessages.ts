@@ -11,6 +11,7 @@ import { isValidBrazilianPhone } from '../helpers/phoneService'
 import { messageService } from '../services/messageService'
 import { verifyDispatchContract, renderContract, isMarketingTemplate } from '../services/templateContracts'
 import { hasActiveWhatsappConsent } from '../services/whatsappConsentService'
+import { randomUUID } from 'crypto'
 
 export type ProcessResult = {
   found: number
@@ -237,9 +238,9 @@ async function revalidate(msg: MessageLog): Promise<ValidationResult> {
   // 6. Status ainda é processing (garante que outro worker não pegou)
   const current = await prisma.messageLog.findUnique({
     where: { id: msg.id },
-    select: { status: true },
+    select: { status: true, claimOwner: true },
   })
-  if (current?.status !== MessageStatus.processing) {
+  if (current?.status !== MessageStatus.processing || current.claimOwner !== msg.claimOwner) {
     return { ok: false, reason: 'duplicate_message' }
   }
 
@@ -607,6 +608,8 @@ export async function runProcessMessages(): Promise<ProcessResult> {
   }
 
   const now = new Date()
+  const claimOwner = randomUUID()
+  const claimExpiresAt = new Date(now.getTime() + env.MESSAGE_CLAIM_LEASE_SECONDS * 1000)
 
   // Envio real é fail-closed: ligar o gate global sem uma allowlist explícita
   // nunca pode transformar toda a fila histórica em candidata a envio.
@@ -640,10 +643,19 @@ export async function runProcessMessages(): Promise<ProcessResult> {
   for (const candidate of candidates) {
     const claim = await prisma.messageLog.updateMany({
       where: { id: candidate.id, status: MessageStatus.pending },
-      data: { status: MessageStatus.processing },
+      data: {
+        status: MessageStatus.processing,
+        claimOwner,
+        claimExpiresAt,
+      },
     })
     if (claim.count === 1) {
-      toProcess.push({ ...candidate, status: MessageStatus.processing })
+      toProcess.push({
+        ...candidate,
+        status: MessageStatus.processing,
+        claimOwner,
+        claimExpiresAt,
+      })
     }
   }
 
@@ -657,6 +669,7 @@ export async function runProcessMessages(): Promise<ProcessResult> {
   for (const msg of toProcess) {
     let dispatchStarted = false
     let accepted = false
+    let acceptedMetaMessageId: string | null = null
     try {
       const disabledReason = disabledFlowReason(msg)
       if (disabledReason) {
@@ -776,6 +789,7 @@ export async function runProcessMessages(): Promise<ProcessResult> {
 
       if (sendResult.success) {
         accepted = true
+        acceptedMetaMessageId = sendResult.metaMessageId
         await markSent(
           msg,
           sendResult.metaMessageId,
@@ -794,7 +808,14 @@ export async function runProcessMessages(): Promise<ProcessResult> {
         if (r.uncertain || (r.success && !r.metaMessageId)) {
           await prisma.messageLog.update({
             where: { id: msg.id },
-            data: { status: MessageStatus.unknown, reason: 'delivery_unknown', deliveryUnknownAt: new Date(), nextRetryAt: null },
+            data: {
+              status: MessageStatus.unknown,
+              reason: 'delivery_unknown',
+              deliveryUnknownAt: new Date(),
+              nextRetryAt: null,
+              claimOwner: null,
+              claimExpiresAt: null,
+            },
           })
           result.unknown++
           continue
@@ -819,18 +840,55 @@ export async function runProcessMessages(): Promise<ProcessResult> {
       const msg_ = err instanceof Error ? err.message : String(err)
       logger.error('[processMessages] erro inesperado', { msgId: msg.id, error: msg_ })
       try {
-        if (!accepted) await prisma.messageLog.update({
-          where: { id: msg.id },
-          data: { status: dispatchStarted ? MessageStatus.unknown : MessageStatus.failed,
-            reason: dispatchStarted ? 'delivery_unknown' : 'processing_error',
-            deliveryUnknownAt: dispatchStarted ? new Date() : undefined, nextRetryAt: null },
-        })
+        if (accepted) {
+          // A Meta confirmou aceite, mas a persistência local falhou. Nunca
+          // reencaminhar automaticamente; registra UNKNOWN apenas se o row
+          // ainda estiver processing.
+          await prisma.messageLog.updateMany({
+            where: { id: msg.id, status: MessageStatus.processing, claimOwner: msg.claimOwner },
+            data: {
+              status: MessageStatus.unknown,
+              reason: 'accepted_but_persist_failed',
+              metaMessageId: acceptedMetaMessageId,
+              acceptedAt: new Date(),
+              deliveryUnknownAt: new Date(),
+              nextRetryAt: null,
+              claimOwner: null,
+              claimExpiresAt: null,
+            },
+          })
+        } else if (dispatchStarted) {
+          // A chamada externa começou e o resultado é ambíguo: fail closed
+          // contra duplicidade.
+          await prisma.messageLog.updateMany({
+            where: { id: msg.id, status: MessageStatus.processing, claimOwner: msg.claimOwner },
+            data: {
+              status: MessageStatus.unknown,
+              reason: 'delivery_unknown',
+              deliveryUnknownAt: new Date(),
+              nextRetryAt: null,
+              claimOwner: null,
+              claimExpiresAt: null,
+            },
+          })
+        } else {
+          const outcome = await handleRetryOrFail(
+            msg,
+            undefined,
+            'processing_error',
+            undefined,
+            'temporary',
+          )
+          if (outcome === 'retryScheduled') result.retryScheduled++
+          else result.failed++
+        }
       } catch {
-        // ignore secondary failure
+        // Se até a persistência de recuperação falhar, a lease expirada ficará
+        // visível no automation-health para investigação manual. Não há retry
+        // automático de processing expirado, evitando duplicidade.
       }
       if (accepted) result.sent++
       else if (dispatchStarted) result.unknown++
-      else result.failed++
       result.errors++
     }
 
@@ -844,6 +902,7 @@ export async function runProcessMessages(): Promise<ProcessResult> {
     errors: result.errors,
     dryRun: result.dryRun,
     retryScheduled: result.retryScheduled,
+    deferred: result.deferred,
   })
 
   return result
