@@ -299,6 +299,37 @@ describe('POST /jobs/process-messages', () => {
     }))
   })
 
+  it('marketing fora da janela e adiado sem chamar Meta nem ser descartado', async () => {
+    const { whatsappService } = await import('../../services/whatsappService')
+    const { isMarketingTemplate } = await import('../../services/templateContracts')
+    const originalStart = env.MARKETING_SEND_HOUR_START
+    const originalEnd = env.MARKETING_SEND_HOUR_END
+    const originalDryRun = env.WHATSAPP_DRY_RUN
+    env.MARKETING_SEND_HOUR_START = 9
+    env.MARKETING_SEND_HOUR_END = 9
+    env.WHATSAPP_DRY_RUN = false
+    vi.mocked(isMarketingTemplate).mockReturnValueOnce(true)
+
+    const result = await (await import('../../jobs/processMessages')).runProcessMessages()
+
+    env.MARKETING_SEND_HOUR_START = originalStart
+    env.MARKETING_SEND_HOUR_END = originalEnd
+    env.WHATSAPP_DRY_RUN = originalDryRun
+
+    expect(result.sent).toBe(0)
+    expect(whatsappService.sendTemplateMessage).not.toHaveBeenCalled()
+    expect(prisma.messageLog.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'msg-001' },
+      data: expect.objectContaining({
+        status: 'pending',
+        reason: 'marketing_send_window_closed',
+        claimOwner: null,
+        claimExpiresAt: null,
+        nextRetryAt: expect.any(Date),
+      }),
+    }))
+  })
+
   it('INBOX_SEND_DRY_RUN protege somente a Inbox manual', async () => {
     const { whatsappService } = await import('../../services/whatsappService')
     const originalInboxDryRun = env.INBOX_SEND_DRY_RUN
