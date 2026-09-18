@@ -327,6 +327,18 @@ export async function remarketingSend(segment: Segment | 'all' = 'all') {
     }
   }
 
+  const templateName = segmentContracts[segment].template
+  const localTemplate = await prisma.whatsappTemplate.findFirst({
+    where: { metaTemplateName: templateName, active: true },
+    select: { id: true },
+  })
+  if (!localTemplate) {
+    return {
+      status: 409,
+      result: { ...result, reasons: { ...result.reasons, inactive_template: preview.found } },
+    }
+  }
+
   const evaluation = await evaluateCandidates(segment)
   const items = evaluation.candidates.filter(item => item.segment === segment)
   const eligibleItems = items.filter(item => item.reasons.length === 0)
