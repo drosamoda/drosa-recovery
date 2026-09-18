@@ -268,7 +268,12 @@ describe('inboxService.sendManualTextMessage dry-run', () => {
     vi.clearAllMocks()
   })
 
-  it('salva outbound dry_run sem chamar WhatsApp Cloud API em ambiente nao-producao', async () => {
+  it('salva outbound dry_run sem chamar WhatsApp Cloud API mesmo em production', async () => {
+    const originalNodeEnv = env.NODE_ENV
+    const originalDryRun = env.INBOX_SEND_DRY_RUN
+    env.NODE_ENV = 'production'
+    env.INBOX_SEND_DRY_RUN = true
+
     const lastInboundAt = new Date()
     const conversation = {
       id: 'conversation-1',
@@ -291,6 +296,9 @@ describe('inboxService.sendManualTextMessage dry-run', () => {
     vi.mocked(prisma.conversation.update).mockResolvedValue(conversation as never)
 
     const result = await inboxService.sendManualTextMessage('conversation-1', 'Resposta de teste')
+
+    env.NODE_ENV = originalNodeEnv
+    env.INBOX_SEND_DRY_RUN = originalDryRun
 
     expect(result.success).toBe(true)
     expect(result.dryRun).toBe(true)
@@ -403,7 +411,52 @@ describe('inboxService.sendManualImageMessage', () => {
     expect(whatsappService.sendImageMessage).not.toHaveBeenCalled()
   })
 
-  it('salva imagem outbound com legenda e reply vinculado', async () => {
+  it('imagem em dry-run nao faz upload nem chama WhatsApp Cloud API, inclusive em production', async () => {
+    const originalNodeEnv = env.NODE_ENV
+    const originalDryRun = env.INBOX_SEND_DRY_RUN
+    env.NODE_ENV = 'production'
+    env.INBOX_SEND_DRY_RUN = true
+
+    const conversation = {
+      id: 'conversation-1',
+      lastInboundAt: new Date('2026-05-05T12:00:00.000Z'),
+      contact: { phone: '5583999999999' },
+    }
+    vi.mocked(prisma.conversation.findUnique).mockResolvedValue(conversation as never)
+    vi.mocked(prisma.chatMessage.create).mockResolvedValue({ id: 'message-dry-image' } as never)
+    vi.mocked(prisma.conversation.update).mockResolvedValue(conversation as never)
+
+    const result = await inboxService.sendManualImageMessage('conversation-1', {
+      fileBuffer: Buffer.from('image-bytes'),
+      mimeType: 'image/png',
+      fileName: 'foto.png',
+      caption: 'Legenda dry-run',
+    })
+
+    env.NODE_ENV = originalNodeEnv
+    env.INBOX_SEND_DRY_RUN = originalDryRun
+
+    expect(result.success).toBe(true)
+    expect(result.dryRun).toBe(true)
+    expect(whatsappService.sendImageMessage).not.toHaveBeenCalled()
+    expect(prisma.chatMessage.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        direction: 'outbound',
+        type: 'image',
+        body: 'Legenda dry-run',
+        status: 'dry_run',
+        rawPayload: expect.objectContaining({
+          dry_run: true,
+          mediaType: 'image',
+          byteLength: Buffer.from('image-bytes').length,
+        }),
+      }),
+    }))
+  })
+
+  it('salva imagem outbound com legenda e reply vinculado quando dry-run esta explicitamente desligado', async () => {
+    const originalDryRun = env.INBOX_SEND_DRY_RUN
+    env.INBOX_SEND_DRY_RUN = false
     const lastInboundAt = new Date('2026-05-05T12:00:00.000Z')
     const conversation = {
       id: 'conversation-1',
@@ -436,6 +489,8 @@ describe('inboxService.sendManualImageMessage', () => {
       caption: 'Legenda da imagem',
       replyToMessageId: 'reply-1',
     })
+
+    env.INBOX_SEND_DRY_RUN = originalDryRun
 
     expect(result.success).toBe(true)
     expect(whatsappService.sendImageMessage).toHaveBeenCalledWith(expect.objectContaining({
