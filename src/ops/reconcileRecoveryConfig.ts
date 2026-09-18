@@ -108,21 +108,25 @@ export async function auditRecoveryConfig(client: PrismaClient = prisma): Promis
   }
 
   for (const legacyName of legacyBlockedTemplateNames) {
-    const [legacyTemplates, legacyRules] = await Promise.all([
+    const [legacyTemplates, legacyRules, pendingLegacyMessages] = await Promise.all([
       client.whatsappTemplate.count({
         where: { metaTemplateName: legacyName, active: true },
       }),
       client.automationRule.count({
         where: { templateName: legacyName, active: true },
       }),
+      client.messageLog.count({
+        where: { templateName: legacyName, status: 'pending' },
+      }),
     ])
-    if (legacyTemplates > 0 || legacyRules > 0) {
+    if (legacyTemplates > 0 || legacyRules > 0 || pendingLegacyMessages > 0) {
       drift.push({
         kind: 'legacy',
         id: legacyName,
         fields: [
           ...(legacyTemplates > 0 ? ['activeTemplate'] : []),
           ...(legacyRules > 0 ? ['activeRule'] : []),
+          ...(pendingLegacyMessages > 0 ? [`pendingMessageLogs:${pendingLegacyMessages}`] : []),
         ],
       })
     }
@@ -178,6 +182,19 @@ export async function applyRecoveryConfig(client: PrismaClient = prisma): Promis
       await tx.automationRule.updateMany({
         where: { templateName: legacyName },
         data: { active: false },
+      })
+      // Filas legadas com claim de reserva não podem permanecer pendentes
+      // depois que o contrato foi bloqueado. Somente pending é quarentenado;
+      // estados já enviados/ambíguos são preservados para auditoria.
+      await tx.messageLog.updateMany({
+        where: { templateName: legacyName, status: 'pending' },
+        data: {
+          status: 'skipped',
+          reason: 'legacy_template_disabled',
+          nextRetryAt: null,
+          claimOwner: null,
+          claimExpiresAt: null,
+        },
       })
     }
   })
