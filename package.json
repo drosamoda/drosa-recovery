@@ -19,7 +19,9 @@
     "test:unit": "vitest run src/__tests__/unit",
     "test:integration": "vitest run src/__tests__/integration",
     "test:e2e": "vitest run src/__tests__/e2e",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "ops:recovery-config:verify": "npm run build --silent && node dist/ops/reconcileRecoveryConfig.js",
+    "ops:recovery-config:apply": "npm run build --silent && node dist/ops/reconcileRecoveryConfig.js --apply"
   },
   "dependencies": {
     "@prisma/client": "^5.14.0",
