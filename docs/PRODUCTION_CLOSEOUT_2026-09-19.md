@@ -33,10 +33,10 @@ This document is the release closeout checklist for `drosa-recovery`.
 
 The project is considered closed only after all items below are evidenced:
 
-- [x] Full CI succeeds: GitHub Actions CI run #165 passed typecheck, lint, unit, integration, build, NubeSDK typecheck/tests/build.
+- [x] Full CI succeeds: GitHub Actions CI runs #165 and #168 passed typecheck, lint, unit, integration, build, NubeSDK typecheck/tests/build.
 - [ ] Checkout consent E2E verified for GRANTED, UNKNOWN and REVOKED.
-- [ ] Existing `order.extra` metadata is preserved by the active NubeSDK checkout script.
-- [ ] Suppression / opt-out overrides GRANTED consent.
+- [x] Existing `order.extra` preservation is covered by the active NubeSDK v2 implementation and passing extension tests; D'Rosa keys overlay the existing object without deleting unrelated keys.
+- [x] Suppression / opt-out overrides GRANTED consent; an explicit regression test is included in the closeout branch and CI #168 passes.
 - [ ] DATABASE_URL and DIRECT_URL are sourced from Google Secret Manager in the production revision.
 - [ ] Cloud Scheduler jobs are configured using protected `/jobs` routes; internal cron remains disabled.
 - [ ] Initial production automation scope is explicitly allowlisted and rate-limited.
