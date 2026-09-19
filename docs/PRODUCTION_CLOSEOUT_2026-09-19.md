@@ -33,7 +33,7 @@ This document is the release closeout checklist for `drosa-recovery`.
 
 The project is considered closed only after all items below are evidenced:
 
-- [ ] Full CI succeeds: typecheck, lint, unit, integration, build, NubeSDK typecheck/tests/build.
+- [x] Full CI succeeds: GitHub Actions CI run #165 passed typecheck, lint, unit, integration, build, NubeSDK typecheck/tests/build.
 - [ ] Checkout consent E2E verified for GRANTED, UNKNOWN and REVOKED.
 - [ ] Existing `order.extra` metadata is preserved by the active NubeSDK checkout script.
 - [ ] Suppression / opt-out overrides GRANTED consent.
