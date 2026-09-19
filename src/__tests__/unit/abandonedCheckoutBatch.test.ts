@@ -78,6 +78,17 @@ describe('abandoned checkout batch eligibility', () => {
     else expect(batch?.eligible).toBe(true)
   })
 
+  it('suppression/opt-out prevalece mesmo com consentimento GRANTED comprovado', async () => {
+    const checkout = base()
+    state.facts.consent = true
+    state.facts.suppressed = true
+
+    const result = await evaluateAbandonedCheckoutEligibility(checkout as never, now)
+
+    expect(result.eligible).toBe(false)
+    expect(result.reasons).toContain('opt_out')
+  })
+
   it.each([1, 20, 50, 100])('keeps DB query count bounded for %i checkouts', async count => {
     state.checkouts = Array.from({ length: count }, (_, i) => ({ ...base(), id: `checkout-${i}` }))
     const result = await evaluateAbandonedCheckoutEligibilityBatch(state.checkouts as never, now)

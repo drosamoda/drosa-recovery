@@ -2,11 +2,12 @@
 
 Sistema de automações WhatsApp para a D'Rosa Moda, integrado à Nuvemshop via **WhatsApp Cloud API oficial da Meta**.
 
-**MVP ativo:**
-- Confirmação automática de pedido criado
-- Recuperação automática de carrinho abandonado
+**Produção fail-closed:**
+- Configuração canônica e contratos Meta validados.
+- Envio automático global permanece desligado por padrão.
+- Confirmação de pedido e recuperação de carrinho existem como fluxos canônicos, mas qualquer envio real depende dos gates de runtime, allowlist explícita e, para marketing, consentimento comprovado.
 
-**Preparado para Fase 2 (inativo):** Pix pendente, boleto, pagamento confirmado/recusado, QR Code cancelado.
+**Preparado (inativo por padrão):** Pix pendente, boleto, pagamento confirmado/recusado, QR Code cancelado e segmentos de remarketing.
 
 ---
 
@@ -159,7 +160,7 @@ O sistema valida `x-hub-signature-256` com HMAC-SHA256.
 
 ### Template 2 — Carrinho abandonado
 
-- **Nome:** `carrinho_abandonado_drosa_01`
+- **Nome:** `carrinho_abandonado_drosa_v2`
 - **Categoria:** Marketing
 - **Idioma:** Português (BR)
 - **Corpo:**
@@ -389,12 +390,14 @@ SENTRY_TRACES_SAMPLE_RATE=0.1
 
 ---
 
-## O que está ativo no MVP
+## Estado operacional de produção
 
-| Automação | Status |
-|---|---|
-| Confirmação de pedido criado | ✅ Ativo |
-| Recuperação de carrinho abandonado (30 min) | ✅ Ativo |
+A configuração canônica pode manter templates/regras ativos no banco, mas **envio real é fail-closed** e exige os gates de runtime. No baseline de fechamento, `AUTOMATION_SEND_ENABLED=false`, `WHATSAPP_DRY_RUN=true`, `ABANDONED_CART_ENABLED=false`, `REMARKETING_ENABLED=false` e a allowlist está vazia.
+
+| Automação | Configuração canônica | Envio real no baseline |
+|---|---|---|
+| Confirmação de pedido criado | template/regra ativos | bloqueado pelos gates globais |
+| Recuperação de carrinho abandonado (30 min) | template/regra ativos | bloqueado pelo gate do fluxo + consentimento |
 
 ---
 
@@ -418,9 +421,9 @@ curl -X PATCH http://localhost:3000/admin/automation-rules/ID \
 
 | Automação | Template | Regra |
 |---|---|---|
-| Pix pendente | `pix_pendente_drosa_01` | `rule_order_created_pix` |
+| Pix pendente | `_pix_pendente` | `rule_order_created_pix` |
 | Boleto pendente | `pedido_boleto_drosa_01` | `rule_order_created_boleto` |
-| Boleto vencendo | `boleto_vencendo_drosa_01` | `rule_boleto_expiring` |
+| Boleto vencendo | `boleto_vencendo_drosa_v2` | `rule_boleto_expiring` |
 | Pagamento confirmado | `pagamento_confirmado_drosa_01` | `rule_payment_confirmed` |
 | Pagamento recusado | `pagamento_recusado_drosa_01` | `rule_payment_rejected` |
 | QR Code cancelado | `pix_cancelado_drosa_01` | `rule_pix_cancelled` |
