@@ -1,13 +1,16 @@
 import { prisma } from '../config/prisma'
 import { env } from '../config/env'
 import { remarketingPreview, segmentContracts } from './remarketingService'
+import type { EmailEligibilityStatus, EmailSegmentKey } from './emailAudienceEngine'
+import type { EmailOpportunityTypeValue } from './emailCampaignRecommendationService'
+import { getEmailOpportunityById } from './emailOpportunityService'
 
 // Elegibilidade nunca é decidida aqui — vem inteiramente de remarketingPreview()
 // (que já aplica consentimento, suppression, cooldown, fail-closed) ou de uma
 // contagem determinística equivalente. Este arquivo só INTERPRETA os números
 // reais em forma de oportunidade; nunca inventa uma oportunidade sem dado.
 
-export type OpportunityType =
+export type WhatsappOpportunityType =
   | 'ABANDONED_CART'
   | 'PIX_PENDING'
   | 'BOLETO_PENDING'
@@ -17,9 +20,18 @@ export type OpportunityType =
   | 'RECENT_CUSTOMER'
   | 'ENGAGED_NO_PURCHASE'
 
-export type Opportunity = {
+// Email Campaign Intelligence: oportunidades de e-mail têm tipos próprios
+// (EMAIL_*), nunca reaproveitam os de WhatsApp.
+export type EmailOpportunityType = EmailOpportunityTypeValue
+export type OpportunityType = WhatsappOpportunityType | EmailOpportunityType
+export type OpportunityChannel = 'whatsapp' | 'email'
+
+export type WhatsappOpportunity = {
   id: string
-  type: OpportunityType
+  // Ausente = whatsapp (contrato anterior a esta rodada). generateOpportunities()
+  // sempre preenche.
+  channel?: 'whatsapp'
+  type: WhatsappOpportunityType
   title: string
   reason: string
   audienceCount: number
@@ -37,7 +49,38 @@ export type Opportunity = {
   generatedAt: string
 }
 
-function confidenceFor(found: number, eligible: number, dataQuality: { historyTruncated: boolean; consentSourceConfigured: boolean; metaTemplatesVerified: boolean }): Opportunity['confidence'] {
+// Oportunidade de e-mail (canal EMAIL). Difere da de WhatsApp de propósito:
+// eligibleCount/sendEligibleCount são null enquanto não existir fonte
+// comprovada de consentimento de e-mail — nunca um número inventado.
+export type EmailOpportunity = {
+  id: string
+  channel: 'email'
+  type: EmailOpportunityType
+  segmentKey: EmailSegmentKey
+  title: string
+  reason: string
+  audienceCount: number
+  withValidEmailCount: number
+  sendEligibleCount: null
+  eligibleCount: null
+  blockedCount: number
+  eligibilityStatus: EmailEligibilityStatus
+  recommendedTiming: string
+  recommendedChannel: 'email'
+  recommendedProduct: null
+  confidence: 'low' | 'medium' | 'high'
+  recommendedCampaignKeys: string[]
+  cooldown: { days: number; status: string }
+  evidence: {
+    topBlockers: Array<{ reason: string; count: number }>
+    dataQuality: { level: string; notes: string[]; consentSourceConfigured: boolean }
+  }
+  generatedAt: string
+}
+
+export type Opportunity = WhatsappOpportunity | EmailOpportunity
+
+function confidenceFor(found: number, eligible: number, dataQuality: { historyTruncated: boolean; consentSourceConfigured: boolean; metaTemplatesVerified: boolean }): WhatsappOpportunity['confidence'] {
   if (found === 0) return 'low'
   if (dataQuality.historyTruncated || !dataQuality.consentSourceConfigured) return 'low'
   const eligibleRatio = eligible / found
@@ -108,18 +151,19 @@ export async function repeatPurchaseCandidates() {
   return { found, eligible, reasons, eligibleOrderIds, dataQuality: { historyTruncated: incomplete, consentSourceConfigured: true, metaTemplatesVerified: true } }
 }
 
-export async function generateOpportunities(): Promise<Opportunity[]> {
+export async function generateOpportunities(): Promise<WhatsappOpportunity[]> {
   const now = new Date().toISOString()
   const preview = await remarketingPreview('all')
-  const opportunities: Opportunity[] = []
+  const opportunities: WhatsappOpportunity[] = []
 
-  const fromSegment = (type: OpportunityType, segmentKey: keyof typeof segmentContracts, title: string, reason: string, timing: string) => {
+  const fromSegment = (type: WhatsappOpportunityType, segmentKey: keyof typeof segmentContracts, title: string, reason: string, timing: string) => {
     const segment = preview.segments[segmentKey] as { found: number; eligible: number; data?: Array<{ reasons: string[] }> } | undefined
     if (!segment || segment.found === 0) return
     const reasons: Record<string, number> = {}
     for (const item of segment.data ?? []) for (const r of item.reasons) reasons[r] = (reasons[r] ?? 0) + 1
     opportunities.push({
       id: `opp_${type.toLowerCase()}_${now.slice(0, 10)}`,
+      channel: 'whatsapp',
       type,
       title: title.replace('{n}', String(segment.eligible || segment.found)),
       reason,
@@ -148,6 +192,7 @@ export async function generateOpportunities(): Promise<Opportunity[]> {
     for (const item of winback.data ?? []) for (const r of item.reasons) reasons[r] = (reasons[r] ?? 0) + 1
     opportunities.push({
       id: `opp_winback_${now.slice(0, 10)}`,
+      channel: 'whatsapp',
       type: 'WINBACK',
       title: `${winback.eligible || winback.found} clientes inativos para reativação`,
       reason: `Última compra paga há ${env.REMARKETING_INACTIVE_DAYS}+ dias e nenhum pedido posterior.`,
@@ -167,6 +212,7 @@ export async function generateOpportunities(): Promise<Opportunity[]> {
   if (repeat.found > 0) {
     opportunities.push({
       id: `opp_repeat_purchase_${now.slice(0, 10)}`,
+      channel: 'whatsapp',
       type: 'REPEAT_PURCHASE',
       title: `${repeat.eligible || repeat.found} clientes prontos para recompra`,
       reason: `Última compra paga entre ${env.REMARKETING_RECENT_CUSTOMER_DAYS} e ${env.REMARKETING_INACTIVE_DAYS} dias atrás e nenhum pedido posterior.`,
@@ -186,6 +232,9 @@ export async function generateOpportunities(): Promise<Opportunity[]> {
 }
 
 export async function getOpportunityById(id: string): Promise<Opportunity | null> {
+  // Ids de e-mail (opp_email_*) nunca passam por remarketingPreview(): outro
+  // canal, outra fonte de dados, outro cálculo de audiência.
+  if (id.startsWith('opp_email_')) return getEmailOpportunityById(id)
   const all = await generateOpportunities()
   return all.find(o => o.id === id) ?? null
 }

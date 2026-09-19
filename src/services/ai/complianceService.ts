@@ -1,4 +1,4 @@
-import { Strategy } from './aiProvider'
+import { Strategy, isEmailStrategy, strategyText } from './aiProvider'
 import { ProductTruth } from '../productTruthService'
 import { OpportunityType } from '../aiOpportunityEngine'
 import { EvidenceFlags } from './strategyPlaybook'
@@ -62,8 +62,48 @@ function normalize(text: string): string {
   return text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 }
 
+// Para WhatsApp strategyText() é exatamente `message` (mesma string de antes);
+// para e-mail inclui assunto, preheader, headline e corpo — nenhum campo de
+// e-mail escapa da auditoria.
+// "D'Rosa" é o NOME DA MARCA, não a cor "rosa" — sem isto o auditor de cores
+// bloqueava qualquer texto que citasse a própria marca (achado ao gerar e-mails,
+// onde assunto e corpo citam a marca naturalmente). Só o nome da marca é
+// neutralizado; "rosa" sozinho continua sendo cor e continua auditado.
+const BRAND_NAME = /\bd\s?['’`´]?\s?rosa\b/g
+
 function haystackOf(strategy: Strategy): string {
-  return normalize(`${strategy.message} ${strategy.angle} ${strategy.creativeBrief} ${strategy.cta}`)
+  return normalize(`${strategyText(strategy)} ${strategy.angle} ${strategy.creativeBrief} ${strategy.cta}`).replace(BRAND_NAME, ' a marca ')
+}
+
+// Alegações específicas do canal E-MAIL (assunto e corpo são o lugar clássico de
+// urgência falsa e de spam). Mesma regra de todo o resto: bloqueio por padrão,
+// só passa se o termo estiver literalmente na descrição real do produto.
+// Comparação por palavra inteira (\b) para não bater dentro de outras palavras.
+const EMAIL_GUARDED_CLAIMS: Array<{ term: string; category: string }> = [
+  // Urgência falsa
+  ...['ultima chance', 'ultimas horas', 'ultimos dias', 'so hoje', 'acaba hoje', 'nao perca', 'imperdivel', 'urgente', 'corra'].map(term => ({ term, category: 'urgência falsa' })),
+  // Spam
+  ...['gratis', 'ganhe'].map(term => ({ term, category: 'spam' })),
+  // Prova social / ranking
+  ...['mais procurado', 'mais procurados', 'queridinha', 'queridinhas', 'favorito da semana', 'favoritos da semana'].map(term => ({ term, category: 'prova social' })),
+  // Benefício / exclusividade inventados
+  ...['acesso antecipado', 'brinde', 'brindes', 'pre-venda', 'pre venda', 'prioridade no atendimento', 'beneficio exclusivo', 'sorteio'].map(term => ({ term, category: 'benefício inventado' })),
+]
+
+export function auditEmailClaims(strategy: Strategy, strategyIndex: number, product: ProductTruth | null): ComplianceFinding[] {
+  if (!isEmailStrategy(strategy)) return []
+  const haystack = haystackOf(strategy)
+  const productDescription = product?.description ? normalize(product.description) : ''
+  const findings: ComplianceFinding[] = []
+  for (const { term, category } of EMAIL_GUARDED_CLAIMS) {
+    const needle = normalize(term)
+    // Os termos acima são texto simples (sem metacaracteres de regex além do
+    // hífen), então só o limite de palavra é necessário.
+    if (!new RegExp(`\\b${needle}\\b`).test(haystack)) continue
+    if (productDescription.includes(needle)) continue
+    findings.push({ strategyIndex, claim: term, reason: `Alegação de e-mail "${term}" (${category}) não está comprovada — e-mail não tem exceção às regras de Product Truth e compliance` })
+  }
+  return findings
 }
 
 // Verifica alegações de atributo (cor, tamanho) contra a fonte estruturada
@@ -105,6 +145,7 @@ export function auditStrategy(strategy: Strategy, strategyIndex: number, product
   }
 
   findings.push(...auditAttributeClaims(strategy, strategyIndex, product))
+  findings.push(...auditEmailClaims(strategy, strategyIndex, product))
 
   if (strategy.productId && !product) {
     findings.push({ strategyIndex, claim: strategy.productId, reason: 'productId citado pela IA não foi confirmado pela Nuvemshop (Product Truth)' })
@@ -172,7 +213,11 @@ const CLAIM_CATEGORY_RULES: ClaimCategoryRule[] = [
   {
     category: 'newness',
     requiredFlag: 'hasNewnessEvidence',
-    phrases: ['chegaram novidades', 'novidades relacionadas', 'novidades na categoria', 'novidades da categoria', 'novidades da mesma categoria'],
+    phrases: [
+      'chegaram novidades', 'novidades relacionadas', 'novidades na categoria', 'novidades da categoria', 'novidades da mesma categoria',
+      // e-mail: campanhas de novidade só existem com prova de novidade
+      'novidades da semana', 'acabou de chegar', 'acabaram de chegar', 'recem chegad', 'nova colecao', 'colecao nova',
+    ],
   },
   {
     category: 'category_affinity',

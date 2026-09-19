@@ -1,8 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { jsonSchemaOutputFormat } from '@anthropic-ai/sdk/helpers/json-schema'
 import { env } from '../../config/env'
-import { AiProvider, AiProviderConfigError, AiProviderResponseError, AiProviderTimeoutError, CampaignPromptInput, campaignStrategiesSchema } from './aiProvider'
-import { SYSTEM_PROMPT, STRATEGIES_JSON_SCHEMA } from './campaignPromptContract'
+import { AiProvider, AiProviderConfigError, AiProviderResponseError, AiProviderTimeoutError, AnyCampaignPromptInput, campaignStrategiesSchema, emailCampaignStrategiesSchema, isEmailPromptInput } from './aiProvider'
+import { STRATEGIES_JSON_SCHEMA, EMAIL_STRATEGIES_JSON_SCHEMA, systemPromptFor } from './campaignPromptContract'
 
 export class AnthropicProvider implements AiProvider {
   readonly name = 'anthropic'
@@ -28,16 +28,17 @@ export class AnthropicProvider implements AiProvider {
     return this.client
   }
 
-  async generateCampaignStrategies(input: CampaignPromptInput) {
+  async generateCampaignStrategies(input: AnyCampaignPromptInput) {
     const client = this.getClient()
+    const email = isEmailPromptInput(input)
 
     let response
     try {
       response = await client.messages.parse({
         model: this.model,
         max_tokens: env.AI_MAX_OUTPUT_TOKENS,
-        system: SYSTEM_PROMPT,
-        output_config: { format: jsonSchemaOutputFormat(STRATEGIES_JSON_SCHEMA) },
+        system: systemPromptFor(email ? 'email' : 'whatsapp'),
+        output_config: { format: jsonSchemaOutputFormat(email ? EMAIL_STRATEGIES_JSON_SCHEMA : STRATEGIES_JSON_SCHEMA) },
         messages: [{ role: 'user', content: JSON.stringify(input) }],
       })
     } catch (error) {
@@ -60,7 +61,7 @@ export class AnthropicProvider implements AiProvider {
       throw new AiProviderResponseError('Resposta da IA não pôde ser interpretada como JSON estruturado.')
     }
 
-    const parsed = campaignStrategiesSchema.safeParse(response.parsed_output)
+    const parsed = (email ? emailCampaignStrategiesSchema : campaignStrategiesSchema).safeParse(response.parsed_output)
     if (!parsed.success) {
       throw new AiProviderResponseError(`Saída da IA não passou na validação de schema: ${parsed.error.message}`)
     }

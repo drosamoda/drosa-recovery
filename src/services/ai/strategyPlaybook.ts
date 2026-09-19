@@ -1,4 +1,4 @@
-import { OpportunityType } from '../aiOpportunityEngine'
+import type { OpportunityType, WhatsappOpportunityType } from '../aiOpportunityEngine'
 
 export type StrategyDirectionKey = 'A' | 'B' | 'C'
 
@@ -36,7 +36,7 @@ export interface ResolvedDirection {
   requiredWarning: string | null
 }
 
-interface DirectionDefinition {
+export interface DirectionDefinition {
   key: StrategyDirectionKey
   label: string
   intent: string
@@ -55,7 +55,7 @@ interface DirectionDefinition {
 // Hardening: "continua disponível", "separamos uma seleção", "mesma
 // categoria" etc. só podem aparecer quando a evidência correspondente existir
 // — ver EvidenceFlags e complianceService.auditClaimCategories).
-const PLAYBOOKS: Record<OpportunityType, DirectionDefinition[]> = {
+const PLAYBOOKS: Record<WhatsappOpportunityType, DirectionDefinition[]> = {
   ABANDONED_CART: [
     {
       key: 'A', label: 'RECUPERAÇÃO DIRETA',
@@ -273,8 +273,30 @@ export function auditDirectionAdherence(strategies: Array<{ direction: string }>
   return findings
 }
 
+// Resolvedor genérico: o mesmo mecanismo de degradação (requires → fallback)
+// serve ao playbook de WhatsApp (por tipo de oportunidade) e às direções da
+// biblioteca de campanhas de e-mail (por campanha). Uma direção cujo dado real
+// não está comprovado NUNCA some nem é inventada: vira fallbackGuidance com o
+// aviso obrigatório correspondente.
+export function resolveDirectionDefinitions(definitions: DirectionDefinition[], evidence: EvidenceFlags): ResolvedDirection[] {
+  return definitions.map(def => {
+    const degraded = Boolean(def.requires) && !evidence[def.requires as keyof EvidenceFlags]
+    return {
+      key: def.key,
+      label: def.label,
+      intent: def.intent,
+      guidance: degraded ? (def.fallbackGuidance ?? def.guidance) : def.guidance,
+      degraded,
+      requiredWarning: degraded ? (def.fallbackWarning ?? null) : null,
+    }
+  })
+}
+
 export function resolveStrategyDirections(type: OpportunityType, evidence: EvidenceFlags): ResolvedDirection[] {
-  const definitions = PLAYBOOKS[type]
+  const definitions = PLAYBOOKS[type as WhatsappOpportunityType]
+  // Tipos EMAIL_* usam direções da biblioteca de campanhas de e-mail
+  // (emailCampaignLibrary.ts), nunca este playbook de WhatsApp.
+  if (!definitions) throw new Error(`Sem playbook de WhatsApp para o tipo de oportunidade: ${type}`)
   return definitions.map(def => {
     const degraded = Boolean(def.requires) && !evidence[def.requires as keyof EvidenceFlags]
     return {

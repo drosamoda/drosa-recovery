@@ -1,6 +1,8 @@
 import { Request, Response, Router } from 'express'
 import { generateOpportunities } from '../services/aiOpportunityEngine'
-import { campaignService, CampaignNotFoundError, InvalidCampaignStateError, CampaignTemplateNotApprovedError } from '../services/ai/campaignService'
+import { generateEmailOpportunities } from '../services/emailOpportunityService'
+import { EmailSendNotAvailableError } from '../services/emailSendGate'
+import { campaignService, CampaignNotFoundError, InvalidCampaignStateError, CampaignTemplateNotApprovedError, EmailCampaignNotAllowedError } from '../services/ai/campaignService'
 import { getLearningSummary } from '../services/ai/learningService'
 import { AiProviderConfigError, AiProviderResponseError, AiProviderTimeoutError } from '../services/ai/aiProvider'
 import { AiDatabaseNotConfiguredError } from '../config/aiPrisma'
@@ -20,6 +22,10 @@ function handleError(res: Response, error: unknown) {
   if (error instanceof CampaignNotFoundError) return res.status(404).json({ error: error.message })
   if (error instanceof InvalidCampaignStateError) return res.status(409).json({ error: error.message })
   if (error instanceof CampaignTemplateNotApprovedError) return res.status(409).json({ error: error.message, code: 'TEMPLATE_NOT_APPROVED' })
+  // E-mail: campanha desconhecida/fora do segmento/NEEDS_DATA (422) e envio de
+  // e-mail indisponível (409) — mensagens escritas por nós, seguras para expor.
+  if (error instanceof EmailCampaignNotAllowedError) return res.status(422).json({ error: error.message, code: error.code })
+  if (error instanceof EmailSendNotAvailableError) return res.status(409).json({ error: error.message, code: 'EMAIL_SEND_NOT_AVAILABLE', missing: error.missing })
   if (error instanceof AiDatabaseNotConfiguredError) return res.status(503).json({ error: error.message, code: 'AI_DATABASE_NOT_CONFIGURED' })
   if (error instanceof AiProviderConfigError) return res.status(503).json({ error: error.message, code: 'AI_PROVIDER_NOT_CONFIGURED' })
   if (error instanceof AiConcurrencyLimitError || error instanceof AiRateLimitExceededError) return res.status(429).json({ error: error.message, code: 'AI_RATE_LIMITED' })
@@ -47,8 +53,19 @@ function parseIdempotencyKey(raw: unknown): string | null {
 // usa só o banco primário read-only (aiOpportunityEngine/remarketingService)
 // — nunca toca campaign_drafts/ai_runs, por isso nunca depende de
 // AI_DATABASE_URL.
-router.get('/opportunities', async (_req: Request, res: Response) => {
-  res.json({ data: await generateOpportunities() })
+// ?channel=whatsapp (padrão, contrato anterior inalterado) | email | all. As de
+// e-mail nunca são misturadas silenciosamente com as de WhatsApp.
+router.get('/opportunities', async (req: Request, res: Response) => {
+  const channel = String(req.query.channel ?? 'whatsapp')
+  if (channel === 'whatsapp') return res.json({ data: await generateOpportunities() })
+  if (channel !== 'email' && channel !== 'all') return res.status(400).json({ error: 'channel inválido (use whatsapp, email ou all)' })
+  try {
+    const email = await generateEmailOpportunities()
+    const whatsapp = channel === 'all' ? await generateOpportunities() : []
+    res.json({ data: [...whatsapp, ...email] })
+  } catch (error) {
+    handleError(res, error)
+  }
 })
 
 router.get('/campaigns', async (_req: Request, res: Response) => {
@@ -90,8 +107,18 @@ router.post('/campaigns', async (req: Request, res: Response) => {
       code: 'IDEMPOTENCY_KEY_REQUIRED',
     })
   }
+  // campaignKey só vale para oportunidades de e-mail (escolhe a campanha da
+  // biblioteca); para WhatsApp é ignorado.
+  const rawCampaignKey = req.body?.campaignKey
+  if (rawCampaignKey !== undefined && (typeof rawCampaignKey !== 'string' || !/^[A-Z0-9_]{3,60}$/.test(rawCampaignKey))) {
+    return res.status(400).json({ error: 'campaignKey inválida', code: 'CAMPAIGN_KEY_INVALID' })
+  }
   try {
-    res.status(201).json(await campaignService.createFromOpportunity(opportunityId, idempotencyKey))
+    // Sem campaignKey a chamada é exatamente a de antes (contrato WhatsApp intacto).
+    const draft = rawCampaignKey
+      ? await campaignService.createFromOpportunity(opportunityId, idempotencyKey, { campaignKey: rawCampaignKey })
+      : await campaignService.createFromOpportunity(opportunityId, idempotencyKey)
+    res.status(201).json(draft)
   } catch (error) {
     handleError(res, error)
   }

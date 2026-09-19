@@ -67,3 +67,66 @@ export const STRATEGIES_JSON_SCHEMA = {
   },
   required: ['opportunityId', 'summary', 'strategies'],
 } as const
+
+// ── Email Campaign Intelligence ───────────────────────────────────────────────────────────────
+// Mesmas REGRAS ABSOLUTAS, mesmo Product Truth, mesmas EVIDÊNCIAS — e-mail não
+// ganha nenhuma exceção. Só muda o formato de saída (subject/preheader/
+// headline/body/cta em vez de message) e as regras de escrita do canal.
+export const EMAIL_PROMPT_VERSION = 'email-campaign-strategies-v1'
+
+const EMAIL_CHANNEL_ADDENDUM = `
+
+CANAL: E-MAIL (Email Campaign Intelligence):
+- Esta é uma campanha de E-MAIL para um SEGMENTO agregado. O input traz "segment" (chave, nome, descrição e contagens agregadas) e "campaign" (chave, nome, objetivo, categoria e etapa do funil). O backend já decidiu, de forma determinística, QUAL público e QUAL campanha — você nunca escolhe, recalcula nem contesta isso, e nunca sugere que existe uma lista de pessoas: você só escreve o conteúdo.
+- Nunca escreva o tamanho da audiência, contagens ou "N clientes" no e-mail. Nunca use nome próprio, e-mail, telefone, número de pedido nem variável de personalização: use uma saudação genérica.
+- "sendEligibility" indica que a elegibilidade para envio ainda NÃO foi validada. Nunca escreva ou implique que o público está "pronto para receber" ou que o envio está liberado.
+- Cada estratégia deve ter: "subject" (assunto), "preheader", "headline", "body" e "cta", além dos campos comuns (direction, name, angle, audience, productId, creativeBrief, warnings). O campo "message" NÃO existe neste canal. No campo "audience" descreva o público em palavras (ex.: nome do segmento), nunca com números.
+- ASSUNTO: claro, curto (idealmente até 60 caracteres) e específico para a campanha. Sem urgência falsa ("última chance", "só hoje", "corra", "imperdível", "não perca"), sem palavras de spam ("grátis", "ganhe"), sem CAIXA ALTA, no máximo um ponto de exclamação, sem excesso de emojis e sem desconto ou promoção inventados.
+- PREHEADER: complementa o assunto com informação NOVA — nunca apenas repete o assunto.
+- HEADLINE: título dentro do e-mail; diferente do assunto.
+- BODY: 2 a 4 parágrafos curtos, no tom D'Rosa — comercial mas natural, caloroso, sem exagero. Só afirme o que estiver no input. Nunca invente desconto, cupom, frete grátis, benefício, brinde, acesso antecipado, exclusividade, novidade, ranking de mais vendidos, reposição ou estoque: o nome da campanha NUNCA é prova de nada.
+- CTA: específico para a campanha (verbo + destino), até 6 palavras.
+- O rodapé de descadastro e o link de preferências são adicionados pelo sistema de envio — não escreva nenhum deles.
+- Quando uma direção do playbook vier degradada, siga o guidance ajustado e inclua em "warnings" o texto exato de "requiredWarning".`
+
+export const EMAIL_SYSTEM_PROMPT = `${SYSTEM_PROMPT}${EMAIL_CHANNEL_ADDENDUM}`
+
+export const EMAIL_STRATEGIES_JSON_SCHEMA = {
+  type: 'object',
+  properties: {
+    opportunityId: { type: 'string' },
+    summary: { type: 'string' },
+    strategies: {
+      type: 'array',
+      minItems: 3,
+      maxItems: 3,
+      items: {
+        type: 'object',
+        properties: {
+          direction: { type: 'string', enum: ['A', 'B', 'C'] },
+          name: { type: 'string' },
+          angle: { type: 'string' },
+          audience: { type: 'string' },
+          productId: { type: ['string', 'null'] },
+          subject: { type: 'string' },
+          preheader: { type: 'string' },
+          headline: { type: 'string' },
+          body: { type: 'string' },
+          cta: { type: 'string' },
+          creativeBrief: { type: 'string' },
+          warnings: { type: 'array', items: { type: 'string' } },
+        },
+        required: ['direction', 'name', 'angle', 'audience', 'productId', 'subject', 'preheader', 'headline', 'body', 'cta', 'creativeBrief', 'warnings'],
+      },
+    },
+  },
+  required: ['opportunityId', 'summary', 'strategies'],
+} as const
+
+export function systemPromptFor(channel: 'whatsapp' | 'email' | undefined): string {
+  return channel === 'email' ? EMAIL_SYSTEM_PROMPT : SYSTEM_PROMPT
+}
+
+export function promptVersionFor(channel: 'whatsapp' | 'email' | undefined): string {
+  return channel === 'email' ? EMAIL_PROMPT_VERSION : PROMPT_VERSION
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { evaluateStrategyQuality } from '../../services/ai/strategyQualityRubric'
-import { Strategy } from '../../services/ai/aiProvider'
+import { WhatsappStrategy as Strategy } from '../../services/ai/aiProvider'
 import { ComplianceFinding } from '../../services/ai/complianceService'
 import { DistanceFinding } from '../../services/ai/strategyDistanceService'
 

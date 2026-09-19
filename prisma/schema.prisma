@@ -506,6 +506,11 @@ model CampaignDraft {
   opportunityId      String
   opportunityType    OpportunityType
   opportunityTitle   String
+  // Email Campaign Intelligence: canal da campanha. Default WHATSAPP mantém
+  // todo draft anterior a esta migration válido sem backfill. segmentKey e
+  // campaignKey de e-mail vivem dentro de audienceSnapshot (JSON) — não há
+  // coluna própria para eles, para manter a migration mínima.
+  channel            CampaignChannel     @default(WHATSAPP)
   status             CampaignStatus      @default(DRAFT)
   // Final Pre-Activation Readiness — Activation Wiring v2: uma key por ação
   // humana (gerada no frontend via crypto.randomUUID()), garantindo que um
@@ -534,8 +539,14 @@ model CampaignDraft {
 
   @@index([status])
   @@index([opportunityType])
+  @@index([channel])
   @@index([createdAt])
   @@map("campaign_drafts")
+}
+
+enum CampaignChannel {
+  WHATSAPP
+  EMAIL
 }
 
 model AiRun {
@@ -566,6 +577,21 @@ enum OpportunityType {
   VIP
   RECENT_CUSTOMER
   ENGAGED_NO_PURCHASE
+  // Email Campaign Intelligence — oportunidades de e-mail (canal EMAIL).
+  // Só valores novos: nenhum valor existente foi alterado nem removido.
+  EMAIL_ALL_CUSTOMERS
+  EMAIL_ONE_TIME_BUYERS
+  EMAIL_REPEAT_BUYERS
+  EMAIL_VIP
+  EMAIL_RECENT_BUYERS
+  EMAIL_LAPSED_31_60
+  EMAIL_LAPSED_61_90
+  EMAIL_LAPSED_91_180
+  EMAIL_LAPSED_181_365
+  EMAIL_DORMANT_365_PLUS
+  EMAIL_NO_PURCHASE
+  EMAIL_HIGH_VALUE_NON_VIP
+  EMAIL_CART_ABANDONERS
 }
 
 enum CampaignStatus {

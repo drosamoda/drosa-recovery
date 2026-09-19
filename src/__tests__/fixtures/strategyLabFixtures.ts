@@ -1,5 +1,5 @@
-import { Opportunity, OpportunityType } from '../../services/aiOpportunityEngine'
-import { Strategy } from '../../services/ai/aiProvider'
+import { WhatsappOpportunity as Opportunity, WhatsappOpportunityType as OpportunityType } from '../../services/aiOpportunityEngine'
+import { WhatsappStrategy as Strategy } from '../../services/ai/aiProvider'
 
 // Fixtures sanitizadas (nenhum dado real de cliente — só contagens e texto de
 // exemplo) para os 8 tipos de oportunidade do Strategy Lab. Cada fixture traz

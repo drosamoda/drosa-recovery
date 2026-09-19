@@ -49,7 +49,7 @@ vi.mock('../../services/aiOpportunityEngine', () => ({
 }))
 
 import { enrichOpportunityEvidence } from '../../services/campaignEvidenceService'
-import { Opportunity } from '../../services/aiOpportunityEngine'
+import { WhatsappOpportunity as Opportunity } from '../../services/aiOpportunityEngine'
 import { ProductTruth } from '../../services/productTruthService'
 
 const dataQuality = { historyTruncated: false, consentSourceConfigured: true, metaTemplatesVerified: true }

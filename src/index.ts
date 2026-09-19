@@ -20,6 +20,7 @@ import customersRoutes from './routes/customers.routes'
 import inboxRoutes from './routes/inbox.routes'
 import crmRoutes from './routes/crm.routes'
 import aiCampaignsRoutes from './routes/aiCampaigns.routes'
+import emailIntelligenceRoutes from './routes/emailIntelligence.routes'
 import nuvemshopWebhookRoutes from './routes/webhooks.nuvemshop.routes'
 import metaWebhookRoutes from './routes/webhooks.meta.routes'
 
@@ -167,6 +168,8 @@ if (!env.CRM_PREVIEW_READONLY) {
 }
 app.use('/crm-api', crmAuth, crmRoutes)
 app.use('/crm-api/ai', crmAuth, aiCampaignsRoutes)
+// Inteligência de e-mail: somente leitura (GET). Nenhum envio de e-mail existe.
+app.use('/crm-api/email', crmAuth, emailIntelligenceRoutes)
 
 // ── 404 ────────────────────────────────────────────────────────────────
 app.use((_req, res) => {

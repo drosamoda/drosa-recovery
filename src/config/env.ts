@@ -125,6 +125,13 @@ const envSchema = z.object({
   // existir — ela só passa a ser lida quando alguém a configurar de propósito.
   AI_DATABASE_URL: z.string().default(''),
 
+  // Email Campaign Intelligence — envio real de e-mail NÃO existe nesta fase:
+  // não há provedor de e-mail, fonte de consentimento, histórico de envio nem
+  // lista de descadastro/supressão. Esta flag é só uma das condições do gate
+  // fail-closed (emailSendGate.ts) — mesmo `true`, o gate continua fechado
+  // enquanto as outras quatro condições não existirem. Default false.
+  EMAIL_SEND_ENABLED: z.string().default('false').transform((v) => v === 'true'),
+
   // Controles pagos — nenhum provedor de IA é chamado sem estes limites
   // explícitos. Aplicados igualmente aos dois provedores (nunca um limite
   // "especial" para OpenAI ou Anthropic).

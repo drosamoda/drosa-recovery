@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { auditAllStrategies, auditAttributeClaims, auditStrategy } from '../../services/ai/complianceService'
-import { Strategy } from '../../services/ai/aiProvider'
+import { WhatsappStrategy as Strategy } from '../../services/ai/aiProvider'
 import { ProductTruth } from '../../services/productTruthService'
 
 function strategy(overrides: Partial<Strategy> = {}): Strategy {

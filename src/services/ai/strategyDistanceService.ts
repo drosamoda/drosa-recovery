@@ -1,4 +1,4 @@
-import { Strategy } from './aiProvider'
+import { Strategy, strategyText } from './aiProvider'
 
 // Detecta quando A/B/C são, na prática, a mesma estratégia com troca de
 // adjetivos — não usa previsão de venda nem qualquer sinal de conversão,
@@ -24,11 +24,14 @@ function jaccard(a: Set<string>, b: Set<string>): number {
   return union === 0 ? 1 : intersection / union
 }
 
-const FIELDS: Array<{ key: 'angle' | 'cta' | 'message' | 'creativeBrief'; label: string; threshold: number }> = [
-  { key: 'angle', label: 'ângulo', threshold: 0.6 },
-  { key: 'cta', label: 'CTA', threshold: 0.7 },
-  { key: 'message', label: 'argumento/mensagem', threshold: 0.6 },
-  { key: 'creativeBrief', label: 'brief criativo', threshold: 0.6 },
+// "argumento/mensagem" é strategyText(): para WhatsApp é exatamente `message`;
+// para e-mail é assunto+preheader+headline+corpo — duas estratégias de e-mail
+// com o mesmo corpo e assunto parecido também colidem.
+const FIELDS: Array<{ label: string; threshold: number; read: (s: Strategy) => string }> = [
+  { label: 'ângulo', threshold: 0.6, read: s => s.angle },
+  { label: 'CTA', threshold: 0.7, read: s => s.cta },
+  { label: 'argumento/mensagem', threshold: 0.6, read: strategyText },
+  { label: 'brief criativo', threshold: 0.6, read: s => s.creativeBrief },
 ]
 
 // Falha só quando pelo menos 2 dos 4 campos centrais colidem — um único CTA
@@ -42,7 +45,7 @@ export function evaluateCreativeDistance(strategies: Strategy[]): DistanceFindin
     for (let j = i + 1; j < strategies.length; j++) {
       const collidingFields: string[] = []
       for (const field of FIELDS) {
-        const similarity = jaccard(tokenSet(strategies[i][field.key]), tokenSet(strategies[j][field.key]))
+        const similarity = jaccard(tokenSet(field.read(strategies[i])), tokenSet(field.read(strategies[j])))
         if (similarity >= field.threshold) collidingFields.push(field.label)
       }
       if (collidingFields.length >= MIN_COLLIDING_FIELDS_TO_FAIL) {

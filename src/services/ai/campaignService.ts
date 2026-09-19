@@ -1,17 +1,20 @@
 import { createHash } from 'crypto'
 import { Prisma } from '@prisma/client'
 import { getAiPrisma } from '../../config/aiPrisma'
-import { getOpportunityById, Opportunity } from '../aiOpportunityEngine'
+import { getOpportunityById, EmailOpportunity, WhatsappOpportunity, WhatsappOpportunityType } from '../aiOpportunityEngine'
 import { productTruthService } from '../productTruthService'
 import { enrichOpportunityEvidence } from '../campaignEvidenceService'
 import { segmentContracts, Segment } from '../remarketingService'
 import { verifyMetaTemplateContract } from '../templateContracts'
 import { getAiProvider } from './providerFactory'
 import { acquireGenerationSlot, AiConcurrencyLimitError, AiRateLimitExceededError } from './aiRateLimiter'
-import { PROMPT_VERSION } from './campaignPromptContract'
+import { promptVersionFor } from './campaignPromptContract'
 import { auditAllStrategies, auditClaimCategories, ComplianceFinding } from './complianceService'
-import { AiProviderConfigError, AiProviderResponseError, AiProviderTimeoutError, CampaignPromptInput, Strategy } from './aiProvider'
-import { resolveStrategyDirections, auditDirectionAdherence } from './strategyPlaybook'
+import { AiProviderConfigError, AiProviderResponseError, AiProviderTimeoutError, AnyCampaignPromptInput, CampaignPromptInput, EmailCampaignPromptInput, Strategy } from './aiProvider'
+import { resolveStrategyDirections, resolveDirectionDefinitions, auditDirectionAdherence } from './strategyPlaybook'
+import { SEGMENT_META } from '../emailAudienceEngine'
+import { EmailCampaignDefinition, evaluateCampaignReadiness, evidenceFlagsFromCapabilities, getEmailCampaign } from '../emailCampaignLibrary'
+import { assertEmailSendAllowed } from '../emailSendGate'
 import { evaluateCreativeDistance } from './strategyDistanceService'
 import { evaluateStrategyQuality } from './strategyQualityRubric'
 
@@ -22,6 +25,16 @@ function hash(value: string): string {
 export class CampaignNotFoundError extends Error {}
 export class InvalidCampaignStateError extends Error {}
 export class CampaignTemplateNotApprovedError extends Error {}
+// Email Campaign Intelligence: a campanha pedida não pode ser gerada para este
+// segmento (desconhecida, fora dos segmentos permitidos ou NEEDS_DATA). Lançada
+// ANTES de qualquer escrita — nenhum draft órfão, nenhuma chamada paga.
+export class EmailCampaignNotAllowedError extends Error {
+  readonly code: string
+  constructor(code: string, message: string) {
+    super(message)
+    this.code = code
+  }
+}
 
 // Activation Wiring v2, seção 8: nunca persiste a mensagem de exceção
 // (mesmo redigida) em ai_runs.errorMessage — só uma categoria fechada. A
@@ -54,7 +67,7 @@ function isUniqueConstraintViolation(error: unknown): boolean {
 // REPEAT_PURCHASE reaproveita o template de recent_customer (mesma escolha
 // já feita em aiOpportunityEngine.ts para o campo evidence.template — nunca
 // uma segunda cópia divergente da mesma decisão).
-const OPPORTUNITY_TEMPLATE_SEGMENT: Record<Opportunity['type'], Segment> = {
+const OPPORTUNITY_TEMPLATE_SEGMENT: Record<WhatsappOpportunityType, Segment> = {
   ABANDONED_CART: 'abandoned_cart',
   PIX_PENDING: 'pix_pending',
   BOLETO_PENDING: 'boleto_pending',
@@ -71,7 +84,7 @@ const OPPORTUNITY_TEMPLATE_SEGMENT: Record<Opportunity['type'], Segment> = {
 // remarketingService) prova isso. Chamado no único ponto que hoje se
 // aproxima de "execução" (schedule); nenhum envio real acontece aqui nem em
 // lugar nenhum desta rodada.
-async function assertTemplateApprovedForSend(opportunityType: Opportunity['type']): Promise<void> {
+async function assertTemplateApprovedForSend(opportunityType: WhatsappOpportunityType): Promise<void> {
   const segment = OPPORTUNITY_TEMPLATE_SEGMENT[opportunityType]
   const templateName = segmentContracts[segment].template
   const problem = await verifyMetaTemplateContract(templateName, 'pt_BR')
@@ -85,7 +98,7 @@ async function assertTemplateApprovedForSend(opportunityType: Opportunity['type'
 // Truth), nunca de heurística textual. "Product Truth antes da IA": qualquer
 // id que chegue aqui já foi confirmado pela Nuvemshop dentro do próprio
 // enrichOpportunityEvidence — a IA nunca vê um id não confirmado.
-async function buildPromptInput(opportunity: Opportunity): Promise<CampaignPromptInput> {
+async function buildPromptInput(opportunity: WhatsappOpportunity): Promise<CampaignPromptInput> {
   const evidence = await enrichOpportunityEvidence(opportunity)
   return {
     opportunityId: opportunity.id,
@@ -106,6 +119,63 @@ async function buildPromptInput(opportunity: Opportunity): Promise<CampaignPromp
   }
 }
 
+// Email Campaign Intelligence — o input de IA de e-mail é montado SÓ com
+// agregados (contagens, descrições de segmento/campanha, flags de evidência).
+// NO_PII_TO_AI: nenhum e-mail, nome, telefone, id de cliente ou número de
+// pedido existe neste objeto, nem no EmailOpportunity de onde ele vem.
+function buildEmailPromptInput(opportunity: EmailOpportunity, campaign: EmailCampaignDefinition): EmailCampaignPromptInput {
+  const evidence = evidenceFlagsFromCapabilities()
+  const meta = SEGMENT_META[opportunity.segmentKey]
+  return {
+    channel: 'email',
+    opportunityId: opportunity.id,
+    opportunityType: opportunity.type,
+    segment: {
+      key: opportunity.segmentKey,
+      name: meta.name,
+      description: meta.description,
+      audienceCount: opportunity.audienceCount,
+      withValidEmailCount: opportunity.withValidEmailCount,
+    },
+    campaign: {
+      key: campaign.key,
+      name: campaign.name,
+      objective: campaign.objective,
+      category: campaign.category,
+      funnelStage: campaign.funnelStage,
+      recommendedCooldownDays: campaign.recommendedCooldownDays,
+    },
+    sendEligibility: opportunity.eligibilityStatus,
+    dataQualityFlags: opportunity.evidence.dataQuality.notes,
+    // Nenhuma seleção de produto por segmento de e-mail existe hoje: a IA
+    // recebe listas vazias e evidence.hasCandidateProducts=false, e as direções
+    // que dependem de produto já chegam degradadas no playbook.
+    candidateProducts: [],
+    purchasedProducts: [],
+    cartProducts: [],
+    playbook: resolveDirectionDefinitions(campaign.aiDirections, evidence),
+    evidence,
+  }
+}
+
+// Decide QUAL campanha da biblioteca vale para esta oportunidade de e-mail —
+// determinístico, nunca a IA. Sem campaignKey, usa a primeira campanha
+// acionável recomendada para o segmento.
+function resolveEmailCampaign(opportunity: EmailOpportunity, campaignKey: string | undefined): EmailCampaignDefinition {
+  const key = campaignKey ?? opportunity.recommendedCampaignKeys[0]
+  if (!key) throw new EmailCampaignNotAllowedError('EMAIL_NO_ACTIONABLE_CAMPAIGN', `Nenhuma campanha de e-mail acionável para o segmento ${opportunity.segmentKey}.`)
+  const campaign = getEmailCampaign(key)
+  if (!campaign) throw new EmailCampaignNotAllowedError('EMAIL_CAMPAIGN_UNKNOWN', `Campanha de e-mail desconhecida: ${key}.`)
+  if (!campaign.allowedSegments.includes(opportunity.segmentKey)) {
+    throw new EmailCampaignNotAllowedError('EMAIL_CAMPAIGN_SEGMENT_MISMATCH', `A campanha ${campaign.key} não é permitida para o segmento ${opportunity.segmentKey}.`)
+  }
+  const readiness = evaluateCampaignReadiness(campaign)
+  if (readiness.status === 'NEEDS_DATA') {
+    throw new EmailCampaignNotAllowedError('EMAIL_CAMPAIGN_NEEDS_DATA', `A campanha ${campaign.key} depende de dados que o sistema ainda não coleta: ${readiness.missingHard.map(r => r.key).join(', ')}.`)
+  }
+  return campaign
+}
+
 type CreateResult = { id: string; status: string; strategies: Strategy[] | null; complianceFindings: unknown }
 
 function fromExistingDraft(draft: { id: string; status: string; strategies: unknown; complianceFindings: unknown }): CreateResult {
@@ -124,7 +194,7 @@ export const campaignService = {
   // CampaignDraft.idempotencyKey: a que perder a corrida do create() recebe
   // P2002 do Postgres, busca o draft vencedor e o devolve — nunca chama o
   // provedor uma segunda vez.
-  async createFromOpportunity(opportunityId: string, idempotencyKey: string): Promise<CreateResult> {
+  async createFromOpportunity(opportunityId: string, idempotencyKey: string, options: { campaignKey?: string } = {}): Promise<CreateResult> {
     // Primeira linha: nenhuma chamada paga, nenhuma escrita, quando o banco
     // de IA não está configurado.
     const aiPrisma = getAiPrisma()
@@ -134,6 +204,13 @@ export const campaignService = {
 
     const opportunity = await getOpportunityById(opportunityId)
     if (!opportunity) throw new CampaignNotFoundError(`Oportunidade não encontrada ou sem dados suficientes: ${opportunityId}`)
+
+    // Canal e-mail: campanha da biblioteca validada ANTES de qualquer escrita
+    // (fail-closed — sem draft órfão nem chamada paga se a campanha está
+    // NEEDS_DATA, é desconhecida ou não vale para o segmento). WhatsApp:
+    // opportunity.channel é 'whatsapp' ou ausente (contrato anterior).
+    const emailOpportunity = opportunity.channel === 'email' ? opportunity : null
+    const emailCampaign = emailOpportunity ? resolveEmailCampaign(emailOpportunity, options.campaignKey) : null
 
     // Falha rápido ANTES de qualquer escrita: se o provedor de IA não está
     // configurado (ex.: ANTHROPIC_API_KEY ausente), nenhum campaignDraft nem
@@ -148,15 +225,31 @@ export const campaignService = {
           opportunityId: opportunity.id,
           opportunityType: opportunity.type,
           opportunityTitle: opportunity.title,
+          channel: emailOpportunity ? 'EMAIL' : 'WHATSAPP',
           status: 'DRAFT',
           idempotencyKey,
-          audienceSnapshot: {
-            audienceCount: opportunity.audienceCount,
-            eligibleCount: opportunity.eligibleCount,
-            blockedCount: opportunity.blockedCount,
-            evidence: opportunity.evidence,
-            generatedAt: opportunity.generatedAt,
-          },
+          // Só agregados — nunca dado pessoal. Para e-mail inclui segmentKey e
+          // campaignKey (sem coluna própria: mantém a migration mínima).
+          audienceSnapshot: emailOpportunity && emailCampaign
+            ? {
+                channel: 'email',
+                segmentKey: emailOpportunity.segmentKey,
+                campaignKey: emailCampaign.key,
+                campaignName: emailCampaign.name,
+                audienceCount: emailOpportunity.audienceCount,
+                withValidEmailCount: emailOpportunity.withValidEmailCount,
+                sendEligibleCount: null,
+                eligibilityStatus: emailOpportunity.eligibilityStatus,
+                cooldown: emailOpportunity.cooldown,
+                generatedAt: emailOpportunity.generatedAt,
+              }
+            : {
+                audienceCount: opportunity.audienceCount,
+                eligibleCount: opportunity.eligibleCount,
+                blockedCount: opportunity.blockedCount,
+                evidence: opportunity.evidence,
+                generatedAt: opportunity.generatedAt,
+              },
         },
       })
     } catch (error) {
@@ -170,29 +263,35 @@ export const campaignService = {
       throw error
     }
 
-    const promptInput = await buildPromptInput(opportunity)
+    const promptInput: AnyCampaignPromptInput = emailOpportunity && emailCampaign
+      ? buildEmailPromptInput(emailOpportunity, emailCampaign)
+      : await buildPromptInput(opportunity as WhatsappOpportunity)
     const inputHash = hash(JSON.stringify(promptInput))
+    const promptVersion = promptVersionFor(emailOpportunity ? 'email' : 'whatsapp')
 
     // Controles pagos: concorrência e taxa por minuto, checados
     // imediatamente antes da chamada paga em si.
     const releaseGenerationSlot = acquireGenerationSlot()
     try {
       const { output, rawOutputText } = await provider.generateCampaignStrategies(promptInput)
+      // Os dois schemas (WhatsApp/e-mail) validam exatamente 3 estratégias; daqui
+      // em diante o pipeline de auditoria é o mesmo para os dois canais.
+      const generated: Strategy[] = output.strategies
 
-      const productResults = await Promise.all(output.strategies.map(s => productTruthService.verify(s.productId)))
-      const complianceFindings = auditAllStrategies(output.strategies, productResults.map(r => r.product))
+      const productResults = await Promise.all(generated.map(s => productTruthService.verify(s.productId)))
+      const complianceFindings = auditAllStrategies(generated, productResults.map(r => r.product))
       // Strategy Lab v1.1 — Truth Hardening: claims IMPLÍCITAS (ex.: "continua
       // disponível") que não usam nenhuma palavra de GUARDED_CLAIMS mas
       // pressupõem um fato que promptInput.evidence não comprova.
-      const claimCategoryFindings = output.strategies.flatMap((strategy, index) =>
+      const claimCategoryFindings = generated.flatMap((strategy, index) =>
         auditClaimCategories(strategy, index, opportunity.type, promptInput.evidence))
 
       // Strategy Lab v1: dois gates adicionais, tão hard-block quanto compliance.
       // Adesão de direção garante que a IA não embaralhou/pulou A/B/C; distância
       // criativa garante que A/B/C não são a mesma ideia reescrita. Nenhum dos
       // dois é previsão de venda — são checagens estruturais do texto gerado.
-      const directionFindings = auditDirectionAdherence(output.strategies, promptInput.playbook)
-      const distanceFindings = evaluateCreativeDistance(output.strategies)
+      const directionFindings = auditDirectionAdherence(generated, promptInput.playbook)
+      const distanceFindings = evaluateCreativeDistance(generated)
 
       const findings: ComplianceFinding[] = [
         ...complianceFindings,
@@ -204,7 +303,7 @@ export const campaignService = {
         ])),
       ]
 
-      const strategiesWithStatus = output.strategies.map((strategy, index) => {
+      const strategiesWithStatus = generated.map((strategy, index) => {
         const strategyFindings = findings.filter(f => f.strategyIndex === index)
         const qualityRubric = evaluateStrategyQuality(strategy, {
           product: productResults[index]?.product ?? null,
@@ -223,7 +322,7 @@ export const campaignService = {
           campaignDraftId: draft.id,
           provider: provider.name,
           model: provider.model,
-          promptVersion: PROMPT_VERSION,
+          promptVersion,
           inputHash,
           outputHash: hash(rawOutputText),
           status: 'ok',
@@ -248,7 +347,7 @@ export const campaignService = {
           campaignDraftId: draft.id,
           provider: provider.name,
           model: provider.model,
-          promptVersion: PROMPT_VERSION,
+          promptVersion,
           inputHash,
           status: 'error',
           errorMessage: categorizeAiError(error),
@@ -299,7 +398,10 @@ export const campaignService = {
   async schedule(id: string) {
     const draft = await campaignService.getById(id)
     if (draft.status !== 'APPROVED') throw new InvalidCampaignStateError(`Agendamento exige status APPROVED (atual: ${draft.status})`)
-    await assertTemplateApprovedForSend(draft.opportunityType)
+    // E-mail: agendamento FAIL-CLOSED. Sem provedor, consentimento validado,
+    // descadastro/supressão e EMAIL_SEND_ENABLED, nada é agendado nem enviado.
+    if (draft.channel === 'EMAIL') assertEmailSendAllowed()
+    await assertTemplateApprovedForSend(draft.opportunityType as WhatsappOpportunityType)
     // WHATSAPP_DRY_RUN permanece true nesta fase — nenhuma execução real de
     // envio é acionada por este endpoint, mesmo após aprovação humana.
     return getAiPrisma().campaignDraft.update({ where: { id }, data: { status: 'SCHEDULED', scheduledAt: new Date() } })

@@ -1,8 +1,8 @@
 import OpenAI from 'openai'
 import { zodResponseFormat } from 'openai/helpers/zod'
 import { env } from '../../config/env'
-import { AiProvider, AiProviderConfigError, AiProviderResponseError, AiProviderTimeoutError, CampaignPromptInput, campaignStrategiesSchema } from './aiProvider'
-import { SYSTEM_PROMPT } from './campaignPromptContract'
+import { AiProvider, AiProviderConfigError, AiProviderResponseError, AiProviderTimeoutError, AnyCampaignPromptInput, campaignStrategiesSchema, emailCampaignStrategiesSchema, isEmailPromptInput } from './aiProvider'
+import { systemPromptFor } from './campaignPromptContract'
 
 // Groq expõe uma API compatível com a da OpenAI (mesmo formato de request/
 // response) — por isso reusa o SDK `openai`, só trocando `baseURL`. O
@@ -12,6 +12,8 @@ import { SYSTEM_PROMPT } from './campaignPromptContract'
 // servidor com o mesmo rigor da OpenAI, a saída nunca escapa sem validação —
 // fail-closed, igual aos outros dois provedores.
 const RESPONSE_FORMAT = zodResponseFormat(campaignStrategiesSchema, 'campaign_strategies')
+// Canal e-mail: mesmo pipeline, outro schema (subject/preheader/headline/body/cta).
+const EMAIL_RESPONSE_FORMAT = zodResponseFormat(emailCampaignStrategiesSchema, 'email_campaign_strategies')
 
 export class GroqProvider implements AiProvider {
   readonly name = 'groq'
@@ -37,8 +39,9 @@ export class GroqProvider implements AiProvider {
     return this.client
   }
 
-  async generateCampaignStrategies(input: CampaignPromptInput) {
+  async generateCampaignStrategies(input: AnyCampaignPromptInput) {
     const client = this.getClient()
+    const email = isEmailPromptInput(input)
 
     let completion
     try {
@@ -46,10 +49,13 @@ export class GroqProvider implements AiProvider {
         model: this.model,
         max_completion_tokens: env.AI_MAX_OUTPUT_TOKENS,
         messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'system', content: systemPromptFor(email ? 'email' : 'whatsapp') },
           { role: 'user', content: JSON.stringify(input) },
         ],
-        response_format: RESPONSE_FORMAT,
+        // O tipo do helper de parse é fixado pelo schema de WhatsApp; o valor em
+        // runtime é o formato correto do canal e a saída é revalidada abaixo
+        // com o schema do canal — o cast só evita duplicar o método inteiro.
+        response_format: (email ? EMAIL_RESPONSE_FORMAT : RESPONSE_FORMAT) as typeof RESPONSE_FORMAT,
       })
     } catch (error) {
       if (error instanceof OpenAI.APIConnectionTimeoutError) {
@@ -76,7 +82,7 @@ export class GroqProvider implements AiProvider {
       throw new AiProviderResponseError('Resposta da IA não pôde ser interpretada como JSON estruturado.')
     }
 
-    const parsed = campaignStrategiesSchema.safeParse(parsedOutput)
+    const parsed = (email ? emailCampaignStrategiesSchema : campaignStrategiesSchema).safeParse(parsedOutput)
     if (!parsed.success) {
       throw new AiProviderResponseError(`Saída da IA não passou na validação de schema: ${parsed.error.message}`)
     }

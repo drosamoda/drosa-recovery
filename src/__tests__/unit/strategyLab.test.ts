@@ -4,7 +4,7 @@ import { resolveStrategyDirections, auditDirectionAdherence, EvidenceFlags } fro
 import { evaluateCreativeDistance } from '../../services/ai/strategyDistanceService'
 import { evaluateStrategyQuality } from '../../services/ai/strategyQualityRubric'
 import { auditAllStrategies, auditAttributeClaims, auditClaimCategories } from '../../services/ai/complianceService'
-import { Strategy } from '../../services/ai/aiProvider'
+import { WhatsappStrategy as Strategy } from '../../services/ai/aiProvider'
 import { ProductTruth } from '../../services/productTruthService'
 
 const TYPES = Object.keys(STRATEGY_LAB_FIXTURES) as Array<keyof typeof STRATEGY_LAB_FIXTURES>

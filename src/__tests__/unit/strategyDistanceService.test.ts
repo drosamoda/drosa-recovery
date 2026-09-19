@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { evaluateCreativeDistance } from '../../services/ai/strategyDistanceService'
-import { Strategy } from '../../services/ai/aiProvider'
+import { WhatsappStrategy as Strategy } from '../../services/ai/aiProvider'
 
 function strategy(overrides: Partial<Strategy> = {}): Strategy {
   return {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { resolveStrategyDirections, auditDirectionAdherence, EvidenceFlags } from '../../services/ai/strategyPlaybook'
-import { OpportunityType } from '../../services/aiOpportunityEngine'
+import { WhatsappOpportunityType as OpportunityType } from '../../services/aiOpportunityEngine'
 
 const ALL_TYPES: OpportunityType[] = [
   'ABANDONED_CART', 'PIX_PENDING', 'BOLETO_PENDING', 'VIP',
