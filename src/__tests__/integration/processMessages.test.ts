@@ -435,6 +435,32 @@ describe('POST /jobs/process-messages', () => {
     }))
   })
 
+  it('envio real limpa metadados residuais de dry-run ao marcar sent', async () => {
+    const { runProcessMessages } = await import('../../jobs/processMessages')
+    vi.mocked(prisma.messageLog.findMany).mockResolvedValue([
+      {
+        ...pendingMsg,
+        reason: 'dry_run',
+        errorCode: 'old_error',
+        deliveryUnknownAt: new Date(),
+      } as never,
+    ])
+
+    const result = await runProcessMessages()
+
+    expect(result).toMatchObject({ sent: 1, dryRun: 0 })
+    expect(prisma.messageLog.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'msg-001' },
+      data: expect.objectContaining({
+        status: 'sent',
+        metaMessageId: 'wamid-test-123',
+        reason: null,
+        errorCode: null,
+        deliveryUnknownAt: null,
+      }),
+    }))
+  })
+
   it('marketing fora da janela e adiado sem chamar Meta nem ser descartado', async () => {
     const { whatsappService } = await import('../../services/whatsappService')
     const { isMarketingTemplate } = await import('../../services/templateContracts')
