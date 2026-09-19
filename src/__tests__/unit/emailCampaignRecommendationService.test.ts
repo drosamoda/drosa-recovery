@@ -165,6 +165,52 @@ describe('emailCampaignRecommendationService — cruzamento audiência × biblio
   })
 })
 
+describe('plano "o que fazer agora" — uma entrada por campanha, sem somar públicos que se sobrepõem', () => {
+  const plan = result.plan
+
+  it('só tem recomendações acionáveis e nunca repete uma campanha (melhor público por campanha)', () => {
+    expect(plan.length).toBeGreaterThan(5)
+    expect(plan.every(p => p.actionable)).toBe(true)
+    expect(new Set(plan.map(p => p.campaignKey)).size).toBe(plan.length)
+    expect(result.summary.planned).toBe(plan.length)
+  })
+
+  it('escolhe, para cada campanha, o público de MAIOR alcance (empate = primeiro público permitido)', () => {
+    const style = plan.find(p => p.campaignKey === 'POST_PURCHASE_STYLE')!
+    expect(style.segmentKey).toBe('ONE_TIME_BUYERS') // 10 exclusivos tanto em ONE_TIME_BUYERS quanto em RECENT_BUYERS_0_30D
+    const all = result.recommendations.filter(r => r.campaignKey === 'POST_PURCHASE_STYLE' && r.actionable)
+    const bestReach = Math.max(...all.map(r => r.exclusiveAudienceCount ?? 0))
+    expect(style.exclusiveAudienceCount).toBe(bestReach)
+  })
+
+  it('duas campanhas da MESMA trilha para o MESMO público são alternativas: a de menor ranking aponta a de maior', () => {
+    const style = plan.find(p => p.campaignKey === 'POST_PURCHASE_STYLE')!
+    const discovery = plan.find(p => p.campaignKey === 'POST_PURCHASE_DISCOVERY')!
+    expect(style.alternativeTo).toBeNull()
+    expect(discovery.alternativeTo).toEqual({ campaignKey: 'POST_PURCHASE_STYLE', campaignName: style.campaignName })
+    expect(plan.indexOf(style)).toBeLessThan(plan.indexOf(discovery))
+  })
+
+  it('campanhas de públicos DIFERENTES da mesma trilha (win-backs por faixa de dias) NÃO são alternativas: alcançam pessoas distintas', () => {
+    const w6190 = plan.find(p => p.campaignKey === 'WINBACK_61_90')!
+    const w91180 = plan.find(p => p.campaignKey === 'WINBACK_91_180')!
+    expect(w6190.track).toBe('REACTIVATION')
+    expect(w6190.alternativeTo).toBeNull()
+    expect(w91180.alternativeTo).toBeNull()
+  })
+
+  it('carrinho recente lidera o plano; entradas bloqueadas (NEEDS_DATA, cobertas por prioridade) nunca entram', () => {
+    expect(plan[0].campaignKey).toBe('CART_RECOVERY_EMAIL')
+    const keys = plan.map(p => p.campaignKey)
+    expect(keys).not.toContain('NEW_ARRIVALS')
+    expect(keys).not.toContain('WINBACK_31_60')
+  })
+
+  it('preserva a ordem do ranking (prioridade crescente)', () => {
+    for (let i = 1; i < plan.length; i++) expect(plan[i].priority).toBeGreaterThanOrEqual(plan[i - 1].priority)
+  })
+})
+
 describe('oportunidades de e-mail (channel=email)', () => {
   const opportunities = buildEmailOpportunities(snapshot)
 

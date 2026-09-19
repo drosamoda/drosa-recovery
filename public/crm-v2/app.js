@@ -9,8 +9,9 @@
    abas locais dentro da área correspondente — mesmos endpoints, mesmos dados, sem nenhuma
    remoção de contrato de API.
 
-   Campanhas & IA (antiga "Automações") reúne 4 abas locais: Oportunidades (audiências reais
-   calculadas pelo backend), Campanhas (estratégias geradas por IA sobre /crm-api/ai/*, sempre
+   Campanhas & IA (antiga "Automações") reúne 5 abas locais: Oportunidades (audiências reais
+   calculadas pelo backend), E-mail (inteligência de e-mail: públicos determinísticos, biblioteca
+   de campanhas e geração com IA — sem nenhum envio), Campanhas (estratégias geradas por IA sobre /crm-api/ai/*, sempre
    com aprovação humana explícita antes de qualquer agendamento — a IA nunca aprova a si mesma),
    Automações (conteúdo já existente de regra-vs-runtime, inalterado) e Aprendizados (métricas
    comprovadas; envio real está desligado nesta fase, então a ausência de dados é um estado
@@ -42,7 +43,7 @@ const NAV = [
   { key: 'customers', label: 'Cliente 360', mobile: 'Clientes', tabs: [['customers', 'Clientes'], ['consents', 'Consentimentos']] },
   { key: 'conversations', label: 'Conversas', mobile: 'Conversas', tabs: [['conversations', 'Conversas']] },
   { key: 'checkouts', label: 'Carrinho', mobile: 'Carrinho', tabs: [['checkouts', 'Abandonados'], ['pix', 'Pix'], ['boleto', 'Boleto'], ['remarketing', 'Remarketing']] },
-  { key: 'automations', label: 'Campanhas & IA', mobile: 'IA', tabs: [['opportunities', 'Oportunidades'], ['campaigns', 'Campanhas'], ['automation-rules', 'Automações'], ['learning', 'Aprendizados']] },
+  { key: 'automations', label: 'Campanhas & IA', mobile: 'IA', tabs: [['opportunities', 'Oportunidades'], ['email', 'E-mail'], ['campaigns', 'Campanhas'], ['automation-rules', 'Automações'], ['learning', 'Aprendizados']] },
   { key: 'health', label: 'Saúde', mobile: 'Saúde', tabs: [['health', 'Visão geral'], ['audit', 'Auditoria']] },
 ]
 const TAB_META = {
@@ -57,6 +58,7 @@ const TAB_META = {
   boleto: 'Pedidos por boleto pendentes e falhas de mensagem observadas.',
   remarketing: 'Execuções, públicos e bloqueios já existentes.',
   opportunities: 'Oportunidades reais de contato, calculadas a partir de dados já existentes.',
+  email: 'Inteligência de e-mail: públicos calculados no backend, biblioteca de campanhas e geração com IA — nenhum e-mail é enviado.',
   campaigns: 'Estratégias geradas por IA — aprovação humana explícita é sempre obrigatória.',
   'automation-rules': 'Regra configurada versus liberação real em runtime.',
   learning: 'Métricas comprovadas de campanhas — envio real ainda desligado nesta fase.',
@@ -164,7 +166,7 @@ $('adminCancelBtn').onclick = () => closeAdminModal(false)
 $('adminSecretInput').onkeydown = e => { if (e.key === 'Enter') closeAdminModal(true) }
 
 class ApiError extends Error {
-  constructor(message, meta) { super(message); this.name = 'ApiError'; this.status = meta.status; this.endpoint = meta.endpoint; this.code = meta.code }
+  constructor(message, meta) { super(message); this.name = 'ApiError'; this.status = meta.status; this.endpoint = meta.endpoint; this.code = meta.code; this.payloadCode = meta.payloadCode }
 }
 async function api(path, signal) {
   const endpoint = '/crm-api/' + path
@@ -196,7 +198,7 @@ async function apiPost(path, body) {
   let payload = null
   try { payload = await r.json() } catch (e) { /* corpo vazio ou não-JSON — segue com payload nulo, nunca falha silenciosamente na leitura do status HTTP */ }
   if (r.status === 401) throw new ApiError('Segredo de leitura inválido ou ausente.', { status: 401, endpoint })
-  if (!r.ok) throw new ApiError(`Falha ao executar ação · HTTP ${r.status} · ${endpoint}${requestId ? ' · ID: ' + requestId.split('::').pop() : ''}`, { status: r.status, endpoint, code: payload && payload.error })
+  if (!r.ok) throw new ApiError(`Falha ao executar ação · HTTP ${r.status} · ${endpoint}${requestId ? ' · ID: ' + requestId.split('::').pop() : ''}`, { status: r.status, endpoint, code: payload && payload.error, payloadCode: payload && payload.code })
   return payload
 }
 // Ações administrativas (aprovar, agendar) exigem x-admin-secret além do x-crm-read-secret —
@@ -215,12 +217,17 @@ async function apiPostAdmin(path, body, adminSecret) {
   let payload = null
   try { payload = await r.json() } catch (e) { /* corpo vazio ou não-JSON — segue com payload nulo */ }
   if (r.status === 401 || r.status === 403) throw new ApiError('Segredo administrativo inválido ou ausente.', { status: r.status, endpoint })
-  if (!r.ok) throw new ApiError(`Falha ao executar ação · HTTP ${r.status} · ${endpoint}${requestId ? ' · ID: ' + requestId.split('::').pop() : ''}`, { status: r.status, endpoint, code: payload && payload.error })
+  if (!r.ok) throw new ApiError(`Falha ao executar ação · HTTP ${r.status} · ${endpoint}${requestId ? ' · ID: ' + requestId.split('::').pop() : ''}`, { status: r.status, endpoint, code: payload && payload.error, payloadCode: payload && payload.code })
   return payload
 }
 // Traduz falhas conhecidas da camada de IA em linguagem de produto, sem nunca esconder o
 // diagnóstico técnico bruto (sempre exibido junto, em texto menor, por quem chama esta função).
 function describeAiIssue(e) {
+  // Códigos estruturados de e-mail (422/409) — a mensagem do backend (em e.code) já diz o que falta.
+  if (e.payloadCode === 'EMAIL_CAMPAIGN_NEEDS_DATA') return { title: 'Esta campanha depende de dados que o sistema ainda não coleta', body: e.code || 'Nenhuma campanha foi criada: o dado necessário para afirmar isso não existe.' }
+  if (e.payloadCode === 'EMAIL_CAMPAIGN_SEGMENT_MISMATCH') return { title: 'Campanha não permitida para este público', body: e.code || 'Esta campanha não pode ser usada com o segmento escolhido.' }
+  if (e.payloadCode === 'EMAIL_NO_ACTIONABLE_CAMPAIGN' || e.payloadCode === 'EMAIL_CAMPAIGN_UNKNOWN') return { title: 'Nenhuma campanha de e-mail disponível para gerar', body: e.code || 'Escolha outra campanha ou outro público.' }
+  if (e.payloadCode === 'EMAIL_SEND_NOT_AVAILABLE') return { title: 'Envio de e-mail indisponível nesta fase', body: 'Não existe provedor de e-mail, consentimento validado nem lista de descadastro. Nenhum e-mail é enviado ou agendado.' }
   const code = e.code || ''
   const msg = (e.message || '').toLowerCase()
   if (e.status === 503 || code === 'AI_PROVIDER_NOT_CONFIGURED' || msg.includes('not_configured')) return { title: 'IA indisponível nesta fase', body: 'O provedor de geração de campanhas ainda não está configurado neste ambiente. Nenhuma estratégia pode ser gerada até a chave de API ser configurada fora desta tela.' }
@@ -242,6 +249,7 @@ function renderNav() {
   const titleLabel = (state.section === 'customers' && state.customerId) ? 'Cliente 360' : section.label
   $('pageTitle').textContent = titleLabel
   $('pageSubtitle').textContent = TAB_META[state.tab] || ''
+  $('pageEyebrow').textContent = state.tab === 'email' ? 'Inteligência de e-mail · nenhum envio' : 'Operação WhatsApp'
   $('mtTitle').textContent = titleLabel
 
   // "Conectado" só é exibido depois de uma chamada real bem-sucedida ao backend (state.connStatus),
@@ -718,18 +726,22 @@ function renderOpportunityCard(o) {
 // nova.
 const pendingCampaignIdempotencyKeys = new Map()
 
-async function generateCampaignFromOpportunity(opportunityId, btn) {
-  const errEl = $('oppErr-' + opportunityId)
+async function generateCampaignFromOpportunity(opportunityId, btn, campaignKey, errorElementId) {
+  const errEl = $(errorElementId || ('oppErr-' + opportunityId + (campaignKey ? '-' + campaignKey : '')))
   const originalLabel = btn.textContent
   btn.disabled = true; btn.textContent = 'Gerando…'
   if (errEl) errEl.innerHTML = ''
-  if (!pendingCampaignIdempotencyKeys.has(opportunityId)) {
-    pendingCampaignIdempotencyKeys.set(opportunityId, crypto.randomUUID())
+  // Ação humana = oportunidade + campanha (e-mail): duas campanhas diferentes para o mesmo
+  // segmento são ações diferentes e nunca compartilham a key.
+  const actionId = opportunityId + (campaignKey ? '::' + campaignKey : '')
+  if (!pendingCampaignIdempotencyKeys.has(actionId)) {
+    pendingCampaignIdempotencyKeys.set(actionId, crypto.randomUUID())
   }
-  const idempotencyKey = pendingCampaignIdempotencyKeys.get(opportunityId)
+  const idempotencyKey = pendingCampaignIdempotencyKeys.get(actionId)
   try {
-    const draft = await apiPost('ai/campaigns', { opportunityId, idempotencyKey })
-    pendingCampaignIdempotencyKeys.delete(opportunityId) // sucesso: a próxima geração desta oportunidade é uma ação nova, não um retry
+    // Sem campaignKey (WhatsApp) o corpo é exatamente o de antes.
+    const draft = await apiPost('ai/campaigns', campaignKey ? { opportunityId, idempotencyKey, campaignKey } : { opportunityId, idempotencyKey })
+    pendingCampaignIdempotencyKeys.delete(actionId) // sucesso: a próxima geração desta oportunidade é uma ação nova, não um retry
     state.tab = 'campaigns'; state.campaignId = draft.id; state.page = 1
     load()
   } catch (e) {
@@ -761,6 +773,7 @@ function renderCampaignRow(c) {
   const title = c.opportunityTitle || (OPPORTUNITY_TYPE[c.opportunityType] ? `${OPPORTUNITY_TYPE[c.opportunityType]} · Campanha ${String(c.id).slice(0, 6)}` : `Campanha ${String(c.id).slice(0, 6)}`)
   return `<div class="campaign-row clickable" data-campaign-id="${esc(c.id)}">
     <div class="campaign-row-main"><b>${esc(title)}</b><span class="cell-muted">${num((c.strategies || []).length)} estratégia(s)</span></div>
+    <span class="channel-tag ${c.channel === 'EMAIL' ? 'email' : 'whatsapp'}">${c.channel === 'EMAIL' ? 'E-mail' : 'WhatsApp'}</span>
     ${pill(label, tone)}
     <span class="cell-muted" style="font-size:11px;white-space:nowrap">${dt(c.updatedAt || c.createdAt)}</span>
   </div>`
@@ -779,9 +792,11 @@ function renderCampaignDetail(draft) {
     ? `<p class="strategy-swipe-hint">Arraste para comparar A · B · C</p><div class="strategy-grid">${strategies.map((s, i) => renderStrategyCard(draft.id, s, i)).join('')}</div>`
     : `<div class="ai-banner warning"><span class="icon">${ICONS.alert}</span><div><b>A IA ainda não retornou estratégias</b><p>Esta campanha está registrada, mas nenhuma estratégia foi gerada ainda para ela.</p></div></div>`
   const complianceBlock = findings.length ? `<div class="section-block"><div class="section-block-head"><h2>Achados de compliance</h2></div><div class="panel">${findings.map(f => `<div class="narrative-row"><span class="icon">${ICONS.shield}</span><div class="body"><b>${esc(f.claim)}</b><div class="sub">${esc(f.reason)}</div></div></div>`).join('')}</div></div>` : ''
+  const isEmail = draft.channel === 'EMAIL'
   $('content').innerHTML = `
     <button class="btn btn-ghost btn-sm" id="campBack" style="margin-bottom:15px">${ICONS.back} Campanhas</button>
-    <div class="campaign-head"><div><p class="eyebrow">CAMPANHA GERADA POR IA · APROVAÇÃO HUMANA OBRIGATÓRIA</p><h1>${esc(draft.opportunityTitle || `Campanha ${String(draft.id).slice(0, 6)}`)}</h1></div>${campaignStepper(draft.status)}</div>
+    <div class="campaign-head"><div><p class="eyebrow">${isEmail ? 'CAMPANHA DE E-MAIL' : 'CAMPANHA'} GERADA POR IA · APROVAÇÃO HUMANA OBRIGATÓRIA</p><h1>${esc(draft.opportunityTitle || `Campanha ${String(draft.id).slice(0, 6)}`)}</h1></div>${campaignStepper(draft.status)}</div>
+    ${isEmail ? renderEmailCampaignContext(draft) : ''}
     <div class="section-block"><div class="section-block-head"><h2>Estratégias (A · B · C)</h2><span class="hint">Product Truth e compliance avaliados por estratégia</span></div>${strategiesHtml}</div>
     ${complianceBlock}
     ${renderCampaignActionBlock(draft)}`
@@ -792,14 +807,24 @@ function renderStrategyCard(campaignId, s, i) {
   const letter = ['A', 'B', 'C'][i] || String(i + 1)
   const blocked = s.status === 'BLOCKED'
   const selected = state.selectedStrategy[campaignId] === i
+  // Estratégia de e-mail tem subject/preheader/headline/body em vez de message.
+  const isEmail = typeof s.subject === 'string'
+  const contentFields = isEmail
+    ? `<div class="strategy-field"><span class="label">Assunto <small class="cell-muted">${num(String(s.subject).length)} caracteres</small></span><p class="email-subject">${esc(s.subject)}</p></div>
+    <div class="strategy-field"><span class="label">Preheader</span><p class="email-preheader">${esc(s.preheader)}</p></div>
+    <div class="strategy-field"><span class="label">Headline</span><p class="email-headline">${esc(s.headline)}</p></div>
+    <div class="strategy-field"><span class="label">Corpo do e-mail</span><blockquote class="strategy-message email-body">${emailParagraphs(s.body)}</blockquote></div>
+    <div class="strategy-field"><span class="label">CTA</span><p><span class="email-cta-chip">${esc(s.cta)}</span></p></div>`
+    : `<div class="strategy-field"><span class="label">Mensagem</span><blockquote class="strategy-message">${esc(s.message)}</blockquote></div>
+    <div class="strategy-field"><span class="label">CTA</span><p>${esc(s.cta)}</p></div>`
   return `<div class="strategy-card ${blocked ? 'blocked' : ''} ${selected ? 'selected' : ''}">
     <div class="strategy-head"><span class="strategy-letter">${letter}</span><h3>${esc(s.name)}</h3>${pill(blocked ? 'Bloqueada' : 'Liberada', blocked ? 'danger' : 'success')}</div>
     <p class="strategy-angle">${esc(s.angle)}</p>
     <div class="strategy-field"><span class="label">Público</span><p>${esc(s.audience)}</p></div>
     <div class="strategy-field"><span class="label">Produto</span><p>${s.productId ? `<span class="cell-mono">${esc(s.productId)}</span>` : '<span class="cell-muted">Produto ainda não confirmado pela IA</span>'}</p></div>
-    <div class="strategy-field"><span class="label">Mensagem</span><blockquote class="strategy-message">${esc(s.message)}</blockquote></div>
-    <div class="strategy-field"><span class="label">CTA</span><p>${esc(s.cta)}</p></div>
+    ${contentFields}
     <div class="strategy-field"><span class="label">Brief criativo</span><p>${esc(s.creativeBrief)}</p></div>
+    ${renderStrategyChecks(s)}
     ${(s.warnings || []).length ? `<div class="strategy-warnings">${s.warnings.map(w => `<span class="strategy-warning"><span class="icon">${ICONS.alert}</span>${esc(w)}</span>`).join('')}</div>` : ''}
     ${blocked && (s.findings || []).length ? `<div class="strategy-findings">${s.findings.map(f => `<div class="ai-banner danger"><span class="icon">${ICONS.alert}</span><div><b>${esc(f.claim)}</b><p>${esc(f.reason)}</p></div></div>`).join('')}</div>` : ''}
     <button class="btn ${selected ? 'btn-primary' : 'btn-ghost'} btn-sm btn-block" data-select-strategy="${i}" data-campaign-id="${esc(campaignId)}" ${blocked ? 'disabled' : ''}>${selected ? 'Selecionada — salva como rascunho' : 'Usar esta estratégia'}</button>
@@ -815,6 +840,16 @@ function renderCampaignActionBlock(draft) {
       <p id="approvalNameHint" class="approval-hint"></p>
       <div id="approvalConfirm" class="approval-row hidden"><span id="approvalConfirmLabel" class="approval-confirm-label"></span><button class="btn btn-primary" id="confirmApproveBtn">Confirmar aprovação</button><button class="btn btn-ghost" id="cancelApproveBtn">Cancelar</button></div>
       <div id="approvalError"></div>
+    </div>`
+  }
+  if (draft.status === 'APPROVED' && draft.channel === 'EMAIL') {
+    // E-mail: agendamento fail-closed no backend (409 EMAIL_SEND_NOT_AVAILABLE). Aqui nem
+    // oferecemos um botão que finge agendar — a UI diz o que falta, sem prometer nada.
+    return `<div class="section-block approval-box approved">
+      <p class="eyebrow">APROVADA (CONTEÚDO)</p>
+      <h2>Conteúdo aprovado por um humano — envio de e-mail indisponível</h2>
+      <p class="approval-copy">Não existe provedor de e-mail, consentimento de e-mail validado, lista de descadastro/supressão nem envio habilitado. Esta aprovação vale só para o conteúdo: nenhum e-mail é enviado ou agendado.</p>
+      <button class="btn btn-ghost" disabled>Agendar e-mail (indisponível)</button>
     </div>`
   }
   if (draft.status === 'APPROVED') {
@@ -872,6 +907,239 @@ async function scheduleCampaign(campaignId) {
     const info = describeAiIssue(e)
     $('scheduleError').innerHTML = `<div class="ai-banner danger" style="margin-top:10px"><span class="icon">${ICONS.alert}</span><div><b>${esc(info.title)}</b><p>${esc(info.body)}</p></div></div>`
   }
+}
+
+// ── ÁREA: CAMPANHAS & IA · ABA E-MAIL ────────────────────────────────────────────────────────
+// Inteligência de e-mail. Toda a segmentação, contagem, prioridade e recomendação vem do backend
+// (GET email/audiences, email/recommendations, email/campaign-library) — nada é calculado nem
+// estimado aqui, e a IA nunca decide o público. Onde o dado não existe a tela diz NEEDS_DATA em vez
+// de mostrar um zero. "Elegibilidade para envio" nunca é confundida com "clientes no segmento":
+// sem fonte de consentimento de e-mail nenhum número de "pronto para enviar" existe. Gerar uma
+// campanha usa o MESMO pipeline de IA e a mesma aprovação humana da aba Campanhas; nenhum e-mail
+// é enviado ou agendado (não existe provedor, consentimento, descadastro nem envio habilitado).
+const EMAIL_BASE_CARDS = [
+  ['ALL_EMAIL_CUSTOMERS', 'Base com e-mail'], ['ONE_TIME_BUYERS', 'Comprou 1 vez'], ['REPEAT_BUYERS', 'Comprou 2+ vezes'], ['VIP_CUSTOMERS', 'VIP'],
+  ['RECENT_BUYERS_0_30D', '0–30 dias'], ['LAPSED_31_60D', '31–60 dias'], ['LAPSED_61_90D', '61–90 dias'], ['LAPSED_91_180D', '91–180 dias'],
+  ['LAPSED_181_365D', '181–365 dias'], ['DORMANT_365D_PLUS', '365+ dias'], ['NO_PURCHASE_CUSTOMERS', 'Nunca comprou'],
+]
+const EMAIL_LIBRARY_FILTERS = [['ALL', 'Todas'], ['GENERAL', 'Base geral'], ['FIRST_TO_SECOND', '1 compra'], ['REPEAT', 'Recorrentes'], ['VIP', 'VIP'], ['REACTIVATION', 'Reativação'], ['NO_PURCHASE', 'Sem compra'], ['BEHAVIORAL', 'Comportamental']]
+const EMAIL_CATEGORY_LABEL = { GENERAL: 'Base geral', FIRST_TO_SECOND: '1ª → 2ª compra', REPEAT: 'Recorrentes', VIP: 'VIP', REACTIVATION: 'Reativação', NO_PURCHASE: 'Sem compra', BEHAVIORAL: 'Comportamental' }
+const EMAIL_FUNNEL_STAGE = { AWARENESS: 'Descoberta', CONSIDERATION: 'Consideração', CONVERSION: 'Conversão', RETENTION: 'Retenção', REACTIVATION: 'Reativação' }
+const EMAIL_PRIORITY_LABEL = { 2: 'Carrinho', 3: 'Pós-compra', 4: 'Segunda compra', 5: 'Recorrente', 6: 'VIP', 7: 'Reativação', 8: 'Geral' }
+const EMAIL_REQUIREMENT_LABEL = {
+  CANDIDATE_PRODUCTS: 'Produtos reais verificados', NEWNESS_EVIDENCE: 'Prova de novidade', CATEGORY_DATA: 'Categoria de produto', BEST_SELLER_RANKING: 'Ranking de vendas',
+  RESTOCK_EVIDENCE: 'Evidência de reposição', COMPLEMENTARY_PRODUCT_EVIDENCE: 'Regra de produto complementar', BROWSE_TRACKING: 'Rastreamento de navegação',
+  STOCK_INTEREST_SUBSCRIPTION: 'Inscrição de interesse por produto', CART_RECOVERY_DATA: 'Checkout com e-mail e link de recuperação',
+}
+const EMAIL_BLOCK_REASON = {
+  EMPTY_AUDIENCE: 'Nenhum cliente neste segmento agora', SEGMENT_NEEDS_DATA: 'O segmento depende de dado que ainda não é coletado', SEGMENT_NOT_TARGETABLE: 'Este segmento não é público de campanha',
+  SUPERSEDED_BY_HIGHER_PRIORITY: 'Público já coberto por campanhas de maior prioridade',
+}
+const EMAIL_GATE_LABEL = {
+  EMAIL_PROVIDER_NOT_CONFIGURED: 'Sem provedor de e-mail', EMAIL_MARKETING_CONSENT_SOURCE_NOT_CONFIGURED: 'Sem fonte de consentimento de e-mail',
+  EMAIL_UNSUBSCRIBE_SUPPRESSION_NOT_IMPLEMENTED: 'Sem descadastro/supressão', EMAIL_SEND_DISABLED: 'Envio desligado (EMAIL_SEND_ENABLED=false)',
+}
+const EMAIL_DATA_QUALITY = { OK: ['Dados completos', 'success'], PARTIAL: ['Dados parciais', 'warning'], NEEDS_DATA: ['Falta dado', 'danger'] }
+// Estado só de interface (filtro/segmento escolhidos) — nada persistente, nenhum dado de cliente.
+const emailUi = { filter: 'ALL', segment: '', pick: {} }
+let emailData = null
+
+async function renderEmailArea(gen, signal) {
+  const [aud, rec, lib] = await Promise.all([api('email/audiences', signal), api('email/recommendations', signal), api('email/campaign-library', signal)])
+  if (gen !== renderGen) return
+  emailData = { aud, rec, lib }
+  paintEmailArea()
+}
+function paintEmailArea() {
+  const { aud, rec, lib } = emailData
+  const jumps = [['emailBase', 'Visão da base'], ['emailSegments', 'Segmentos'], ['emailNow', 'O que fazer agora'], ['emailLibrary', 'Biblioteca de campanhas']]
+  $('content').innerHTML = `${emailConsentBanner(lib)}
+    <nav class="email-subnav">${jumps.map(([id, label]) => `<button type="button" data-jump="${id}">${esc(label)}</button>`).join('')}</nav>
+    <section class="section-block" id="emailBase">${emailBaseBlock(aud)}</section>
+    <section class="section-block" id="emailSegments">${emailSegmentsBlock(aud, lib)}</section>
+    <section class="section-block" id="emailNow">${emailNowBlock(rec)}</section>
+    <section class="section-block" id="emailLibrary"><div id="emailLibraryBody">${emailLibraryBlock(lib, rec, aud)}</div></section>`
+  document.querySelectorAll('[data-jump]').forEach(b => b.onclick = () => { const el = $(b.dataset.jump); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }) })
+  document.querySelectorAll('[data-seg-campaigns]').forEach(b => b.onclick = () => { emailUi.segment = b.dataset.segCampaigns; emailUi.filter = 'ALL'; repaintEmailLibrary(); const el = $('emailLibrary'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }) })
+  wireEmailGenerate(document)
+  wireEmailLibrary()
+}
+function repaintEmailLibrary() {
+  $('emailLibraryBody').innerHTML = emailLibraryBlock(emailData.lib, emailData.rec, emailData.aud)
+  wireEmailGenerate($('emailLibraryBody'))
+  wireEmailLibrary()
+}
+function wireEmailGenerate(root) {
+  root.querySelectorAll('[data-gen-email]').forEach(btn => btn.onclick = () => { if (btn.dataset.opp) generateCampaignFromOpportunity(btn.dataset.opp, btn, btn.dataset.campaign, btn.dataset.err) })
+}
+function wireEmailLibrary() {
+  document.querySelectorAll('[data-email-filter]').forEach(b => b.onclick = () => { emailUi.filter = b.dataset.emailFilter; repaintEmailLibrary() })
+  document.querySelectorAll('[data-email-clear-seg]').forEach(b => b.onclick = () => { emailUi.segment = ''; repaintEmailLibrary() })
+  document.querySelectorAll('[data-email-pick]').forEach(sel => sel.onchange = () => { emailUi.pick[sel.dataset.emailPick] = sel.value; repaintEmailLibrary() })
+}
+
+function emailConsentBanner(lib) {
+  const missing = (lib.sendGate && lib.sendGate.missing) || []
+  return `<div class="ai-banner warning email-banner"><span class="icon">${ICONS.alert}</span><div><b>Elegibilidade para envio ainda não validada</b><p>Não existe fonte de consentimento de e-mail (aceite de marketing, newsletter ou descadastro) nos dados, e o consentimento de WhatsApp não vale para e-mail. Os números abaixo são <strong>clientes no segmento</strong>, nunca "prontos para enviar". Nenhum e-mail é enviado, agendado ou integrado a um provedor nesta fase.</p>${missing.length ? `<div class="email-gate-chips">${missing.map(m => `<span class="opp-blocker-chip">${esc(EMAIL_GATE_LABEL[m] || m)}</span>`).join('')}</div>` : ''}</div></div>`
+}
+
+function emailBaseBlock(aud) {
+  const segs = new Map(aud.segments.map(s => [s.segmentKey, s]))
+  const cards = EMAIL_BASE_CARDS.map(([key, label], i) => {
+    const s = segs.get(key)
+    const n = s ? s.audienceCount : null
+    const sub = key === 'ALL_EMAIL_CUSTOMERS' && s ? `${num(s.withValidEmailCount)} com e-mail válido` : s && s.lastPurchaseRange ? `última compra ${esc(s.lastPurchaseRange)}` : 'clientes no segmento'
+    return `<div class="learning-metric email-metric ${i === 0 ? 'primary' : ''}"><span class="n">${num(n)}</span><span class="l">${esc(label)}</span><small>${sub}</small></div>`
+  }).join('')
+  const b = aud.base
+  const rc = aud.recencyCheck
+  const notes = [
+    `${num(b.customersWithoutEmail)} clientes sem e-mail cadastrado (fora do universo de e-mail)`,
+    b.emailInvalid ? `${num(b.emailInvalid)} e-mails em formato inválido` : '',
+    b.paidOrdersWithoutDate ? `${num(b.paidOrdersWithoutDate)} pedidos pagos sem data de origem (${num(b.buyersWithUndatedOrders)} clientes com ao menos um)` : '',
+  ].filter(Boolean)
+  return `<div class="section-block-head"><h2>Visão da base</h2><span class="hint">Calculado no backend em ${dt(aud.generatedAt)} · nenhum número é estimado pela IA</span></div>
+    <div class="learning-grid email-metrics">${cards}</div>
+    <div class="email-base-notes">${rc.overlapFree ? pill('Buckets de última compra sem sobreposição', 'success') : pill('Buckets de recência com inconsistência', 'danger')}
+      <span class="cell-muted">${num(rc.bucketsSum)} compradores datados = soma dos 6 buckets${rc.undatedBuyers ? ` · ${num(rc.undatedBuyers)} sem data confiável (fora dos buckets)` : ''}</span>
+      ${notes.map(n => `<span class="cell-muted">· ${esc(n)}</span>`).join('')}</div>`
+}
+
+function emailSegmentsBlock(aud, lib) {
+  const cards = aud.segments.filter(s => s.segmentKey !== 'UNDATED_BUYERS' || s.audienceCount).map(s => {
+    const linked = lib.data.filter(c => c.allowedSegments.some(a => a.key === s.segmentKey))
+    const ready = linked.filter(c => c.readiness.status === 'READY').length
+    const needs = s.status === 'NEEDS_DATA'
+    const [dqLabel, dqTone] = EMAIL_DATA_QUALITY[s.dataQuality.level] || ['—', 'neutral']
+    const review = (s.exclusions || []).find(e => e.reason === 'WHATSAPP_OPT_OUT_REVIEW')
+    const body = needs
+      ? `<div class="ai-banner warning"><span class="icon">${ICONS.alert}</span><div><b>NEEDS_DATA</b><p>${esc(s.missingData || 'Dados necessários ainda não são coletados.')}</p></div></div>`
+      : `<div class="opp-meta-row">${s.lastPurchaseRange ? `<span>Última compra <b>${esc(s.lastPurchaseRange)}</b></span>` : ''}<span>Com e-mail válido <b>${num(s.withValidEmailCount)}</b></span><span>Cooldown <b>${num(s.recommendedCooldownDays)} dias</b></span></div>
+      ${s.blockedCount ? `<p class="cell-muted email-seg-note">${num(s.blockedCount)} com e-mail inválido — excluídos de qualquer envio.</p>` : ''}
+      ${review ? `<p class="cell-muted email-seg-note">${num(review.count)} pediram opt-out no WhatsApp — não é opt-out de e-mail, mas exige revisão humana.</p>` : ''}
+      <p class="email-seg-note">${pill('Elegibilidade para envio ainda não validada', 'warning')}</p>`
+    return `<div class="email-seg ${needs ? 'needs-data' : ''}">
+      <div class="email-seg-head"><b>${esc(s.name)}</b>${pill(dqLabel, dqTone)}</div>
+      <div class="email-seg-n">${needs ? '—' : num(s.audienceCount)}${needs ? '' : '<small> clientes</small>'}</div>
+      <p class="opp-reason">Objetivo: ${esc(s.objective)}</p>
+      ${body}
+      <div class="email-seg-foot"><span>${num(linked.length)} campanha(s) · ${num(ready)} pronta(s)</span><button type="button" class="btn btn-ghost btn-sm" data-seg-campaigns="${esc(s.segmentKey)}" ${linked.length ? '' : 'disabled'}>Ver campanhas</button></div>
+    </div>`
+  }).join('')
+  return `<div class="section-block-head"><h2>Segmentos</h2><span class="hint">Cooldown é só recomendação: sem histórico de envio de e-mail ele não pode ser aplicado</span></div><div class="email-seg-grid">${cards}</div>`
+}
+
+function renderEmailRecommendation(r, rank) {
+  const reachDiffers = r.exclusivityApplies && r.exclusiveAudienceCount !== null && r.exclusiveAudienceCount !== r.audienceCount
+  const [confLabel, confTone] = OPPORTUNITY_CONFIDENCE[r.confidence] || ['Confiança não informada', 'neutral']
+  const degraded = (r.degradedRequirements || []).map(d => EMAIL_REQUIREMENT_LABEL[d.key] || d.key)
+  const errId = `oppErr-now-${r.opportunityId}-${r.campaignKey}`
+  return `<div class="email-rec">
+    <div class="email-rec-rank">${rank}</div>
+    <div class="email-rec-main">
+      <div class="email-rec-title"><b>${esc(r.campaignName)}</b><span class="cell-muted">${esc(r.segmentName)}</span></div>
+      <div class="email-rec-audience"><strong>${num(r.audienceCount)}</strong> clientes no segmento${reachDiffers ? ` · <strong>${num(r.exclusiveAudienceCount)}</strong> alcançáveis depois das campanhas de maior prioridade` : ''}</div>
+      <p class="opp-reason"><strong>Motivo:</strong> ${esc(r.whyNow)} <span class="cell-muted">Objetivo: ${esc(r.objective)}.</span></p>
+      ${r.alternativeTo ? `<p class="email-rec-alt">${ICONS.alert} Alternativa a <b>${esc(r.alternativeTo.campaignName)}</b> para o mesmo público — escolha uma das duas nesta rodada, nunca as duas.</p>` : ''}
+      <div class="email-rec-chips">
+        <span class="chip">Prioridade ${num(r.priority)} · ${esc(EMAIL_PRIORITY_LABEL[r.priority] || '')}</span>
+        ${pill(confLabel, confTone)}
+        <span class="chip" title="Sem histórico de envio de e-mail o cooldown não pode ser aplicado">Cooldown ${num(r.cooldown.days)} dias · não aplicável (sem histórico de e-mail)</span>
+        ${pill('Elegibilidade de envio não validada', 'warning')}
+        ${degraded.length ? `<span class="chip warn" title="Estas direções usam um texto alternativo honesto porque o dado real não existe">Sem: ${esc(degraded.join(', '))}</span>` : ''}
+      </div>
+    </div>
+    <div class="email-rec-action"><button type="button" class="btn btn-primary btn-sm" data-gen-email="1" data-opp="${esc(r.opportunityId)}" data-campaign="${esc(r.campaignKey)}" data-err="${esc(errId)}">Gerar com IA</button><div class="opp-error" id="${esc(errId)}"></div></div>
+  </div>`
+}
+
+function emailNowBlock(rec) {
+  // plan = uma entrada por campanha (melhor público), calculada no backend; nunca somamos públicos
+  // que se sobrepõem aqui na tela.
+  const actionable = rec.plan || rec.recommendations.filter(r => r.actionable)
+  const shown = actionable.slice(0, 8)
+  const needsByCampaign = new Map()
+  for (const r of rec.recommendations) if (r.requirementsStatus === 'NEEDS_DATA' && !needsByCampaign.has(r.campaignKey)) needsByCampaign.set(r.campaignKey, r)
+  const needs = [...needsByCampaign.values()]
+  const s = rec.summary
+  const head = `<div class="section-block-head"><h2>O que fazer agora</h2><span class="hint">${num(actionable.length)} campanhas acionáveis · ${num(s.superseded)} públicos cobertos por campanhas de maior prioridade · ${num(needs.length)} campanhas dependem de dados inexistentes</span></div>`
+  const list = shown.length
+    ? `<div class="email-rec-list">${shown.map((r, i) => renderEmailRecommendation(r, i + 1)).join('')}</div>${actionable.length > shown.length ? `<p class="cell-muted" style="margin-top:9px;font-size:11.5px">Mostrando as ${shown.length} de maior prioridade — as demais estão na biblioteca abaixo.</p>` : ''}`
+    : emptyState('Nenhuma recomendação acionável agora', 'Todas as campanhas possíveis dependem de dados que o sistema ainda não coleta, ou os públicos estão vazios.')
+  const blocked = needs.length
+    ? `<details class="email-blocked"><summary>${num(needs.length)} campanhas dependem de dados que o sistema ainda não coleta</summary><div class="email-blocked-list">${needs.map(r => `<div class="email-blocked-row"><b>${esc(r.campaignName)}</b><span>${(r.missingRequirements || []).map(m => esc(EMAIL_REQUIREMENT_LABEL[m.key] || m.key)).join(' · ')}</span></div>`).join('')}</div></details>`
+    : ''
+  return head + list + blocked
+}
+
+function renderEmailLibraryCard(c, rec) {
+  const pick = emailUi.pick[c.key] || c.allowedSegments[0].key
+  const recRow = rec.recommendations.find(r => r.campaignKey === c.key && r.segmentKey === pick)
+  const needs = c.readiness.status === 'NEEDS_DATA'
+  const canGenerate = Boolean(recRow && recRow.actionable)
+  const blockedText = needs ? 'Depende de dados que o sistema ainda não coleta.' : !recRow ? 'Sem recomendação para este público.' : (recRow.blockedReasons || []).map(b => EMAIL_BLOCK_REASON[b] || b).join(' · ')
+  const reqs = c.requirements.map(r => `<li class="${r.available ? 'ok' : r.hard ? 'missing' : 'soft'}">${r.available ? '✓' : r.hard ? '✗' : '○'} ${esc(EMAIL_REQUIREMENT_LABEL[r.key] || r.key)}${r.available ? '' : r.hard ? ' — obrigatório, ainda não existe' : ' — opcional; sem ele as direções usam texto alternativo'}</li>`).join('')
+  const oppId = recRow && recRow.opportunityId ? recRow.opportunityId : ''
+  const errId = `oppErr-lib-${oppId}-${c.key}`
+  return `<div class="opp-card email-lib-card ${needs ? 'needs-data' : ''}">
+    <div class="opp-card-head"><span class="opp-type">${esc(EMAIL_CATEGORY_LABEL[c.category] || c.category)}</span><span class="chip">${esc(EMAIL_FUNNEL_STAGE[c.funnelStage] || c.funnelStage)}</span></div>
+    <h3>${esc(c.name)}</h3>
+    <p class="opp-reason">${esc(c.objective)}. ${esc(c.description)}</p>
+    <div class="email-lib-status">${pill(needs ? 'NEEDS_DATA' : 'PRONTA', needs ? 'danger' : 'success')}${pill('SEND_ELIGIBILITY_UNVERIFIED', 'warning')}</div>
+    <div class="opp-meta-row"><span>Prioridade <b>${num(c.priority)} · ${esc(EMAIL_PRIORITY_LABEL[c.priority] || '')}</b></span><span>Cooldown <b>${num(c.recommendedCooldownDays)} dias</b></span><span>Métrica <b>${esc(c.primaryMetric)}</b></span></div>
+    <div class="email-lib-audience"><span class="label">Público</span>${c.allowedSegments.length > 1 ? `<select data-email-pick="${esc(c.key)}">${c.allowedSegments.map(s => `<option value="${esc(s.key)}" ${s.key === pick ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>` : `<b>${esc(c.allowedSegments[0].name)}</b>`}${recRow && recRow.audienceCount !== null ? `<span class="cell-muted">${num(recRow.audienceCount)} clientes</span>` : ''}</div>
+    <div class="email-lib-reqs"><span class="label">Dados necessários</span>${reqs ? `<ul>${reqs}</ul>` : '<span class="cell-muted">Nenhum dado adicional — usa só o histórico de compras.</span>'}</div>
+    ${c.excludedSegments.length ? `<p class="cell-muted email-seg-note">Exclui: ${esc(c.excludedSegments.map(s => s.name).join(', '))}</p>` : ''}
+    <div class="opp-card-foot"><span class="cell-muted" style="font-size:11px">${canGenerate ? 'Gera 3 estratégias (A · B · C) com IA' : esc(blockedText)}</span>
+      <button type="button" class="btn btn-primary btn-sm" data-gen-email="1" data-opp="${esc(oppId)}" data-campaign="${esc(c.key)}" data-err="${esc(errId)}" ${canGenerate ? '' : 'disabled'}>Gerar campanha</button></div>
+    <div class="opp-error" id="${esc(errId)}"></div>
+  </div>`
+}
+
+function emailLibraryBlock(lib, rec, aud) {
+  const chips = EMAIL_LIBRARY_FILTERS.map(([k, l]) => `<button type="button" data-email-filter="${k}" class="${emailUi.filter === k ? 'active' : ''}">${esc(l)}</button>`).join('')
+  let list = lib.data.filter(c => emailUi.filter === 'ALL' || c.category === emailUi.filter)
+  if (emailUi.segment) list = list.filter(c => c.allowedSegments.some(s => s.key === emailUi.segment))
+  const segName = emailUi.segment ? ((aud.segments.find(s => s.segmentKey === emailUi.segment) || {}).name || emailUi.segment) : ''
+  return `<div class="section-block-head"><h2>Biblioteca de campanhas</h2><span class="hint">${num(lib.total)} campanhas · ${num(lib.ready)} prontas · ${num(lib.needsData)} dependem de dados inexistentes · versão ${esc(lib.libraryVersion)}</span></div>
+    <div class="email-lib-filters"><div class="seg">${chips}</div>${emailUi.segment ? `<button type="button" class="btn btn-ghost btn-sm" data-email-clear-seg="1">Público: ${esc(segName)} ✕</button>` : ''}</div>
+    ${list.length ? `<div class="opp-grid">${list.map(c => renderEmailLibraryCard(c, rec)).join('')}</div>` : emptyState('Nenhuma campanha neste filtro', 'Escolha outro filtro ou limpe o público selecionado.')}`
+}
+
+// ── Cartão de estratégia: helpers compartilhados pelos dois canais ───────────────────────────
+// O corpo do e-mail chega como texto puro (quebras de linha = parágrafos); sempre escapado.
+function emailParagraphs(text) {
+  const parts = String(text == null ? '' : text).split(/\n+/).map(p => p.trim()).filter(Boolean)
+  return parts.length ? parts.map(p => `<p>${esc(p)}</p>`).join('') : '<p class="cell-muted">—</p>'
+}
+// Qualidade (rubrica determinística), Product Truth e Compliance de UMA estratégia — dados já
+// calculados pelo backend, só exibidos.
+function renderStrategyChecks(s) {
+  const rubric = s.qualityRubric || []
+  const findings = s.findings || []
+  const pt = rubric.find(r => r.criterion === 'Product Truth')
+  const ptChip = !pt ? '' : !s.productId ? pill('Product Truth: nenhum produto citado', 'neutral') : pt.score === 2 ? pill('Product Truth: confirmado', 'success') : pill('Product Truth: reprovado', 'danger')
+  const compChip = findings.length ? pill(`Compliance: ${num(findings.length)} alegação(ões) bloqueada(s)`, 'danger') : rubric.length ? pill('Compliance: sem alegações não comprovadas', 'success') : ''
+  const total = rubric.reduce((sum, r) => sum + r.score, 0)
+  const max = rubric.length * 2
+  const ratio = max ? total / max : 0
+  const qualityChip = max ? pill(`Qualidade ${total}/${max}`, ratio >= 0.85 ? 'success' : ratio >= 0.6 ? 'warning' : 'danger') : ''
+  const chips = [qualityChip, ptChip, compChip].filter(Boolean)
+  if (!chips.length) return ''
+  const details = rubric.length ? `<details class="quality-details"><summary>Ver critérios de qualidade</summary>${rubric.map(r => `<div class="q-row"><span class="q-dots" title="${r.score} de 2">${'●'.repeat(r.score)}${'○'.repeat(2 - r.score)}</span><div><b>${esc(r.criterion)}</b><small>${esc(r.notes)}</small></div></div>`).join('')}</details>` : ''
+  return `<div class="strategy-checks">${chips.join('')}</div>${details}`
+}
+// Contexto de uma campanha de e-mail no detalhe: canal, público, tamanho e elegibilidade — só
+// agregados gravados no snapshot do draft (nunca dado pessoal).
+function renderEmailCampaignContext(draft) {
+  const snap = draft.audienceSnapshot || {}
+  return `<div class="email-context">
+    <div class="kv"><span>Canal</span><b>E-mail</b></div>
+    <div class="kv"><span>Segmento</span><b>${esc(snap.segmentName || snap.segmentKey || '—')}</b></div>
+    <div class="kv"><span>Tamanho da audiência</span><b>${num(snap.audienceCount)} clientes (agregado)</b></div>
+    <div class="kv"><span>Campanha da biblioteca</span><b>${esc(snap.campaignName || snap.campaignKey || '—')}</b></div>
+    <div class="kv"><span>Elegibilidade para envio</span><b>${pill('Ainda não validada', 'warning')}</b></div>
+  </div>`
 }
 
 // ── ÁREA: CAMPANHAS & IA · ABA APRENDIZADOS ──────────────────────────────────────────────────
@@ -984,6 +1252,7 @@ const AREAS = {
   boleto: (gen, signal) => renderPaymentsArea('boleto', gen, signal),
   remarketing: renderRemarketingArea,
   opportunities: renderOpportunitiesArea,
+  email: renderEmailArea,
   campaigns: renderCampaignsArea,
   'automation-rules': renderAutomationsArea,
   learning: renderLearningArea,

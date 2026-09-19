@@ -234,6 +234,7 @@ export const campaignService = {
             ? {
                 channel: 'email',
                 segmentKey: emailOpportunity.segmentKey,
+                segmentName: SEGMENT_META[emailOpportunity.segmentKey].name,
                 campaignKey: emailCampaign.key,
                 campaignName: emailCampaign.name,
                 audienceCount: emailOpportunity.audienceCount,

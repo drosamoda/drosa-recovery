@@ -62,6 +62,8 @@ export interface EmailRecommendation {
   campaignKey: string
   campaignName: string
   category: string
+  // Trilha de prioridade da campanha (CART_RECOVERY, POST_PURCHASE, ...).
+  track: string
   segmentKey: EmailSegmentKey
   segmentName: string
   opportunityId: string | null
@@ -89,13 +91,23 @@ export interface EmailRecommendation {
   confidence: RecommendationConfidence
 }
 
+// Plano "o que fazer agora": UMA entrada por campanha (o público de maior alcance
+// dela), só acionáveis, na ordem do ranking. Duas campanhas da MESMA trilha para
+// o MESMO público disputam as mesmas pessoas — nunca são somáveis, então a de menor
+// ranking aponta a de maior ranking em alternativeTo (o humano escolhe uma).
+export interface EmailPlanEntry extends EmailRecommendation {
+  alternativeTo: { campaignKey: string; campaignName: string } | null
+}
+
 export interface EmailRecommendationsResult {
   generatedAt: string
   consentSource: EmailAudienceSnapshot['consentSource']
   sendEligibility: EmailAudienceSnapshot['sendEligibility']
   cooldownStatus: typeof EMAIL_COOLDOWN_STATUS
+  // Todos os pares campanha × público (base da biblioteca e da geração).
   recommendations: EmailRecommendation[]
-  summary: { total: number; actionable: number; needsData: number; superseded: number }
+  plan: EmailPlanEntry[]
+  summary: { total: number; actionable: number; needsData: number; superseded: number; planned: number }
 }
 
 const SEND_BLOCKERS = ['EMAIL_CONSENT_SOURCE_NOT_CONFIGURED', 'NO_EMAIL_PROVIDER_CONFIGURED', 'EMAIL_SEND_DISABLED', 'NO_UNSUBSCRIBE_OR_SUPPRESSION_LIST', 'HUMAN_APPROVAL_REQUIRED'] as const
@@ -139,6 +151,7 @@ export function buildEmailRecommendations(
         campaignKey: campaign.key,
         campaignName: campaign.name,
         category: campaign.category,
+        track: campaign.track,
         segmentKey,
         segmentName: segment.name,
         opportunityId: isTargetableSegment(segmentKey) ? emailOpportunityId(segmentKey, snapshot.generatedAt) : null,
@@ -176,14 +189,30 @@ export function buildEmailRecommendations(
   })
   const recommendations = ranked.map(item => item.rec)
 
+  // Sort estável: dentro de uma campanha o par de maior alcance vem primeiro (empate =
+  // ordem de allowedSegments), então a primeira ocorrência de cada campanha é o melhor público.
+  const plan: EmailPlanEntry[] = []
+  const bestByCampaign = new Set<string>()
+  const claimed = new Map<string, EmailRecommendation>()
+  for (const rec of recommendations) {
+    if (!rec.actionable || bestByCampaign.has(rec.campaignKey)) continue
+    bestByCampaign.add(rec.campaignKey)
+    const slot = `${rec.track}|${rec.segmentKey}`
+    const holder = claimed.get(slot)
+    if (!holder) claimed.set(slot, rec)
+    plan.push({ ...rec, alternativeTo: holder ? { campaignKey: holder.campaignKey, campaignName: holder.campaignName } : null })
+  }
+
   return {
     generatedAt: snapshot.generatedAt,
     consentSource: snapshot.consentSource,
     sendEligibility: snapshot.sendEligibility,
     cooldownStatus: EMAIL_COOLDOWN_STATUS,
     recommendations,
+    plan,
     summary: {
       total: recommendations.length,
+      planned: plan.length,
       actionable: recommendations.filter(r => r.actionable).length,
       needsData: recommendations.filter(r => r.requirementsStatus === 'NEEDS_DATA' || r.blockedReasons.includes('SEGMENT_NEEDS_DATA')).length,
       superseded: recommendations.filter(r => r.blockedReasons.includes('SUPERSEDED_BY_HIGHER_PRIORITY')).length,
