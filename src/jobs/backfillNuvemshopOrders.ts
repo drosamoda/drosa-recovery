@@ -3,6 +3,7 @@ import { prisma } from '../config/prisma'
 import { logger } from '../config/logger'
 import { normalizePhoneBrazil } from '../helpers/phoneService'
 import { NuvemshopOrder, nuvemshopService } from '../services/nuvemshopService'
+import { recordConsentFromNuvemshopOrderExtra } from '../services/whatsappConsentService'
 
 export type NuvemshopOrdersBackfillResult = {
   found: number
@@ -171,6 +172,23 @@ export async function runBackfillNuvemshopOrders(
       result.converted += saved.converted
       if (saved.created) result.created++
       else result.updated++
+
+      // Historical reconciliation must preserve the same checkout-consent
+      // evidence as the live webhook path. This only updates the consent
+      // registry when order.extra contains the exact fail-closed marker.
+      // It never schedules or sends any WhatsApp message.
+      try {
+        await recordConsentFromNuvemshopOrderExtra({
+          normalizedPhone: normalizePhoneBrazil(payload.contact_phone?.trim() || null),
+          extra: payload.extra,
+          nuvemshopOrderId: String(payload.id),
+        })
+      } catch (consentError) {
+        logger.error('[backfillNuvemshopOrders] consentimento do checkout falhou', {
+          orderId: String(payload.id),
+          error: consentError instanceof Error ? consentError.message : String(consentError),
+        })
+      }
     } catch (error) {
       result.errors++
       logger.error('[backfillNuvemshopOrders] pedido falhou', {
