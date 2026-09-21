@@ -11,12 +11,17 @@ const mocks = vi.hoisted(() => ({
   checkoutFindMany: vi.fn(),
   checkoutUpdate: vi.fn(),
   messageUpdateMany: vi.fn(),
+  recordConsent: vi.fn(),
   loggerInfo: vi.fn(),
   loggerError: vi.fn(),
 }))
 
 vi.mock('../../services/nuvemshopService', () => ({
   nuvemshopService: { fetchOrders: mocks.fetchOrders },
+}))
+
+vi.mock('../../services/whatsappConsentService', () => ({
+  recordConsentFromNuvemshopOrderExtra: mocks.recordConsent,
 }))
 
 vi.mock('../../config/logger', () => ({
@@ -56,6 +61,7 @@ describe('runBackfillNuvemshopOrders', () => {
       created_at: '2026-09-14T10:00:00Z',
       updated_at: '2026-09-14T10:05:00Z',
     }])
+    mocks.recordConsent.mockResolvedValue(undefined)
     mocks.customerFindFirst.mockResolvedValue(null)
     mocks.customerCreate.mockResolvedValue({ id: 'customer-1', name: 'Maria Silva', email: null, phone: null })
     mocks.orderFindUnique.mockResolvedValue(null)
@@ -75,6 +81,59 @@ describe('runBackfillNuvemshopOrders', () => {
       data: expect.objectContaining({ source: 'nuvemshop_orders_backfill', paymentStatus: 'paid' }),
     }))
     expect(mocks.messageUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('reconciles checkout consent evidence without scheduling messages', async () => {
+    const extra = {
+      drosa_whatsapp_marketing_version: 'v1',
+      drosa_whatsapp_marketing_store_id: 'store-1',
+      drosa_whatsapp_marketing_source: 'nuvemshop_checkout_whatsapp_optin',
+      drosa_whatsapp_marketing_scope: 'marketing',
+      drosa_whatsapp_marketing_choice: 'granted',
+    }
+    mocks.fetchOrders.mockResolvedValueOnce([{
+      id: 123,
+      number: 456,
+      status: 'open',
+      payment_status: 'paid',
+      contact_name: 'Maria Silva',
+      contact_phone: '+55 83 99876-5432',
+      total: '199.90',
+      currency: 'BRL',
+      created_at: '2026-09-14T10:00:00Z',
+      updated_at: '2026-09-14T10:05:00Z',
+      extra,
+    }])
+
+    const result = await runBackfillNuvemshopOrders({
+      from: new Date('2026-09-14T00:00:00Z'),
+      to: new Date('2026-09-14T23:59:59Z'),
+      scheduleMessages: false,
+    })
+
+    expect(result).toMatchObject({ found: 1, created: 1, errors: 0, messagesScheduled: 0 })
+    expect(mocks.recordConsent).toHaveBeenCalledWith(expect.objectContaining({
+      normalizedPhone: expect.any(String),
+      extra,
+      nuvemshopOrderId: '123',
+    }))
+    expect(mocks.messageUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('does not fail an order backfill if consent reconciliation fails', async () => {
+    mocks.recordConsent.mockRejectedValueOnce(new Error('consent write failed'))
+
+    const result = await runBackfillNuvemshopOrders({
+      from: new Date('2026-09-14T00:00:00Z'),
+      to: new Date('2026-09-14T23:59:59Z'),
+      scheduleMessages: false,
+    })
+
+    expect(result).toMatchObject({ found: 1, created: 1, errors: 0, messagesScheduled: 0 })
+    expect(mocks.loggerError).toHaveBeenCalledWith(
+      '[backfillNuvemshopOrders] consentimento do checkout falhou',
+      expect.objectContaining({ orderId: '123', error: 'consent write failed' }),
+    )
   })
 
   it('refuses any attempt to schedule messages during historical backfill', async () => {
