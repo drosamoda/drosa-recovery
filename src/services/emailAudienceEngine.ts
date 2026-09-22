@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../config/prisma'
 import { env } from '../config/env'
+import { EMAIL_HASH_PEPPER_MIN_LENGTH, InvalidConsentEmailError, hashEmail } from './emailConsentService'
 
 // Email Audience Engine — segmentação DETERMINÍSTICA de clientes por e-mail.
 // A IA nunca participa daqui: todo número deste arquivo vem de agregação real
@@ -137,9 +138,25 @@ export interface EmailSegmentSummary {
   missingData: string | null
 }
 
+// Estado do filtro de supressão neste snapshot.
+//   APPLIED     → e-mails suprimidos foram EXCLUÍDOS de base e segmentos
+//                 (`excludedCount` diz quantos; 0 = lista vazia ou nenhum deles no pool).
+//   UNAVAILABLE → o filtro NÃO pôde ser aplicado (pepper ausente, tabela ainda
+//                 não migrada, falha na leitura) e as contagens podem incluir
+//                 suprimidos. É só informativo: nenhuma contagem daqui autoriza
+//                 envio (sendEligibleCount é null) e o gate por destinatário
+//                 continua a barreira real.
+export type EmailSuppressionFilterReason = 'PEPPER_NOT_CONFIGURED' | 'LOOKUP_FAILED' | 'NOT_EVALUATED'
+export interface EmailSuppressionFilterInfo {
+  status: 'APPLIED' | 'UNAVAILABLE'
+  excludedCount: number
+  reason: EmailSuppressionFilterReason | null
+}
+
 export interface EmailAudienceSnapshot {
   generatedAt: string
   consentSource: 'NOT_CONFIGURED' | 'CONFIGURED'
+  suppression: EmailSuppressionFilterInfo
   sendEligibility: 'NOT_READY' | 'READY'
   cooldownStatus: typeof EMAIL_COOLDOWN_STATUS
   base: EmailBaseQuality & { emailKnown: number; emailValid: number; emailInvalid: number; buyers: number; buyersWithUndatedOrders: number }
@@ -267,7 +284,18 @@ interface Accumulator { audience: number; valid: number; whatsappOptOut: number;
 
 // ── Snapshot puro: linhas por identidade → resumo de segmentos ────────────────────────────────
 
-export function buildEmailAudienceSnapshot(rows: EmailIdentityRow[], quality: EmailBaseQuality, now: Date): EmailAudienceSnapshot {
+// `suppression` descreve o que já foi feito com `rows` ANTES de chegarem aqui
+// (a exclusão dos suprimidos acontece na leitura, ver
+// loadEmailIdentityRowsExcludingSuppressed). O construtor puro não filtra nada:
+// sem esse argumento declara honestamente que o filtro não foi avaliado.
+const SUPPRESSION_NOT_EVALUATED: EmailSuppressionFilterInfo = { status: 'UNAVAILABLE', excludedCount: 0, reason: 'NOT_EVALUATED' }
+
+export function buildEmailAudienceSnapshot(
+  rows: EmailIdentityRow[],
+  quality: EmailBaseQuality,
+  now: Date,
+  suppression: EmailSuppressionFilterInfo = SUPPRESSION_NOT_EVALUATED,
+): EmailAudienceSnapshot {
   const acc = new Map<EmailSegmentKey, Accumulator>()
   for (const key of EMAIL_SEGMENT_KEYS) acc.set(key, { audience: 0, valid: 0, whatsappOptOut: 0, timingUncertain: 0, tracks: emptyTrackBreakdown() })
 
@@ -342,6 +370,7 @@ export function buildEmailAudienceSnapshot(rows: EmailIdentityRow[], quality: Em
   return {
     generatedAt: now.toISOString(),
     consentSource: EMAIL_MARKETING_CONSENT_SOURCE,
+    suppression: { ...suppression },
     sendEligibility: consentConfigured ? 'READY' : 'NOT_READY',
     cooldownStatus: EMAIL_COOLDOWN_STATUS,
     base: { ...quality, emailKnown: rows.length, emailValid, emailInvalid: rows.length - emailValid, buyers, buyersWithUndatedOrders },
@@ -360,9 +389,10 @@ const EMAIL_SQL_REGEX = '^[^[:space:]@]+@[^[:space:]@]+\\.[^[:space:]@]{2,}$'
 
 interface RawIdentityRow { validEmail: boolean; paidOrderCount: number; paidTotal: number; lastPaidAt: Date | null; undatedPaidOrders: number; recentAbandonedCart: boolean; whatsappOptOut: boolean }
 
-export async function queryEmailIdentityRows(now: Date): Promise<EmailIdentityRow[]> {
-  const cartCutoff = new Date(now.getTime() - EMAIL_CART_WINDOW_DAYS * DAY_MS)
-  const rows = await prisma.$queryRaw<RawIdentityRow[]>(Prisma.sql`
+// CTEs compartilhadas pelas duas leituras (com e sem e-mail): a definição de
+// identidade, compra válida e carrinho recente vive num lugar só.
+function identityCtes(cartCutoff: Date): Prisma.Sql {
+  return Prisma.sql`
     WITH cust AS (
       SELECT c.id, NULLIF(lower(btrim(c.email)), '') AS em, c."optOut" AS optout
       FROM customers c
@@ -396,6 +426,15 @@ export async function queryEmailIdentityRows(now: Date): Promise<EmailIdentityRo
         )
     ),
     optout AS (SELECT DISTINCT em FROM cust WHERE optout AND em IS NOT NULL)
+  `
+}
+
+// Leitura PADRÃO: uma linha compacta por identidade, SEM o e-mail (contagens e
+// datas). É a única usada enquanto não houver e-mail suprimido a excluir.
+export async function queryEmailIdentityRows(now: Date): Promise<EmailIdentityRow[]> {
+  const cartCutoff = new Date(now.getTime() - EMAIL_CART_WINDOW_DAYS * DAY_MS)
+  const rows = await prisma.$queryRaw<RawIdentityRow[]>(Prisma.sql`
+    ${identityCtes(cartCutoff)}
     SELECT (length(p.em) <= 254 AND p.em ~ ${EMAIL_SQL_REGEX}) AS "validEmail",
            COALESCE(a.n, 0)::int AS "paidOrderCount",
            COALESCE(a.spend, 0)::float8 AS "paidTotal",
@@ -417,6 +456,137 @@ export async function queryEmailIdentityRows(now: Date): Promise<EmailIdentityRo
     recentAbandonedCart: Boolean(r.recentAbandonedCart),
     whatsappOptOut: Boolean(r.whatsappOptOut),
   }))
+}
+
+// ── Exclusão de e-mails suprimidos ────────────────────────────────────────────────────────────
+//
+// Por que NÃO é um filtro dentro do SQL: a lista de supressão é chaveada por
+// HMAC-SHA256(e-mail, EMAIL_HASH_PEPPER) e o pepper só existe no app. Calcular
+// o HMAC no Postgres exigiria mandar o pepper ao banco (parâmetro de consulta,
+// possível de aparecer em log de consulta lenta) e depender de pgcrypto — o que
+// desfaz o propósito do pepper. Então a exclusão acontece ainda na leitura, ANTES
+// da agregação em segmentos, e o e-mail só sai do banco quando existe pelo menos
+// um suprimido a excluir. Nada de e-mail entra em snapshot, cache ou log.
+//
+// Nunca inventa um snapshot: erro de banco nas consultas de identidade propaga.
+// O que degrada (sem quebrar o painel) é só o FILTRO: pepper ausente ou lista
+// ilegível → contagens sem exclusão, declaradas como UNAVAILABLE.
+
+export interface EmailIdentityRowWithEmail extends EmailIdentityRow {
+  // Existe só entre a consulta e o filtro; é descartado antes de qualquer agregação.
+  email: string
+}
+
+interface RawIdentityRowWithEmail extends RawIdentityRow { email: string }
+
+// Mesma leitura, com o e-mail normalizado de cada identidade (uma linha por e-mail).
+export async function queryEmailIdentityRowsWithEmail(now: Date): Promise<EmailIdentityRowWithEmail[]> {
+  const cartCutoff = new Date(now.getTime() - EMAIL_CART_WINDOW_DAYS * DAY_MS)
+  const rows = await prisma.$queryRaw<RawIdentityRowWithEmail[]>(Prisma.sql`
+    ${identityCtes(cartCutoff)}
+    SELECT p.em AS "email",
+           (length(p.em) <= 254 AND p.em ~ ${EMAIL_SQL_REGEX}) AS "validEmail",
+           COALESCE(a.n, 0)::int AS "paidOrderCount",
+           COALESCE(a.spend, 0)::float8 AS "paidTotal",
+           a.last_at AS "lastPaidAt",
+           COALESCE(a.undated, 0)::int AS "undatedPaidOrders",
+           (c.em IS NOT NULL) AS "recentAbandonedCart",
+           (o.em IS NOT NULL) AS "whatsappOptOut"
+    FROM pool p
+    LEFT JOIN agg a ON a.em = p.em
+    LEFT JOIN cart c ON c.em = p.em
+    LEFT JOIN optout o ON o.em = p.em
+  `)
+  return rows.map(r => ({
+    email: String(r.email),
+    validEmail: Boolean(r.validEmail),
+    paidOrderCount: Number(r.paidOrderCount),
+    paidTotal: Number(r.paidTotal),
+    lastPaidAt: r.lastPaidAt ? new Date(r.lastPaidAt) : null,
+    undatedPaidOrders: Number(r.undatedPaidOrders),
+    recentAbandonedCart: Boolean(r.recentAbandonedCart),
+    whatsappOptOut: Boolean(r.whatsappOptOut),
+  }))
+}
+
+export interface SuppressionFilterDeps {
+  pepperConfigured: () => boolean
+  // Todos os hashes suprimidos numa consulta só (a lista é ordens de grandeza menor
+  // que a base; reavaliar com paginação se passar de ~100 mil linhas).
+  loadSuppressedHashes: () => Promise<Set<string>>
+  queryRows: (now: Date) => Promise<EmailIdentityRow[]>
+  queryRowsWithEmail: (now: Date) => Promise<EmailIdentityRowWithEmail[]>
+  // null = e-mail inválido (nunca foi suprimido, pois só e-mail válido gera hash).
+  hash: (email: string) => string | null
+}
+
+const defaultSuppressionDeps: SuppressionFilterDeps = {
+  pepperConfigured: () => env.EMAIL_HASH_PEPPER.length >= EMAIL_HASH_PEPPER_MIN_LENGTH,
+  loadSuppressedHashes: async () => {
+    const found = await prisma.emailSuppression.findMany({ select: { emailHash: true } })
+    return new Set(found.map(row => row.emailHash))
+  },
+  queryRows: queryEmailIdentityRows,
+  queryRowsWithEmail: queryEmailIdentityRowsWithEmail,
+  hash: (email) => {
+    try {
+      return hashEmail(email)
+    } catch (error) {
+      if (error instanceof InvalidConsentEmailError) return null
+      throw error
+    }
+  },
+}
+
+export interface IdentityRowsResult {
+  rows: EmailIdentityRow[]
+  suppression: EmailSuppressionFilterInfo
+}
+
+function unavailable(reason: EmailSuppressionFilterReason): EmailSuppressionFilterInfo {
+  return { status: 'UNAVAILABLE', excludedCount: 0, reason }
+}
+
+function withoutEmail(rows: readonly EmailIdentityRowWithEmail[]): EmailIdentityRow[] {
+  return rows.map(({ email: _email, ...rest }) => rest)
+}
+
+export async function loadEmailIdentityRowsExcludingSuppressed(
+  now: Date,
+  deps: SuppressionFilterDeps = defaultSuppressionDeps,
+): Promise<IdentityRowsResult> {
+  if (!deps.pepperConfigured()) {
+    return { rows: await deps.queryRows(now), suppression: unavailable('PEPPER_NOT_CONFIGURED') }
+  }
+
+  let suppressed: Set<string>
+  try {
+    suppressed = await deps.loadSuppressedHashes()
+  } catch {
+    // Tabela ainda não migrada, banco sem permissão ou falha de rede: só o filtro
+    // degrada. A causa não vai adiante de propósito (pode carregar detalhe do banco).
+    return { rows: await deps.queryRows(now), suppression: unavailable('LOOKUP_FAILED') }
+  }
+
+  // Lista vazia: nada a excluir, então o e-mail nem precisa sair do banco.
+  if (suppressed.size === 0) {
+    return { rows: await deps.queryRows(now), suppression: { status: 'APPLIED', excludedCount: 0, reason: null } }
+  }
+
+  const identities = await deps.queryRowsWithEmail(now)
+  const kept: EmailIdentityRowWithEmail[] = []
+  let excluded = 0
+  try {
+    for (const identity of identities) {
+      const hash = deps.hash(identity.email)
+      if (hash !== null && suppressed.has(hash)) excluded++
+      else kept.push(identity)
+    }
+  } catch {
+    // Falha ao calcular o hash no meio do lote: não usa um filtro pela metade.
+    return { rows: withoutEmail(identities), suppression: unavailable('LOOKUP_FAILED') }
+  }
+  return { rows: withoutEmail(kept), suppression: { status: 'APPLIED', excludedCount: excluded, reason: null } }
 }
 
 export async function queryEmailBaseQuality(): Promise<EmailBaseQuality> {
@@ -455,9 +625,9 @@ export async function getEmailAudienceSnapshot(options: { now?: Date; force?: bo
   const run = (async () => {
     const now = options.now ?? new Date()
     // Sequencial de propósito (não Promise.all): connection_limit=2 no Preview.
-    const rows = await queryEmailIdentityRows(now)
+    const { rows, suppression } = await loadEmailIdentityRowsExcludingSuppressed(now)
     const quality = await queryEmailBaseQuality()
-    return buildEmailAudienceSnapshot(rows, quality, now)
+    return buildEmailAudienceSnapshot(rows, quality, now, suppression)
   })()
   if (!useCache) return run
   inflight = run
