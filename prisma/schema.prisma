@@ -624,3 +624,175 @@ enum AiRunStatus {
   ok
   error
 }
+
+// =====================================================================
+// EMAIL CONSENT (separado do WhatsApp — WhatsappConsent/Customer.optOut/
+// Suppression NÃO valem para e-mail). O e-mail em si nunca é gravado aqui:
+// a chave é emailHash = HMAC-SHA256(e-mail normalizado, pepper do servidor).
+// =====================================================================
+
+enum EmailConsentStatus {
+  OPT_IN
+  OPT_OUT
+  UNKNOWN
+}
+
+enum EmailConsentSource {
+  NUVEMSHOP_ORDER_PAYLOAD
+  NUVEMSHOP_CHECKOUT_PAYLOAD
+  NUVEMSHOP_CUSTOMER_API
+  NUBESDK_EXPLICIT
+  CRM_UNSUBSCRIBE
+  PROVIDER_EVENT
+  MANUAL_IMPORT
+}
+
+// Livro-razão append-only: cada linha é uma observação, nunca sobrescrita.
+// evidenceRef aponta para a origem (ex.: "order:<id>:customer.accepts_marketing"),
+// nunca carrega o payload nem PII. Idempotente por (emailHash, source, evidenceRef).
+model EmailConsentEvent {
+  id              String             @id @default(cuid())
+  emailHash       String
+  customerId      String?
+  status          EmailConsentStatus
+  source          EmailConsentSource
+  evidenceRef     String
+  sourceUpdatedAt DateTime?
+  capturedAt      DateTime           @default(now())
+  createdAt       DateTime           @default(now())
+
+  @@unique([emailHash, source, evidenceRef])
+  @@index([emailHash, capturedAt])
+  @@index([source])
+  @@map("email_consent_events")
+}
+
+// Estado atual por e-mail, DERIVADO do livro-razão (recalculável a qualquer
+// momento). Ausência de linha = NOT_COLLECTED. Só status OPT_IN é elegível.
+model EmailMarketingConsent {
+  emailHash   String             @id
+  status      EmailConsentStatus
+  reason      String
+  eventCount  Int
+  lastEventAt DateTime?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@index([status])
+  @@map("email_marketing_consents")
+}
+
+// =====================================================================
+// EMAIL SUPPRESSION (separada de `suppressions`, que é de WhatsApp e chaveada
+// por telefone). Lista de bloqueio DEFINITIVA: existir linha = nunca enviar
+// e-mail a esse hash, independente do consentimento. Não há "levantar" nesta
+// fase (decisão consciente e fail-closed): remover uma linha é ato manual e
+// deliberado, fora do código. A chave é o mesmo emailHash do consentimento.
+// =====================================================================
+
+enum EmailSuppressionReason {
+  UNSUBSCRIBE
+  PROVIDER_UNSUBSCRIBE
+  SPAM_COMPLAINT
+  HARD_BOUNCE
+  INVALID_ADDRESS
+  MANUAL
+}
+
+// Uma linha por e-mail; a primeira supressão vence (reason/evidenceRef/
+// suppressedAt não são reescritos). O histórico completo fica no livro-razão
+// de consentimento (email_consent_events) e no log de eventos do provedor.
+// evidenceRef nunca carrega e-mail, nome, telefone ou payload.
+model EmailSuppression {
+  emailHash    String                 @id
+  reason       EmailSuppressionReason
+  evidenceRef  String
+  suppressedAt DateTime
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  @@index([reason])
+  @@index([suppressedAt])
+  @@map("email_suppressions")
+}
+
+// =====================================================================
+// EMAIL TRACKING — tentativas de envio + eventos do provedor + atribuição.
+// Só ids opacos e o emailHash (HMAC): nenhum e-mail, nome ou telefone.
+// =====================================================================
+
+enum EmailSendStatus {
+  QUEUED
+  SENDING
+  SENT
+  DELIVERED
+  SOFT_BOUNCED
+  HARD_BOUNCED
+  COMPLAINED
+  FAILED
+}
+
+enum EmailEventType {
+  QUEUED
+  SENT
+  DELIVERED
+  DEFERRED
+  SOFT_BOUNCE
+  HARD_BOUNCE
+  BLOCKED
+  OPEN
+  CLICK
+  SPAM_COMPLAINT
+  UNSUBSCRIBE
+  PURCHASE
+}
+
+// Livro-razão das TENTATIVAS de envio: uma linha por (campanha, onda, destinatário),
+// idempotente por sendKey. O id é o `sendId` que vai no link de descadastro e nos
+// custom args do provedor. QUEUED -> SENDING é um claim atômico (updateMany com
+// status QUEUED): dois workers nunca enviam a mesma tentativa.
+model EmailSend {
+  id                String          @id @default(cuid())
+  sendKey           String          @unique
+  emailHash         String
+  campaignKey       String
+  provider          String?
+  providerMessageId String?
+  status            EmailSendStatus @default(QUEUED)
+  attempts          Int             @default(0)
+  failureReason     String?
+  queuedAt          DateTime        @default(now())
+  sentAt            DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@unique([provider, providerMessageId])
+  @@index([emailHash, sentAt])
+  @@index([campaignKey, status])
+  @@map("email_sends")
+}
+
+// Eventos append-only. Idempotente por (provider, providerEventId): o webhook
+// reenviado pelo provedor não duplica métrica. PURCHASE é gerado pelo CRM a
+// partir de pedidos (provider = "CRM", providerEventId = "purchase:<pedido>").
+model EmailEventLog {
+  id               String         @id @default(cuid())
+  provider         String
+  providerEventId  String
+  type             EmailEventType
+  emailHash        String
+  sendId           String?
+  campaignKey      String?
+  occurredAt       DateTime
+  orderId          String?
+  revenue          Decimal?       @db.Decimal(12, 2)
+  currency         String?
+  attributionModel String?
+  createdAt        DateTime       @default(now())
+
+  @@unique([provider, providerEventId])
+  @@index([sendId, type])
+  @@index([emailHash, type, occurredAt])
+  @@index([campaignKey, type])
+  @@map("email_event_logs")
+}
