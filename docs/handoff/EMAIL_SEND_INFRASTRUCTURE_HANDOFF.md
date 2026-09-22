@@ -380,3 +380,106 @@ DATABASE_MUTATED=NO · PRODUCTION_CHANGED=NO · REAL_EMAIL_SENT=NO · PII_EXPOSE
 5. **Secrets:** gerar e guardar `EMAIL_HASH_PEPPER` e `EMAIL_UNSUBSCRIBE_SECRET` (≥32 caracteres cada, diferentes entre si) no ambiente que vai rodar o código de escrita — decidir onde ficam guardados e como há backup, porque perder o pepper invalida todos os hashes já gravados.
 6. **Checagem viva `GET /customers`:** fornecer um token válido (considerar testar primeiro o token de produção já restaurado — §15.3 — antes de gerar um novo) via `NUVEMSHOP_AUDIT_TOKEN`/`NUVEMSHOP_AUDIT_STORE_ID`.
 7. **Revisão jurídica/LGPD** do consentimento (pendente desde o Passo 1) e **escolha do provedor** de e-mail (Resend × SendGrid × outro).
+
+## 16. Atualização de 2026-09-22 — pré-ativação técnica: push feito, OAuth com causa raiz de infraestrutura confirmada, token de produção BLOQUEADO pelo classificador
+
+**Escopo desta rodada:** eliminar todo bloqueio resolvível sem aplicar migration e sem habilitar envio real, deixando a próxima autorização humana restrita a migrations + secrets + backfill real.
+
+### 16.1 Token de produção da Nuvemshop — NÃO TESTADO (bloqueio do classificador, não da Nuvemshop)
+Verifiquei por `gcloud run services describe drosa-recovery` (somente leitura, sem imprimir segredo) qual credencial a revisão **vigente** realmente referencia — não confiei na memória de outra sessão. Achado real: a revisão a 100% do tráfego mudou de `00096-fod` (citada na memória) para **`drosa-recovery-00098-qoj`** (tag `inbox-secret-v2`), mas ela **continua referenciando as mesmas versões** dos secrets do Secret Manager que a memória descreve como "restauradas": `NUVEMSHOP_ACCESS_TOKEN -> drosa-recovery-nuvemshop-access-token:2` e `NUVEMSHOP_CLIENT_SECRET -> nuvemshop-client-secret:2`. `NUVEMSHOP_STORE_ID` (valor em texto simples, não é segredo) confere: `7716231`.
+Isso é evidência real de **configuração**, não prova de que o **valor** do secret ainda autentica na Nuvemshop. Tentei ler o valor da versão 2 em memória (protocolo já usado por outras sessões: `gcloud secrets versions access` → variável só do processo filho → nunca impresso → descartado) para fazer UM `GET /customers?per_page=1` de teste. **O classificador de permissões do Claude Code bloqueou a ação** com o motivo "Credential Exploration", antes de qualquer chamada à Nuvemshop. Não tentei contornar. `TOKEN_RECOVERY_CURRENT=UNKNOWN` (não confundir com `INVALID`); `NUVEMSHOP_CUSTOMERS_PROBE` e `LIVE_CUSTOMER_AUDIT` continuam **NÃO EXECUTADOS**.
+
+### 16.2 OAuth — causa raiz confirmada por infraestrutura real (Vercel), não só por observação de navegador
+Com `vercel inspect` (somente leitura, autenticado como `drosamoda-6608s-projects`) nos dois hosts:
+- `drosa-customer-os-staging.vercel.app` → deployment `dpl_Ax9AJHRrCngcTLrAo4WrcFHRdgqc`, **`target: production`**, criado há 11 dias.
+- `drosa-customer-os-staging-preview.vercel.app` → deployment `dpl_YaVT9X3FC12FHAm77R5c5uQmAMZd`, **`target: preview`**, criado há 17 dias (mais antigo, código potencialmente desatualizado).
+
+Os dois hosts não são só "domínios diferentes": são **ambientes Vercel diferentes** (Production × Preview) do MESMO projeto `drosa-customer-os-staging`. Isso importa porque `vercel env ls` mostra que `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SECRET_KEY` e `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` têm **entradas separadas** para Production e para Preview (criadas em momentos diferentes — a de Preview 41 dias atrás, a de Production 29 dias atrás), enquanto `NUVEMSHOP_CLIENT_ID`, `NUVEMSHOP_APP_SECRET`, `NUVEMSHOP_TOKEN_ENCRYPTION_KEY` e `NUVEMSHOP_REDIRECT_URI` são compartilhadas entre os dois ambientes. Ou seja: **o mesmo app/segredo da Nuvemshop, mas com Supabase (banco de `oauth_states`) potencialmente diferente por ambiente.** Isso explica o `NUVEMSHOP_OAUTH_STATE_INVALID` de forma mais precisa que "host errado": o `state` gravado pelo `/oauth/start` (respondido pelo ambiente Production, quando aberto no host primário) não existe no Supabase que o `/oauth/callback` consulta quando o callback é servido pelo ambiente Preview (host `-preview`).
+**Achado à parte, não relacionado à causa raiz mas relevante:** o `.vercel/project.json` do checkout local em `Drosa-Customer-OS/` aponta para um projeto (`prj_iymRoACPFmv10w7hA3I0LXYfE85p`, org `team_DsvYiTFONxqzAuHyuhxjE9Ou`, nome "d-rosa-customer-os") que **não está na conta acessível** (`vercel teams ls` só lista `drosamoda-6608s-projects`) — ou é um link antigo/errado, ou pertence a outra conta. O projeto realmente servindo os dois aliases investigados é `drosa-customer-os-staging`, dentro de `drosamoda-6608s-projects` (confirmado por `vercel project ls`). Não investiguei se o código-fonte local corresponde ao deployado; não é necessário para a causa raiz do OAuth.
+Não removi o alias `-preview`, não mudei nenhuma env var, não toquei no portal da Nuvemshop, não desabilitei validação de `state`.
+
+**`OAUTH_CANONICAL_HOST` (recomendação):** `https://drosa-customer-os-staging.vercel.app` — é o alias de `target: production`, atualiza a cada deploy de produção, e é o host onde o `/oauth/start` já é aberto na prática.
+
+### 16.3 NUVEMSHOP_PORTAL_ACTION_REQUIRED
+```
+NUVEMSHOP_PORTAL_ACTION_REQUIRED:
+  app: 38911 (D'Rosa Customer OS — Staging)
+  URL_atual_do_callback_no_portal: NÃO INSPECIONADA (portal da Nuvemshop não foi acessado; inferida do comportamento observado por Peter no navegador: .../staging-preview.vercel.app/api/integrations/nuvemshop/oauth/callback)
+  URL_desejada: https://drosa-customer-os-staging.vercel.app/api/integrations/nuvemshop/oauth/callback
+  motivo: o alias "-preview" resolve para um deployment target=preview (ambiente Vercel diferente,
+          possivelmente com Supabase diferente do de produção) — o state gravado no ambiente de
+          Production nunca é encontrado pelo callback servido pelo ambiente de Preview.
+  confirmação_posterior_necessária: depois de trocar o callback no portal, testar 1 login OAuth
+          completo (start -> autorizar na Nuvemshop -> callback) e conferir "connected": true na
+          resposta; só então decidir se o alias "-preview" deve ser removido.
+```
+
+### 16.4 Migrations — revisão final (nenhuma aplicada)
+```
+MIGRATION_NAME=20260921230000_add_email_consent_ledger
+ADDITIVE_ONLY=YES (só CREATE TYPE ×2, CREATE TABLE ×2, CREATE INDEX ×4; nenhum ALTER TABLE)
+DESTRUCTIVE_SQL=NO (varredura por DROP/TRUNCATE/RENAME/GRANT/DELETE/TRIGGER: 0 ocorrências)
+LOCK_RISK=NONE (tabelas novas e vazias; nenhum lock em tabela existente/populada)
+ROLLBACK_STRATEGY=DROP TABLE "email_consent_events", "email_marketing_consents"; DROP TYPE "EmailConsentStatus", "EmailConsentSource" — seguro ANTES do backfill (0 linhas); depois do backfill real, dropar apaga o histórico de consentimento (decisão, não acidente)
+DEPENDENCIES=nenhuma (sem FK para customers/orders/abandoned_checkouts; identidade é emailHash, não id de outra tabela)
+EXPECTED_ROWS_AFFECTED=0 linhas em tabelas existentes; a própria migration cria 0 linhas (as ~4.709 linhas do backfill são um passo SEPARADO, pós-migration)
+
+MIGRATION_NAME=20260921233000_add_email_suppression
+ADDITIVE_ONLY=YES (CREATE TYPE ×1, CREATE TABLE ×1, CREATE INDEX ×2)
+DESTRUCTIVE_SQL=NO
+LOCK_RISK=NONE
+ROLLBACK_STRATEGY=DROP TABLE "email_suppressions"; DROP TYPE "EmailSuppressionReason" — mesma ressalva pós-backfill/pós-descadastros reais
+DEPENDENCIES=ordem: depois de …230000 (schema.prisma referencia EmailConsentSource no mesmo arquivo, mas o SQL desta migration não usa nenhum objeto da anterior — dependência é só de ORDEM do Prisma migrate, não de FK)
+EXPECTED_ROWS_AFFECTED=0
+
+MIGRATION_NAME=20260921234500_add_email_tracking
+ADDITIVE_ONLY=YES (CREATE TYPE ×2, CREATE TABLE ×2, CREATE INDEX ×7)
+DESTRUCTIVE_SQL=NO
+LOCK_RISK=NONE
+ROLLBACK_STRATEGY=DROP TABLE "email_sends", "email_event_logs"; DROP TYPE "EmailSendStatus", "EmailEventType" — segura enquanto EMAIL_SEND_ENABLED=false (nenhum envio real gera linha aqui ainda)
+DEPENDENCIES=ordem: depois de …233000 (mesma observação: sem FK real entre as 3 migrations)
+EXPECTED_ROWS_AFFECTED=0
+
+MIGRATIONS_SAFE_TO_APPLY=YES
+```
+Nenhuma das três altera coluna obrigatória sem default em tabela populada, nenhum RENAME, nenhum GRANT (as roles `crm_preview_reader`/`crm_ai_preview_writer` NÃO ganham acesso automático às tabelas novas — se o CRM precisar mostrar consentimento/supressão na tela via `crm_preview_reader`, um GRANT explícito futuro será necessário; não é bloqueio para aplicar as migrations agora). Sem RLS (Postgres puro via Prisma, não Supabase). Sem trigger. Sem constraint que colida com dado existente (tabelas novas).
+
+### 16.5 Plano de secrets (NENHUM criado)
+```
+SECRET_NAME=EMAIL_HASH_PEPPER
+DESTINATION=variável de ambiente do serviço que grava/lê o ledger de consentimento (Cloud Run do drosa-recovery, mesmo lugar dos demais secrets de produção — via Secret Manager, nunca texto puro)
+ROTATION_POLICY=NÃO rotacionar sem plano de remigração: trocar o pepper invalida TODOS os hashes já gravados (o e-mail original não fica salvo em lugar nenhum para recalcular). Só mudar dentro de um projeto explícito de "reemitir o ledger a partir do zero via novo backfill completo".
+BACKUP_REQUIREMENT=cópia offline segura (ex.: gerenciador de segredos do usuário/cofre da equipe) ANTES do primeiro backfill real — perder o pepper sem backup é equivalente a perder a capacidade de comparar e-mails novos com o histórico gravado
+CONSUMERS=emailConsentService.hashEmail (e todo o resto do ledger/supressão/tracking, que dependem dele por composição)
+
+SECRET_NAME=EMAIL_UNSUBSCRIBE_SECRET (+ EMAIL_UNSUBSCRIBE_SECRET_PREVIOUS, só durante rotação)
+DESTINATION=mesmo Cloud Run, variável separada (NUNCA o mesmo valor do pepper — são usados para fins diferentes: HMAC de link vs HMAC de identidade)
+ROTATION_POLICY=rotacionável: gerar o novo valor em EMAIL_UNSUBSCRIBE_SECRET, mover o valor antigo para EMAIL_UNSUBSCRIBE_SECRET_PREVIOUS (o verificador aceita as duas — ver unsubscribeVerificationSecrets), remover o _PREVIOUS só depois que não houver mais link antigo em circulação (nenhum e-mail com link antigo ainda "vivo")
+BACKUP_REQUIREMENT=menos crítico que o pepper (rotação não perde dado, só invalida links já enviados se feita sem o par _PREVIOUS) — ainda assim, guardar como os demais secrets de produção
+CONSUMERS=emailUnsubscribeToken (assinatura/verificação do link) e emailDispatcher (emissão dos cabeçalhos List-Unsubscribe)
+```
+Requisito comum: ambos ≥ 32 caracteres criptograficamente aleatórios (a validação de tamanho mínimo já está no código: `EMAIL_HASH_PEPPER_MIN_LENGTH` / `EMAIL_UNSUBSCRIBE_SECRET_MIN_LENGTH`), nunca em texto puro, nunca impressos, nunca no Git.
+
+### 16.6 Plano do backfill real (NÃO executado)
+Sequência definitiva, cada passo condicionado ao anterior:
+1. **Aplicar as 3 migrations**, na ordem (…230000 → …233000 → …234500), com `prisma migrate deploy` contra o banco alvo e credencial admin.
+2. **Verificar o schema**: `prisma migrate status` = "Database schema is up to date!"; conferir as 3 linhas novas em `_prisma_migrations`.
+3. **Novo dry-run** (`runBackfillEmailConsent({ dryRun: true })`, ou o script `email-consent-backfill-dryrun.js`) contra o MESMO banco — deve reproduzir exatamente os agregados já vistos nesta rodada (universo 3.755: 2.122/1.532/97/4). Qualquer divergência = abortar (§ critérios abaixo).
+4. **Backfill real**: `runBackfillEmailConsent({ dryRun: false })` (ou o job equivalente rodado com a credencial de escrita, fora do modo `CRM_PREVIEW_READONLY`) — grava `EmailConsentEvent` + `EmailMarketingConsent`.
+5. **Reexecução de idempotência**: rodar o backfill real UMA segunda vez. Esperado: `eventsInserted=0` (tudo já existe via `skipDuplicates`), `statesWritten` igual ao número de e-mails com sinal (recalcula, não duplica).
+6. **Verificação agregada final**: contar `EmailMarketingConsent` por `status` no banco e comparar com o `universe.byState` do dry-run — devem bater.
+
+**Critérios de abortar (parar e reportar, não seguir para o próximo passo):**
+- universo diferente de 3.755 sem explicação (ex.: pedidos/checkouts novos entre a auditoria e o backfill — aceitável só se a diferença for pequena e explicada pela janela de tempo);
+- qualquer erro do `prisma migrate deploy` ou do `migrate status` não "up to date";
+- `eventsInserted` na segunda rodada > 0 (quebra de idempotência — bug, não seguir);
+- qualquer hash calculado no backfill não bater com `hashEmail` chamado isoladamente para o mesmo e-mail de teste (inconsistência de pepper);
+- qualquer conflito inesperado (estado que deveria ser `SNAPSHOTS_UNANIMOUS` saindo como `SIGNAL_CONFLICT`, ou vice-versa, fora dos 97 já conhecidos);
+- qualquer escrita fora de `email_consent_events`/`email_marketing_consents` (o backfill NUNCA deve tocar `customers`, `orders`, `abandoned_checkouts`, `whatsapp_consents`, `suppressions`).
+
+`BACKFILL_REAL_PLAN_READY=YES`.
+
+### 16.7 Verificação final desta rodada
+Suíte **1056/1056**, `tsc --noEmit`, `eslint src --ext .ts` e `tsc -p tsconfig.build.json --noEmit` — todos limpos, rodados DEPOIS dos 3 commits e do push (não antes). Confirmado por grep: `adapter.send(` só é chamado dentro de `emailDispatcher.ts`; nenhuma rota importa `EmailProviderAdapter`. Push feito: `origin/feat/email-consent-suppression-tracking` = `ba94979` (mesmo HEAD do local). PR não criado (sem `gh` CLI); comparação manual: `https://github.com/drosamoda/drosa-recovery/compare/review/crm-v2-visual...feat/email-consent-suppression-tracking?expand=1`.
+
+`LEGAL_REVIEW_REQUIRED_BEFORE_REAL_CAMPAIGN=YES` (inalterado desde o Passo 1 — nenhum disparo real antes da revisão jurídica/LGPD, independente do estado técnico).
