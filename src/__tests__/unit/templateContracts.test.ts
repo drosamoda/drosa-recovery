@@ -34,6 +34,23 @@ Se precisar de ajuda com tamanho, tecido ou combinação, me chama por aqui.`)
     expect(renderContract('pedido_boleto_drosa_01', ['Ana', '1001']))
       .toContain('Seu pedido *1001* foi recebido')
   })
+
+  it('UTILITY exige opt-in transactional antes de consultar a Meta', async () => {
+    expect(
+      await verifyDispatchContract('confirmacao_pedido_drosa', 'pt_BR', ['Ana', '1001'])
+    ).toBe('transactional_consent_unproven')
+  })
+
+  it('MARKETING continua exigindo opt-in marketing mesmo com transactional', async () => {
+    expect(
+      await verifyDispatchContract(
+        'carrinho_abandonado_drosa_v2',
+        'pt_BR',
+        ['Ana', 'https://example.com/checkout'],
+        { transactionalConsentProven: true },
+      )
+    ).toBe('consent_unproven')
+  })
   it('renders phase 2 contracts with only reliable parameters', () => {
     const boletoExpiring = renderContract('boleto_vencendo_drosa_v2', ['Ana', '1001'])
     expect(boletoExpiring).toContain('boleto do pedido *1001*')

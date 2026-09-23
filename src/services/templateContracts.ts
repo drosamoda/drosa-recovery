@@ -106,11 +106,12 @@ export async function verifyDispatchContract(
   name: string,
   language: string,
   values: string[],
-  options: { marketingConsentProven?: boolean } = {}
+  options: { marketingConsentProven?: boolean; transactionalConsentProven?: boolean } = {}
 ) {
   const contract = templateContracts[name]
   if (!contract || contract.language !== language || !renderContract(name, values)) return 'template_data_missing'
   if (contract.risk) return contract.risk
   if (contract.category === 'MARKETING' && !options.marketingConsentProven) return 'consent_unproven'
+  if (contract.category === 'UTILITY' && !options.transactionalConsentProven) return 'transactional_consent_unproven'
   return verifyMetaTemplateContract(name, language)
 }

@@ -833,12 +833,15 @@ export async function runProcessMessages(): Promise<ProcessResult> {
       // do envio real. A única diferença é que, depois de validado, ele não
       // chama a Meta. Isso evita previews "verdes" para mensagens que seriam
       // bloqueadas em produção por contrato divergente ou consentimento ausente.
-      const marketingConsentProven = await hasActiveWhatsappConsent(msg.normalizedPhone)
+      const [marketingConsentProven, transactionalConsentProven] = await Promise.all([
+        hasActiveWhatsappConsent(msg.normalizedPhone, 'marketing'),
+        hasActiveWhatsappConsent(msg.normalizedPhone, 'transactional'),
+      ])
       const contractError = await verifyDispatchContract(
         sendParams.templateName,
         sendParams.languageCode,
         sendParams.bodyParams,
-        { marketingConsentProven },
+        { marketingConsentProven, transactionalConsentProven },
       )
       if (contractError) {
         if (isRecoverableContractReason(contractError)) {

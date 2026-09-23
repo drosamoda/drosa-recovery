@@ -256,6 +256,22 @@ export const orderService = {
         return { savedOrderId: savedOrder.id, isNew, previousPaymentStatus }
       }, { maxWait: 10_000, timeout: 15_000 })
 
+      // Reconciliar opt-ins do checkout ANTES de enfileirar mensagens.
+      // Assim o primeiro processamento já enxerga o escopo correto.
+      try {
+        await recordConsentFromNuvemshopOrderExtra({
+          normalizedPhone: normalizedPhone || null,
+          extra: payload.extra,
+          nuvemshopOrderId,
+        })
+      } catch (consentErr) {
+        // Falha de consentimento nunca derruba o pedido; o dispatch continua
+        // fail-closed porque o registro ausente é tratado como UNKNOWN.
+        logger.error('[orderService] erro ao sincronizar consentimento WhatsApp do checkout', consentErr, {
+          nuvemshopOrderId,
+        })
+      }
+
       // ----------------------------------------------------------------
       // Agendar mensagens — fora da transação, protegido por idempotencyKey
       // ----------------------------------------------------------------
@@ -291,20 +307,6 @@ export const orderService = {
             await scheduleOrderMessage(savedOrderId, customer.id, customer.optOut, normalizedPhone, EventType.pix_cancelled)
           }
         }
-      }
-
-      // Consentimento de marketing WhatsApp (checkout NubeSDK) — nunca deve
-      // derrubar o processamento principal do pedido caso falhe.
-      try {
-        await recordConsentFromNuvemshopOrderExtra({
-          normalizedPhone: normalizedPhone || null,
-          extra: payload.extra,
-          nuvemshopOrderId,
-        })
-      } catch (consentErr) {
-        logger.error('[orderService] erro ao sincronizar consentimento WhatsApp do checkout', consentErr, {
-          nuvemshopOrderId,
-        })
       }
 
       await webhookEventService.markProcessed(webhookEventId)

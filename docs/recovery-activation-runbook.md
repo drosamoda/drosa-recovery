@@ -119,44 +119,56 @@ Verificar:
 
 ## 4. Homologação E2E do consentimento Nuvemshop
 
-A extensão do checkout deve permanecer opcional e desmarcada por padrão.
+A extensão do checkout possui dois opt-ins independentes, opcionais e desmarcados por padrão:
 
-### Caso A — GRANTED
+- `transactional`: atualizações sobre o pedido via WhatsApp;
+- `marketing`: ofertas, novidades e lembretes de carrinho via WhatsApp.
+
+Cada escopo é fail-closed e gravado separadamente em `whatsapp_consents`.
+
+### Caso A — TRANSACTIONAL GRANTED
 
 1. Abrir checkout controlado.
 2. Marcar explicitamente:
-   "Quero receber novidades, ofertas e lembretes da D'Rosa Moda pelo WhatsApp."
+   "Quero receber atualizações sobre meu pedido da D'Rosa Moda pelo WhatsApp."
 3. Finalizar pedido de teste.
-4. Confirmar que `order.extra` preservou metadata de terceiros e contém:
-   - `drosa_whatsapp_marketing_version=v1`
-   - `drosa_whatsapp_marketing_store_id=<store real>`
-   - `drosa_whatsapp_marketing_source=nuvemshop_checkout_whatsapp_optin`
-   - `drosa_whatsapp_marketing_scope=marketing`
-   - `drosa_whatsapp_marketing_choice=granted`
-5. Confirmar webhook processado.
-6. Confirmar `whatsapp_consents`:
-   - `consented=true`;
-   - `consentedAt != null`;
-   - `revokedAt=null`;
-   - source e scope exatos.
+4. Confirmar em `order.extra` as chaves `drosa_whatsapp_transactional_*`, com:
+   - `version=v1`;
+   - `store_id=<store real>`;
+   - `source=nuvemshop_checkout_whatsapp_optin`;
+   - `scope=transactional`;
+   - `choice=granted`.
+5. Confirmar `whatsapp_consents` com `scope=transactional`, `consented=true`, `consentedAt != null` e `revokedAt=null`.
 
-### Caso B — UNKNOWN
+### Caso B — MARKETING GRANTED
 
-1. Novo checkout controlado.
-2. Não tocar na checkbox.
-3. Finalizar pedido.
-4. Confirmar que nenhum consentimento de marketing é criado/inferido.
+1. Marcar explicitamente:
+   "Quero receber ofertas, novidades e lembretes de carrinho da D'Rosa Moda pelo WhatsApp."
+2. Finalizar pedido.
+3. Confirmar as chaves `drosa_whatsapp_marketing_*` com `scope=marketing` e `choice=granted`.
+4. Confirmar o registro independente `scope=marketing` em `whatsapp_consents`.
 
-### Caso C — REVOKED
+### Caso C — AMBOS
 
-1. Marcar a checkbox.
-2. Desmarcar explicitamente antes de concluir.
-3. Confirmar `choice=revoked`.
-4. Confirmar `consented=false` e `revokedAt != null`.
+1. Marcar os dois opt-ins.
+2. Confirmar que `order.extra` preserva metadata de terceiros e contém simultaneamente os dois marcadores.
+3. Confirmar dois registros independentes em `whatsapp_consents`.
+
+### Caso D — UNKNOWN
+
+1. Não tocar em nenhum opt-in.
+2. Finalizar pedido.
+3. Confirmar que nenhum dos dois consentimentos é criado ou inferido.
+
+### Caso E — REVOKED
+
+1. Marcar e depois desmarcar explicitamente um dos opt-ins.
+2. Confirmar `choice=revoked` somente no respectivo escopo.
+3. Confirmar `consented=false` e `revokedAt != null` sem alterar o outro escopo.
 
 ### Suppression
 
-Mesmo com consentimento GRANTED, suppression/opt-out deve prevalecer e impedir marketing.
+Mesmo com qualquer consentimento GRANTED, suppression/opt-out global prevalece e impede o envio aplicável.
 
 ---
 

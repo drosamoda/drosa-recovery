@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Extensao NubeSDK (checkout) que captura opt-in explicito de marketing WhatsApp da D'Rosa Moda.",
+  "description": "Extensao NubeSDK (checkout) que captura opt-ins explicitos de atualizacoes de pedido e marketing WhatsApp da D'Rosa Moda.",
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",
