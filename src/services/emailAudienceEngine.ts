@@ -587,6 +587,29 @@ export async function loadEmailIdentityRowsExcludingSuppressed(
   return { rows: withoutEmail(kept), suppression: { status: 'APPLIED', excludedCount: excluded, reason: null } }
 }
 
+export interface EmailSegmentRecipient {
+  email: string
+  recentAbandonedCart: boolean
+}
+
+// Resolve a audiência REAL somente no instante da execução. O e-mail em texto
+// nunca é persistido em CampaignDraft/EmailSend/EventLog; ele existe apenas em
+// memória durante a seleção e passa novamente pelos gates de consentimento,
+// supressão e cooldown antes de qualquer envio.
+export async function queryEmailRecipientsForSegment(
+  segmentKey: EmailSegmentKey,
+  now: Date = new Date(),
+): Promise<EmailSegmentRecipient[]> {
+  if (NEEDS_DATA_SEGMENTS.has(segmentKey)) return []
+  const rows = await queryEmailIdentityRowsWithEmail(now)
+  return rows.flatMap((row) => {
+    if (!row.validEmail) return []
+    const recency = classifyRecency(row, now)
+    if (!segmentsForRow(row, recency).includes(segmentKey)) return []
+    return [{ email: row.email, recentAbandonedCart: row.recentAbandonedCart }]
+  })
+}
+
 export async function queryEmailBaseQuality(): Promise<EmailBaseQuality> {
   const [row] = await prisma.$queryRaw<Array<Record<keyof EmailBaseQuality, number>>>(Prisma.sql`
     SELECT
