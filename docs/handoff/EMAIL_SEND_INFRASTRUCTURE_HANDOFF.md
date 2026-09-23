@@ -543,3 +543,31 @@ BLOCKED_BY=
   3. Nenhuma credencial de escrita/DDL para o banco está disponível ao agente (bloqueio pré-existente,
      independente do item 1).
 ```
+
+## 18. Atualização de 2026-09-22 — Gate 0 confirmado por Peter; secrets criados; migration/backfill BLOQUEADOS por falta de credencial de banco
+
+Peter confirmou manualmente, fora do agente, `GET /customers?per_page=1` = HTTP 200 com o token vigente da revisão do `drosa-recovery`. Aceitei essa confirmação sem tentar reler ou testar o token — `GATE_0=PASS`, `TOKEN_RECOVERY_CURRENT=VALID`, `READ_CUSTOMERS_SCOPE_AVAILABLE=YES`.
+
+### 18.1 Pré-voo — limpo
+`git status`/`fetch`/`diff origin/...` sem drift; `HEAD` local = `origin/feat/email-consent-suppression-tracking` = `f2d0b5c` antes desta rodada. `review/crm-v2-visual` segue intocada.
+
+### 18.2 Secrets — CRIADOS no Secret Manager (NÃO wireados ao Cloud Run)
+Com a conta `drosamoda@gmail.com` (`roles/owner` no projeto `gtm-m4sqc99b-nzjjz`, confirmado por `gcloud projects get-iam-policy`, somente leitura), gerei os dois valores (48 bytes aleatórios cada, via `crypto.randomBytes` do Node, `base64`) e enviei direto por stdin para `gcloud secrets create`, sem nunca aparecerem no terminal, em arquivo, em log ou em commit:
+- `drosa-recovery-email-hash-pepper` (versão 1, `enabled`)
+- `drosa-recovery-email-unsubscribe-secret` (versão 1, `enabled`)
+Verificação foi só de existência/estado (`gcloud secrets describe` / `versions list`) — nunca valor, tamanho exato nem hash, conforme pedido.
+**Deliberadamente NÃO fiz `gcloud run services update --update-secrets=...`** para mapear esses secrets como env var do Cloud Run: isso criaria e promoveria uma revisão nova da produção (mudança de deploy, tráfego real), fora do escopo desta rodada (que autorizou banco/secrets, não deploy). Consequência prática: **o app em produção ainda não enxerga `EMAIL_HASH_PEPPER`/`EMAIL_UNSUBSCRIBE_SECRET`** — eles existem, duráveis, prontos para serem wireados numa rodada de deploy explicitamente autorizada.
+`EMAIL_HASH_PEPPER_PRESENT=true`, `EMAIL_UNSUBSCRIBE_SECRET_PRESENT=true` (no Secret Manager; `false` do ponto de vista do processo do Cloud Run em produção, que não foi alterado).
+
+### 18.3 Live audit — DEFERRED (sem caminho seguro existente)
+Busquei no código do Recovery por qualquer rota já existente que consultasse `/customers` da Nuvemshop ao vivo, para reaproveitar sem extrair o token eu mesmo. Não existe: `nuvemshopService.ts` não tem `fetchCustomers` (já documentado antes) e `customers.routes.ts` só trata opt-out de WhatsApp por telefone contra o banco local (`GET /` é literalmente um stub). Sem esse caminho, executar a auditoria completa exigiria eu mesmo extrair/usar o token — que o Peter pediu explicitamente para não fazer nesta rodada. `LIVE_AUDIT=DEFERRED`, conforme a própria autorização previu para este caso. Nenhum contato do snapshot histórico está verificado para envio; o gate continua bloqueando por outros motivos de qualquer forma.
+
+### 18.4 Migrations e backfill real — BLOQUEADOS (falta de credencial de banco, não do Gate 0)
+Confirmei de novo (variável de usuário do Windows, presença apenas): `MIGRATE_DATABASE_URL`, `AUDIT_DB_URL`, `REAL_DB_URL`, `DROSA_DATABASE_URL_NEW` — todas **ausentes**. O `roles/owner` no GCP não dá nenhum acesso ao Postgres/Supabase (são sistemas de credencial totalmente separados). A única credencial de banco disponível ao agente continua sendo `crm_preview_reader` (somente `SELECT`, via `.env.preview.local`), que não consegue rodar `prisma migrate deploy` (precisa de DDL) nem gravar no backfill real (precisa de `INSERT`). **Não tentei ler o secret `drosa-recovery-database-url` do Secret Manager** — seria extrair uma credencial de produção existente, a mesma categoria de ação já bloqueada pelo classificador para o token da Nuvemshop, e o Peter pediu explicitamente para não repetir esse tipo de tentativa.
+Consequência: as 3 migrations continuam **NÃO aplicadas**; nenhuma linha foi escrita em `email_consent_events`/`email_marketing_consents`/`email_suppressions`/`email_sends`/`email_event_logs`; o backfill real, a prova de idempotência e a verificação pós-migration **não puderam ser executados**.
+
+### 18.5 Verificação final desta rodada
+Suíte **1056/1056** (sem o timeout de hook desta vez), `tsc`, `eslint` e `tsc -p tsconfig.build.json` limpos. Reconfirmado por grep: `adapter.send(` só existe em `emailDispatcher.ts` fora de testes; `emailDispatcher.test.ts` (25/25) prova que `EMAIL_SEND_ENABLED=false` bloqueia antes de qualquer `adapter.send`. `EMAIL_SEND_ENABLED`, `WHATSAPP_DRY_RUN`, `AUTOMATION_SEND_ENABLED`, `REMARKETING_ENABLED`, `ENABLE_INTERNAL_CRON` inalterados. `CUSTOMER_OS_OAUTH_MISMATCH=OPEN_NON_BLOCKING_FOR_DB_ACTIVATION` — nada tocado no portal da Nuvemshop nem no Customer OS nesta rodada.
+
+### 18.6 Para destravar a migration/backfill
+Preciso de uma credencial de banco com direito de `CREATE TABLE`/`CREATE TYPE`/`CREATE INDEX` e `INSERT` nas tabelas novas — historicamente fornecida pelo Peter como `MIGRATE_DATABASE_URL` (variável de usuário do Windows, método de duas colagens, Session Pooler do Supabase). Assim que existir, o restante do plano (§16.6) roda sem depender de mais nenhuma decisão: `migrate status` → `migrate deploy` → `migrate status` → novo dry-run → backfill real → segunda execução (idempotência) → contagens agregadas.
