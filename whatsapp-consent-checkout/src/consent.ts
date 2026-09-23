@@ -5,63 +5,109 @@ import { isCheckoutPage } from "@tiendanube/nube-sdk-helper";
 /**
  * Protocolo fixo gravado em order.extra — espelha exatamente as constantes
  * aceitas pelo backend (src/services/whatsappConsentService.ts). Qualquer
- * divergência aqui faz o CRM tratar o pedido como UNKNOWN (fail closed).
+ * divergência aqui faz o CRM tratar o respectivo escopo como UNKNOWN.
  */
 export const CONSENT_MARKER_VERSION = "v1";
 export const CONSENT_MARKER_SOURCE = "nuvemshop_checkout_whatsapp_optin";
-export const CONSENT_MARKER_SCOPE = "marketing";
 
-export const CONSENT_SESSION_KEY = "drosa_whatsapp_marketing_choice";
+export const MARKETING_CONSENT_SCOPE = "marketing";
+export const TRANSACTIONAL_CONSENT_SCOPE = "transactional";
 
-export const CONSENT_LABEL = "Quero receber novidades, ofertas e lembretes da D'Rosa Moda pelo WhatsApp.";
+export const MARKETING_CONSENT_SESSION_KEY = "drosa_whatsapp_marketing_choice";
+export const TRANSACTIONAL_CONSENT_SESSION_KEY = "drosa_whatsapp_transactional_choice";
+
+export const MARKETING_CONSENT_LABEL =
+  "Quero receber ofertas, novidades e lembretes de carrinho da D'Rosa Moda pelo WhatsApp.";
+export const TRANSACTIONAL_CONSENT_LABEL =
+  "Quero receber atualizações sobre meu pedido da D'Rosa Moda pelo WhatsApp.";
+
+// Aliases v1 de marketing preservados para compatibilidade com testes/imports existentes.
+export const CONSENT_MARKER_SCOPE = MARKETING_CONSENT_SCOPE;
+export const CONSENT_SESSION_KEY = MARKETING_CONSENT_SESSION_KEY;
+export const CONSENT_LABEL = MARKETING_CONSENT_LABEL;
 
 export type ConsentChoice = "granted" | "revoked";
+export type ConsentScope =
+  | typeof MARKETING_CONSENT_SCOPE
+  | typeof TRANSACTIONAL_CONSENT_SCOPE;
+export type ConsentDecisions = Partial<Record<ConsentScope, ConsentChoice>>;
 
 export function isConsentChoice(value: unknown): value is ConsentChoice {
   return value === "granted" || value === "revoked";
 }
 
 /**
- * Monta o objeto completo a ser enviado via `order:add:extra`. Confirmado na
- * documentação oficial (dev.tiendanube.com/docs/applications/nube-sdk/events/order):
- * "The event replaces the entire `extra` object each time it is sent — it
- * does not deep-merge." Ou seja, QUALQUER outro app (attribution, upsell,
- * etc.) que já tenha gravado algo em `order.extra` seria apagado se
- * enviássemos só o marcador D'Rosa. Por isso `existingExtra` (lido de
- * `state.order?.extra` no momento do envio — ver `writeConsentMarkerIfDecided`)
- * é espalhado PRIMEIRO, e as 5 chaves fixas do marcador D'Rosa são aplicadas
- * por cima, sempre por último — preservando qualquer chave que não pertença
- * a este protocolo, e garantindo que o marcador D'Rosa nunca seja
- * sobrescrito por um valor antigo.
+ * Monta um marcador de consentimento sem apagar order.extra de terceiros.
+ * order:add:extra substitui o objeto inteiro; por isso sempre preservamos
+ * existingExtra e aplicamos apenas as chaves do escopo informado por cima.
  */
 export function buildConsentExtra(
   existingExtra: Record<string, string> | undefined,
   storeId: string | number,
   choice: ConsentChoice,
+  scope: ConsentScope = MARKETING_CONSENT_SCOPE,
 ): Record<string, string> {
+  const prefix = `drosa_whatsapp_${scope}`;
   return {
     ...(existingExtra ?? {}),
-    drosa_whatsapp_marketing_version: CONSENT_MARKER_VERSION,
-    drosa_whatsapp_marketing_store_id: String(storeId),
-    drosa_whatsapp_marketing_source: CONSENT_MARKER_SOURCE,
-    drosa_whatsapp_marketing_scope: CONSENT_MARKER_SCOPE,
-    drosa_whatsapp_marketing_choice: choice,
+    [`${prefix}_version`]: CONSENT_MARKER_VERSION,
+    [`${prefix}_store_id`]: String(storeId),
+    [`${prefix}_source`]: CONSENT_MARKER_SOURCE,
+    [`${prefix}_scope`]: scope,
+    [`${prefix}_choice`]: choice,
   };
 }
 
-/** Renderiza a checkbox opcional (sempre desmarcada por padrão) no início do checkout. */
-export function renderConsentCheckbox(nube: NubeSDK, checked: boolean): void {
+export function buildConsentExtraForDecisions(
+  existingExtra: Record<string, string> | undefined,
+  storeId: string | number,
+  decisions: ConsentDecisions,
+): Record<string, string> {
+  let next = { ...(existingExtra ?? {}) };
+
+  const transactional = decisions[TRANSACTIONAL_CONSENT_SCOPE];
+  if (transactional) {
+    next = buildConsentExtra(next, storeId, transactional, TRANSACTIONAL_CONSENT_SCOPE);
+  }
+
+  const marketing = decisions[MARKETING_CONSENT_SCOPE];
+  if (marketing) {
+    next = buildConsentExtra(next, storeId, marketing, MARKETING_CONSENT_SCOPE);
+  }
+
+  return next;
+}
+
+/** Renderiza os dois opt-ins opcionais, ambos desmarcados por padrão. */
+export function renderConsentCheckbox(
+  nube: NubeSDK,
+  marketingChecked: boolean,
+  transactionalChecked = false,
+): void {
   nube.render(
     "after_contact_form",
     Column({
       children: [
         Checkbox({
-          name: "drosa_whatsapp_marketing_optin",
-          label: CONSENT_LABEL,
-          checked,
+          name: "drosa_whatsapp_transactional_optin",
+          label: TRANSACTIONAL_CONSENT_LABEL,
+          checked: transactionalChecked,
           onChange: ({ value }) => {
             const choice: ConsentChoice = value ? "granted" : "revoked";
-            void nube.getBrowserAPIs().asyncSessionStorage.setItem(CONSENT_SESSION_KEY, choice);
+            void nube
+              .getBrowserAPIs()
+              .asyncSessionStorage.setItem(TRANSACTIONAL_CONSENT_SESSION_KEY, choice);
+          },
+        }),
+        Checkbox({
+          name: "drosa_whatsapp_marketing_optin",
+          label: MARKETING_CONSENT_LABEL,
+          checked: marketingChecked,
+          onChange: ({ value }) => {
+            const choice: ConsentChoice = value ? "granted" : "revoked";
+            void nube
+              .getBrowserAPIs()
+              .asyncSessionStorage.setItem(MARKETING_CONSENT_SESSION_KEY, choice);
           },
         }),
       ],
@@ -69,63 +115,65 @@ export function renderConsentCheckbox(nube: NubeSDK, checked: boolean): void {
   );
 }
 
-// Proteção contra reenvio/loop: por instância de NubeSDK (ou seja, por
-// carregamento de página/worker — uma nova instância nasce a cada
-// page:loaded real), no máximo um `order:add:extra` é enviado por esta
-// extensão. Necessário porque `handleLocationChange` reage tanto a
-// `page:loaded` quanto a `location:updated`, e nada garante que
-// `location:updated` dispare no máximo uma vez com step="success" (ex.:
-// mudança de querystring/hash na mesma página). A documentação oficial não
-// especifica se `send("order:add:extra")` pode re-disparar o listener
-// `order:update` de volta para esta própria app — por isso esta extensão
-// deliberadamente NUNCA escuta `order:update` (só `page:loaded`/
-// `location:updated`, em main.tsx), o que já elimina esse caminho de loop
-// por construção; este WeakSet é uma segunda camada, independente, contra
-// qualquer reentrância pelo caminho que de fato usamos.
+// Por instância de NubeSDK, no máximo um order:add:extra no sucesso.
 const sentForInstance = new WeakSet<NubeSDK>();
 
 /**
- * No sucesso do checkout, materializa em order.extra a decisão que o
- * cliente tomou explicitamente (se alguma). Se o cliente nunca interagiu com
- * a checkbox, nada é enviado — o backend nunca vê o marcador e o
- * classificador mantém o registro como UNKNOWN (nunca infere consentimento
- * a partir do silêncio do cliente).
+ * No sucesso do checkout, materializa somente decisões explícitas/persistidas.
+ * Escopo ausente continua UNKNOWN no backend.
  */
 export async function writeConsentMarkerIfDecided(nube: NubeSDK): Promise<void> {
-  // Reivindica a instância de forma SÍNCRONA, antes de qualquer `await` —
-  // fecha a janela de corrida entre chamadas concorrentes (ex.:
-  // `location:updated` disparando mais de uma vez seguida enquanto ainda na
-  // etapa success): se a verificação e a marcação acontecessem depois do
-  // `await` abaixo, todas as chamadas concorrentes veriam `sentForInstance`
-  // vazio ao mesmo tempo e cada uma enviaria seu próprio order:add:extra.
   if (sentForInstance.has(nube)) return;
   sentForInstance.add(nube);
 
-  const stored = await nube.getBrowserAPIs().asyncSessionStorage.getItem(CONSENT_SESSION_KEY);
-  if (!isConsentChoice(stored)) return;
+  const storage = nube.getBrowserAPIs().asyncSessionStorage;
+  const [marketingStored, transactionalStored] = await Promise.all([
+    storage.getItem(MARKETING_CONSENT_SESSION_KEY),
+    storage.getItem(TRANSACTIONAL_CONSENT_SESSION_KEY),
+  ]);
+
+  const decisions: ConsentDecisions = {};
+  if (isConsentChoice(marketingStored)) {
+    decisions[MARKETING_CONSENT_SCOPE] = marketingStored;
+  }
+  if (isConsentChoice(transactionalStored)) {
+    decisions[TRANSACTIONAL_CONSENT_SCOPE] = transactionalStored;
+  }
+
+  if (Object.keys(decisions).length === 0) return;
 
   const storeId = nube.getState().store.id;
-  // O modifier recebe o state MAIS FRESCO no momento do envio (não o lido
-  // antes do await acima) — é a única forma documentada de ler
-  // order.extra já existente (de outro app) antes de decidir o que enviar,
-  // já que order:add:extra substitui o objeto inteiro em vez de fazer merge.
   nube.send("order:add:extra", (state) => ({
-    order: { extra: buildConsentExtra(state.order?.extra, storeId, stored) },
+    order: {
+      extra: buildConsentExtraForDecisions(
+        state.order?.extra,
+        storeId,
+        decisions,
+      ),
+    },
   }));
 }
 
-/** Reage a navegação/carregamento: renderiza a checkbox no início e grava o marcador no sucesso. */
-export function handleLocationChange(nube: NubeSDK, state: Readonly<NubeSDKState>): void {
+/** Reage a navegação/carregamento: renderiza no início e grava no sucesso. */
+export function handleLocationChange(
+  nube: NubeSDK,
+  state: Readonly<NubeSDKState>,
+): void {
   const page = state.location.page;
   if (!isCheckoutPage(page)) return;
 
   if (page.data.step === "start") {
-    void nube
-      .getBrowserAPIs()
-      .asyncSessionStorage.getItem(CONSENT_SESSION_KEY)
-      .then((stored) => {
-        renderConsentCheckbox(nube, stored === "granted");
-      });
+    const storage = nube.getBrowserAPIs().asyncSessionStorage;
+    void Promise.all([
+      storage.getItem(MARKETING_CONSENT_SESSION_KEY),
+      storage.getItem(TRANSACTIONAL_CONSENT_SESSION_KEY),
+    ]).then(([marketingStored, transactionalStored]) => {
+      renderConsentCheckbox(
+        nube,
+        marketingStored === "granted",
+        transactionalStored === "granted",
+      );
+    });
   }
 
   if (page.data.step === "success") {

@@ -5,6 +5,13 @@ import { isValidBrazilianPhone } from '../helpers/phoneService'
 
 type ConsentEvidence = { consented: boolean; consentedAt: Date | null; revokedAt: Date | null } | null | undefined
 
+export type WhatsappConsentScope = 'marketing' | 'transactional'
+type ConsentChoice = 'granted' | 'revoked'
+
+const CONSENT_MARKER_VERSION = 'v1'
+const CONSENT_MARKER_SOURCE = 'nuvemshop_checkout_whatsapp_optin'
+const CONSENT_SCOPES: WhatsappConsentScope[] = ['marketing', 'transactional']
+
 export function classifyWhatsappConsent(consent: ConsentEvidence): 'GRANTED' | 'REVOKED' | 'UNKNOWN' {
   if (!consent) return 'UNKNOWN'
   if (consent.revokedAt !== null || consent.consented === false) return 'REVOKED'
@@ -12,7 +19,10 @@ export function classifyWhatsappConsent(consent: ConsentEvidence): 'GRANTED' | '
   return 'UNKNOWN'
 }
 
-export async function hasActiveWhatsappConsent(normalizedPhone: string, scope = 'marketing'): Promise<boolean> {
+export async function hasActiveWhatsappConsent(
+  normalizedPhone: string,
+  scope: WhatsappConsentScope = 'marketing',
+): Promise<boolean> {
   if (!normalizedPhone || !isValidBrazilianPhone(normalizedPhone)) return false
 
   const registry = prisma.whatsappConsent
@@ -26,31 +36,65 @@ export async function hasActiveWhatsappConsent(normalizedPhone: string, scope = 
   return classifyWhatsappConsent(consent) === 'GRANTED'
 }
 
-// Protocolo fixo gravado pela extensão NubeSDK em order.extra (checkout).
-// Ver DROSA_CRM_HANDOFF_CLAUDE.md — nenhum outro valor é aceito.
-const CONSENT_MARKER_VERSION = 'v1'
-const CONSENT_MARKER_SOURCE = 'nuvemshop_checkout_whatsapp_optin'
-const CONSENT_MARKER_SCOPE = 'marketing'
+function readConsentChoiceForScope(
+  marker: Record<string, unknown>,
+  scope: WhatsappConsentScope,
+): ConsentChoice | null {
+  const prefix = `drosa_whatsapp_${scope}`
 
-type ConsentChoice = 'granted' | 'revoked'
+  if (marker[`${prefix}_version`] !== CONSENT_MARKER_VERSION) return null
+  if (marker[`${prefix}_store_id`] !== env.NUVEMSHOP_STORE_ID) return null
+  if (marker[`${prefix}_source`] !== CONSENT_MARKER_SOURCE) return null
+  if (marker[`${prefix}_scope`] !== scope) return null
 
-// Só reconhece o marcador exato do protocolo — qualquer campo divergente
-// (versão, loja, source, scope) é tratado como ausente (fail closed).
-function readConsentChoiceFromOrderExtra(extra: unknown): ConsentChoice | null {
-  if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return null
-  const marker = extra as Record<string, unknown>
-
-  if (marker.drosa_whatsapp_marketing_version !== CONSENT_MARKER_VERSION) return null
-  if (marker.drosa_whatsapp_marketing_store_id !== env.NUVEMSHOP_STORE_ID) return null
-  if (marker.drosa_whatsapp_marketing_source !== CONSENT_MARKER_SOURCE) return null
-  if (marker.drosa_whatsapp_marketing_scope !== CONSENT_MARKER_SCOPE) return null
-
-  const choice = marker.drosa_whatsapp_marketing_choice
+  const choice = marker[`${prefix}_choice`]
   return choice === 'granted' || choice === 'revoked' ? choice : null
 }
 
-// Única via de escrita em whatsapp_consents. Nunca aceita telefone ausente/
-// inválido nem marcador incompleto — nesses casos o registro permanece UNKNOWN.
+export function readConsentChoicesFromOrderExtra(
+  extra: unknown,
+): Partial<Record<WhatsappConsentScope, ConsentChoice>> {
+  if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return {}
+  const marker = extra as Record<string, unknown>
+
+  const result: Partial<Record<WhatsappConsentScope, ConsentChoice>> = {}
+  for (const scope of CONSENT_SCOPES) {
+    const choice = readConsentChoiceForScope(marker, scope)
+    if (choice) result[scope] = choice
+  }
+  return result
+}
+
+async function upsertConsent(params: {
+  normalizedPhone: string
+  scope: WhatsappConsentScope
+  choice: ConsentChoice
+}): Promise<void> {
+  const { normalizedPhone, scope, choice } = params
+  const registry = prisma.whatsappConsent
+  if (!registry) return
+
+  const now = new Date()
+
+  await registry.upsert({
+    where: { normalizedPhone_scope: { normalizedPhone, scope } },
+    create: {
+      normalizedPhone,
+      scope,
+      source: CONSENT_MARKER_SOURCE,
+      consented: choice === 'granted',
+      consentedAt: choice === 'granted' ? now : null,
+      revokedAt: choice === 'revoked' ? now : null,
+    },
+    update:
+      choice === 'granted'
+        ? { consented: true, source: CONSENT_MARKER_SOURCE, consentedAt: now, revokedAt: null }
+        : { consented: false, source: CONSENT_MARKER_SOURCE, revokedAt: now },
+  })
+}
+
+// Única via de escrita em whatsapp_consents. Cada escopo é fail-closed:
+// marcador ausente/incompleto não cria nem altera consentimento daquele escopo.
 export async function recordConsentFromNuvemshopOrderExtra(params: {
   normalizedPhone: string | null | undefined
   extra: unknown
@@ -65,32 +109,16 @@ export async function recordConsentFromNuvemshopOrderExtra(params: {
     return
   }
 
-  const choice = readConsentChoiceFromOrderExtra(extra)
-  if (!choice) return
+  const choices = readConsentChoicesFromOrderExtra(extra)
+  const entries = Object.entries(choices) as Array<[WhatsappConsentScope, ConsentChoice]>
+  if (entries.length === 0) return
 
-  const registry = prisma.whatsappConsent
-  if (!registry) return
-
-  const now = new Date()
-
-  await registry.upsert({
-    where: { normalizedPhone_scope: { normalizedPhone, scope: CONSENT_MARKER_SCOPE } },
-    create: {
-      normalizedPhone,
-      scope: CONSENT_MARKER_SCOPE,
-      source: CONSENT_MARKER_SOURCE,
-      consented: choice === 'granted',
-      consentedAt: choice === 'granted' ? now : null,
-      revokedAt: choice === 'revoked' ? now : null,
-    },
-    update:
-      choice === 'granted'
-        ? { consented: true, source: CONSENT_MARKER_SOURCE, consentedAt: now, revokedAt: null }
-        : { consented: false, source: CONSENT_MARKER_SOURCE, revokedAt: now },
-  })
+  for (const [scope, choice] of entries) {
+    await upsertConsent({ normalizedPhone, scope, choice })
+  }
 
   logger.info('[whatsappConsentService] consentimento WhatsApp atualizado a partir do checkout', {
     nuvemshopOrderId,
-    choice,
+    scopes: entries.map(([scope]) => scope),
   })
 }

@@ -2,17 +2,27 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { NubeSDK, NubeSDKState } from "@tiendanube/nube-sdk-types";
 import {
 	buildConsentExtra,
+	buildConsentExtraForDecisions,
 	CONSENT_MARKER_SCOPE,
 	CONSENT_MARKER_SOURCE,
 	CONSENT_MARKER_VERSION,
 	CONSENT_SESSION_KEY,
+	MARKETING_CONSENT_SCOPE,
+	TRANSACTIONAL_CONSENT_SCOPE,
+	TRANSACTIONAL_CONSENT_SESSION_KEY,
 	handleLocationChange,
 	isConsentChoice,
 	writeConsentMarkerIfDecided,
 } from "./consent";
 
-function fakeSdk(overrides: Partial<{ getItem: unknown; storeId: number; existingExtra: Record<string, string> | undefined }> = {}) {
-	const getItem = vi.fn().mockResolvedValue(overrides.getItem ?? null);
+function fakeSdk(overrides: Partial<{ getItem: unknown; transactionalGetItem: unknown; storeId: number; existingExtra: Record<string, string> | undefined }> = {}) {
+	const getItem = vi.fn().mockImplementation((key: string) =>
+		Promise.resolve(
+			key === TRANSACTIONAL_CONSENT_SESSION_KEY
+				? (overrides.transactionalGetItem ?? null)
+				: (overrides.getItem ?? null),
+		),
+	);
 	const setItem = vi.fn().mockResolvedValue(undefined);
 	const render = vi.fn();
 	const send = vi.fn();
@@ -130,6 +140,32 @@ describe("buildConsentExtra", () => {
 		expect(result.drosa_whatsapp_marketing_store_id).toBe("7716231");
 		expect(result.drosa_whatsapp_marketing_choice).toBe("granted");
 	});
+
+	it("grava os dois escopos no mesmo order.extra sem conflito", () => {
+		const result = buildConsentExtraForDecisions(
+			{ attribution_source: "google" },
+			7716231,
+			{
+				[TRANSACTIONAL_CONSENT_SCOPE]: "granted",
+				[MARKETING_CONSENT_SCOPE]: "revoked",
+			},
+		);
+
+		expect(result.attribution_source).toBe("google");
+		expect(result.drosa_whatsapp_transactional_scope).toBe("transactional");
+		expect(result.drosa_whatsapp_transactional_choice).toBe("granted");
+		expect(result.drosa_whatsapp_marketing_scope).toBe("marketing");
+		expect(result.drosa_whatsapp_marketing_choice).toBe("revoked");
+	});
+
+	it("aceita somente um dos escopos sem inventar o outro", () => {
+		const result = buildConsentExtraForDecisions(undefined, 7716231, {
+			[TRANSACTIONAL_CONSENT_SCOPE]: "granted",
+		});
+
+		expect(result.drosa_whatsapp_transactional_choice).toBe("granted");
+		expect(result).not.toHaveProperty("drosa_whatsapp_marketing_choice");
+	});
 });
 
 describe("writeConsentMarkerIfDecided", () => {
@@ -166,6 +202,31 @@ describe("writeConsentMarkerIfDecided", () => {
 		expect(callModifier(send, undefined)).toEqual({
 			order: { extra: buildConsentExtra(undefined, 7716231, "granted") },
 		});
+	});
+
+	it("grava somente transactional quando apenas o opt-in de pedido foi decidido", async () => {
+		const { nube, send } = fakeSdk({ transactionalGetItem: "granted", storeId: 7716231 });
+
+		await writeConsentMarkerIfDecided(nube);
+
+		expect(send).toHaveBeenCalledTimes(1);
+		const result = callModifier(send, undefined).order.extra;
+		expect(result.drosa_whatsapp_transactional_choice).toBe("granted");
+		expect(result).not.toHaveProperty("drosa_whatsapp_marketing_choice");
+	});
+
+	it("grava marketing e transactional juntos quando ambos foram decididos", async () => {
+		const { nube, send } = fakeSdk({
+			getItem: "granted",
+			transactionalGetItem: "revoked",
+			storeId: 7716231,
+		});
+
+		await writeConsentMarkerIfDecided(nube);
+
+		const result = callModifier(send, undefined).order.extra;
+		expect(result.drosa_whatsapp_marketing_choice).toBe("granted");
+		expect(result.drosa_whatsapp_transactional_choice).toBe("revoked");
 	});
 
 	// 3) revoked.

@@ -22,6 +22,14 @@ const validGrantedExtra = {
   drosa_whatsapp_marketing_choice: 'granted',
 }
 
+const validTransactionalGrantedExtra = {
+  drosa_whatsapp_transactional_version: 'v1',
+  drosa_whatsapp_transactional_store_id: STORE_ID,
+  drosa_whatsapp_transactional_source: 'nuvemshop_checkout_whatsapp_optin',
+  drosa_whatsapp_transactional_scope: 'transactional',
+  drosa_whatsapp_transactional_choice: 'granted',
+}
+
 describe('WhatsApp consent registry', () => {
   it.each([
     [null, 'UNKNOWN'],
@@ -54,6 +62,25 @@ describe('WhatsApp consent registry', () => {
     } as never)
 
     expect(await hasActiveWhatsappConsent('5531998021418')).toBe(true)
+  })
+
+  it('consulta marketing e transactional em chaves independentes', async () => {
+    vi.mocked(prisma.whatsappConsent.findUnique).mockResolvedValue({
+      consented: true,
+      consentedAt: new Date('2026-09-10T12:00:00Z'),
+      revokedAt: null,
+    } as never)
+
+    expect(await hasActiveWhatsappConsent('5531998021418', 'transactional')).toBe(true)
+    expect(prisma.whatsappConsent.findUnique).toHaveBeenLastCalledWith({
+      where: {
+        normalizedPhone_scope: {
+          normalizedPhone: '5531998021418',
+          scope: 'transactional',
+        },
+      },
+      select: { consented: true, revokedAt: true, consentedAt: true },
+    })
   })
 
   it.each([
@@ -97,6 +124,43 @@ describe('recordConsentFromNuvemshopOrderExtra', () => {
     const call = vi.mocked(prisma.whatsappConsent.upsert).mock.calls[0][0]
     expect(call.create.consentedAt).toBeInstanceOf(Date)
     expect(call.update.consentedAt).toBeInstanceOf(Date)
+  })
+
+  it('pedido com os dois marcadores grava marketing e transactional separadamente', async () => {
+    await recordConsentFromNuvemshopOrderExtra({
+      normalizedPhone: '5583998765432',
+      extra: { ...validGrantedExtra, ...validTransactionalGrantedExtra },
+      nuvemshopOrderId: '1-dual',
+    })
+
+    expect(prisma.whatsappConsent.upsert).toHaveBeenCalledTimes(2)
+    const scopes = vi.mocked(prisma.whatsappConsent.upsert).mock.calls.map(([args]) =>
+      (args.where as { normalizedPhone_scope: { scope: string } }).normalizedPhone_scope.scope
+    )
+    expect(scopes).toEqual(expect.arrayContaining(['marketing', 'transactional']))
+  })
+
+  it('revogacao transactional nao altera o marcador marketing', async () => {
+    await recordConsentFromNuvemshopOrderExtra({
+      normalizedPhone: '5583998765432',
+      extra: {
+        ...validGrantedExtra,
+        ...validTransactionalGrantedExtra,
+        drosa_whatsapp_transactional_choice: 'revoked',
+      },
+      nuvemshopOrderId: '1-revoke-tx',
+    })
+
+    const calls = vi.mocked(prisma.whatsappConsent.upsert).mock.calls
+    const scopeOf = (args: (typeof calls)[number][0]) =>
+      (args.where as { normalizedPhone_scope: { scope: string } }).normalizedPhone_scope.scope
+    const marketing = calls.find(([args]) => scopeOf(args) === 'marketing')?.[0]
+    const transactional = calls.find(([args]) => scopeOf(args) === 'transactional')?.[0]
+    expect(marketing).toBeDefined()
+    expect(transactional).toBeDefined()
+    expect(marketing!.update).toEqual(expect.objectContaining({ consented: true, revokedAt: null }))
+    expect(transactional!.update).toEqual(expect.objectContaining({ consented: false }))
+    expect((transactional!.update as { revokedAt?: Date }).revokedAt).toBeInstanceOf(Date)
   })
 
   it('checkbox nunca marcada (sem marcador em extra) permanece UNKNOWN — nada é gravado', async () => {
