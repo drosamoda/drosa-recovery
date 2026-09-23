@@ -22,13 +22,11 @@ import { EMAIL_HASH_PEPPER_MIN_LENGTH, InvalidConsentEmailError, hashEmail } fro
 // adotado por remarketingService/aiOpportunityEngine). Pedido pago sem data
 // nunca é datado por chute: marca `undatedPaidOrders`.
 
-// Fonte de consentimento de e-mail (Fase 1 — auditoria): nenhuma existe.
-// Não há accepts_marketing/newsletter/unsubscribe/opt-in de e-mail em schema,
-// payloads tratados ou serviços. WhatsappConsent e Customer.optOut nascem de
-// eventos de WhatsApp (keyword STOP via webhook Meta) e NÃO valem como
-// consentimento nem como opt-out de e-mail. Enquanto isto for
-// NOT_CONFIGURED nenhum número de "elegível para envio" pode existir.
-export const EMAIL_MARKETING_CONSENT_SOURCE: 'NOT_CONFIGURED' | 'CONFIGURED' = 'NOT_CONFIGURED'
+// Fonte de consentimento de e-mail. O ledger/projeção já existe; produção só
+// declara CONFIGURED depois do backfill/reconciliação validados. Em qualquer
+// outro ambiente o default é NOT_CONFIGURED, mantendo o sistema fail-closed.
+// WhatsappConsent e Customer.optOut continuam exclusivos de WhatsApp.
+export const EMAIL_MARKETING_CONSENT_SOURCE: 'NOT_CONFIGURED' | 'CONFIGURED' = env.EMAIL_MARKETING_CONSENT_SOURCE
 // Não existe log/histórico de envio de e-mail — cooldown não é aplicável.
 export const EMAIL_COOLDOWN_STATUS = 'NOT_ENFORCEABLE_NO_EMAIL_SEND_HISTORY' as const
 

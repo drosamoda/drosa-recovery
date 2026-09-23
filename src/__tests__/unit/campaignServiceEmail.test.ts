@@ -284,13 +284,20 @@ describe('campaignService — pipeline de e-mail (mesmo pipeline do WhatsApp)', 
 })
 
 describe('gate de envio de e-mail — fail-closed por construção', () => {
-  it('sem provedor, consentimento, descadastro/supressão e EMAIL_SEND_ENABLED, allowed é false com os 4 motivos', () => {
+  it('sem os pré-requisitos operacionais, allowed é false com todos os blockers', () => {
     const gate = evaluateEmailSendGate()
     expect(gate.allowed).toBe(false)
-    expect(gate.missing).toEqual(['EMAIL_PROVIDER_NOT_CONFIGURED', 'EMAIL_MARKETING_CONSENT_SOURCE_NOT_CONFIGURED', 'EMAIL_UNSUBSCRIBE_SUPPRESSION_NOT_IMPLEMENTED', 'EMAIL_SEND_DISABLED'])
+    expect(gate.missing).toEqual([
+      'EMAIL_PROVIDER_NOT_CONFIGURED',
+      'EMAIL_MARKETING_CONSENT_SOURCE_NOT_CONFIGURED',
+      'EMAIL_UNSUBSCRIBE_SUPPRESSION_NOT_IMPLEMENTED',
+      'EMAIL_DOMAIN_NOT_AUTHENTICATED',
+      'EMAIL_LEGAL_REVIEW_REQUIRED',
+      'EMAIL_SEND_DISABLED',
+    ])
   })
 
-  it('mesmo com EMAIL_SEND_ENABLED=true o gate continua fechado (as outras condições não são configuráveis por env)', async () => {
+  it('EMAIL_SEND_ENABLED=true sozinho nunca abre o gate; os demais pré-requisitos continuam independentes', async () => {
     vi.resetModules()
     vi.doMock('../../config/env', () => ({ env: { EMAIL_SEND_ENABLED: true, NODE_ENV: 'test', VIP_MIN_ORDERS: 3, VIP_MIN_SPEND: 500 } }))
     vi.doMock('../../config/prisma', () => ({ prisma: { $queryRaw: vi.fn() } }))
