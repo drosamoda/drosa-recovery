@@ -6,7 +6,7 @@ import { messageService } from './messageService'
 import { webhookEventService } from './webhookEventService'
 import { nuvemshopService } from './nuvemshopService'
 import { recordConsentFromNuvemshopOrderExtra } from './whatsappConsentService'
-import { AbandonedCheckoutStatus, EventType } from '@prisma/client'
+import { AbandonedCheckoutStatus, EntityType, EventType, MessageStatus, Prisma } from '@prisma/client'
 import { logger } from '../config/logger'
 
 // Formato esperado do payload de pedido da Nuvemshop
@@ -164,6 +164,8 @@ export const orderService = {
       // Transação: order → converter carrinhos
       // ----------------------------------------------------------------
       const { savedOrderId, isNew, previousPaymentStatus } = await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${nuvemshopOrderId}))`)
+
         const existingOrder = await tx.order.findUnique({
           where: { nuvemshopOrderId },
         })
@@ -237,15 +239,22 @@ export const orderService = {
               },
             })
 
-            await messageService.skipPendingCheckoutLogs(
-              checkout.id,
-              'converted_before_send'
-            )
+            await tx.messageLog.updateMany({
+              where: {
+                entityType: EntityType.abandoned_checkout,
+                entityId: checkout.id,
+                status: MessageStatus.pending,
+              },
+              data: {
+                status: MessageStatus.skipped,
+                reason: 'converted_before_send',
+              },
+            })
           }
         }
 
         return { savedOrderId: savedOrder.id, isNew, previousPaymentStatus }
-      })
+      }, { maxWait: 10_000, timeout: 15_000 })
 
       // ----------------------------------------------------------------
       // Agendar mensagens — fora da transação, protegido por idempotencyKey

@@ -3,6 +3,7 @@ import { EventType } from '@prisma/client'
 
 const mocks = vi.hoisted(() => {
   const tx = {
+    $executeRaw: vi.fn(),
     order: {
       findUnique: vi.fn(),
       create: vi.fn(),
@@ -11,6 +12,9 @@ const mocks = vi.hoisted(() => {
     abandonedCheckout: {
       findMany: vi.fn(),
       update: vi.fn(),
+    },
+    messageLog: {
+      updateMany: vi.fn(),
     },
   }
 
@@ -95,6 +99,7 @@ const fullOrderPayload = {
 describe('orderService.handleNuvemshopOrderWebhook', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.tx.$executeRaw.mockResolvedValue(0)
     mocks.tx.order.findUnique.mockResolvedValue(null)
     mocks.tx.order.create.mockResolvedValue({ id: 'order-db-1' })
     mocks.tx.order.update.mockResolvedValue({ id: 'order-db-1' })
@@ -259,6 +264,41 @@ describe('orderService.handleNuvemshopOrderWebhook', () => {
     })
 
     expect(mocks.createPendingMessageIfNotExists).not.toHaveBeenCalled()
+  })
+
+  it('serializa webhooks do mesmo pedido e converte checkout no mesmo tx', async () => {
+    mocks.tx.abandonedCheckout.findMany.mockResolvedValue([{ id: 'checkout-1' }])
+
+    await orderService.handleNuvemshopOrderWebhook({
+      payload: { ...fullOrderPayload, created_at: '2026-09-23T06:30:00Z' },
+      headers: { 'x-linkedstore-topic': 'order/created' },
+      webhookEventId: 'event-concurrent',
+    })
+
+    expect(mocks.tx.$executeRaw).toHaveBeenCalledTimes(1)
+    expect(mocks.tx.abandonedCheckout.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'checkout-1' },
+      data: expect.objectContaining({
+        status: 'converted',
+        convertedOrderId: 'order-db-1',
+      }),
+    }))
+    expect(mocks.tx.messageLog.updateMany).toHaveBeenCalledWith({
+      where: {
+        entityType: 'abandoned_checkout',
+        entityId: 'checkout-1',
+        status: 'pending',
+      },
+      data: {
+        status: 'skipped',
+        reason: 'converted_before_send',
+      },
+    })
+    expect(mocks.skipPendingCheckoutLogs).not.toHaveBeenCalled()
+    expect(mocks.transaction).toHaveBeenCalledWith(expect.any(Function), {
+      maxWait: 10_000,
+      timeout: 15_000,
+    })
   })
 
   it('repassa order.extra e telefone normalizado para a sincronizacao de consentimento WhatsApp', async () => {
