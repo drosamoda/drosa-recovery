@@ -1,4 +1,4 @@
-import { AbandonedCheckout, MessageStatus } from '@prisma/client'
+﻿import { AbandonedCheckout, MessageStatus } from '@prisma/client'
 import { prisma } from '../config/prisma'
 import { env } from '../config/env'
 import { isValidBrazilianPhone } from '../helpers/phoneService'
@@ -51,7 +51,7 @@ function hasBadEncoding(value: string): boolean {
   return value.includes('\uFFFD') || value.includes('??') || /{{\s*\d+\s*}}/.test(value)
 }
 
-function validRecoveryUrl(value: string): boolean {
+export function validRecoveryUrl(value: string): boolean {
   try {
     const candidate = new URL(value)
     const allowed = new URL(env.CHECKOUT_BASE_URL)
@@ -241,3 +241,4 @@ export async function evaluateAbandonedCheckoutEligibilityBatch(
     }
   })
 }
+

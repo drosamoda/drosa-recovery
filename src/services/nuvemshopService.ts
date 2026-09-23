@@ -1,7 +1,19 @@
-import axios from 'axios'
+﻿import axios from 'axios'
 import { env } from '../config/env'
 import { logger } from '../config/logger'
 import { subtractHours } from '../helpers/dateService'
+
+export type NuvemshopProduct = {
+  id: number | string
+  name?: Record<string, string> | string
+  description?: Record<string, string> | string
+  handle?: string
+  canonical_url?: string
+  variants?: Array<{ id: number | string; price?: string; compare_at_price?: string; stock_management?: boolean; stock?: number | null; values?: Array<Record<string, string>> }>
+  images?: Array<{ id: number | string; src?: string }>
+  attributes?: Array<Record<string, string>>
+  [key: string]: unknown
+}
 
 export type NuvemshopCheckout = {
   id: number | string
@@ -281,7 +293,7 @@ export const nuvemshopService = {
       const data = response.data
       if (!Array.isArray(data) || data.length === 0) break
 
-      // Filtragem local de segurança caso a API ignore o filtro de data
+      // Filtragem local de seguranÃ§a caso a API ignore o filtro de data
       const filtered = data.filter((c) => {
         const updatedAt = validDate(c.updated_at)
         const createdAt = validDate(c.created_at)
@@ -308,7 +320,7 @@ export const nuvemshopService = {
 
       allCheckouts.push(...enriched)
 
-      // Se recebeu menos que o máximo, não há mais páginas
+      // Se recebeu menos que o mÃ¡ximo, nÃ£o hÃ¡ mais pÃ¡ginas
       if (data.length < 200) break
       page++
     }
@@ -366,4 +378,23 @@ export const nuvemshopService = {
 
     return orders
   },
+
+  async fetchProductById(productId: string | number): Promise<NuvemshopProduct | null> {
+    const client = buildNuvemshopClient()
+    try {
+      const response = await client.get<NuvemshopProduct>(`/products/${productId}`)
+      return response.data
+    } catch (error) {
+      const status = (error as HttpLikeError).response?.status
+      if (status === 404) return null
+      throw error
+    }
+  },
+
+  async searchProducts(term: string, limit = 5): Promise<NuvemshopProduct[]> {
+    const client = buildNuvemshopClient()
+    const response = await client.get<NuvemshopProduct[]>('/products', { params: { q: term, per_page: Math.min(limit, 50) } })
+    return Array.isArray(response.data) ? response.data : []
+  },
 }
+

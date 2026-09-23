@@ -30,3 +30,21 @@ process.env.ABANDONED_CART_ENABLED = 'true'
 process.env.REMARKETING_ENABLED = 'false'
 process.env.ABANDONED_CART_MAX_SENDS_PER_RUN = '1'
 process.env.REMARKETING_MAX_SENDS_PER_RUN = '1'
+
+// Isolamento de testes (falha real reproduzida ao vivo: um teste que
+// esperava AI_DATABASE_NOT_CONFIGURED recebeu 200/404 porque AI_DATABASE_URL
+// estava definida na máquina real do desenvolvedor — o teste bateu no
+// Supabase de verdade em vez de simular a ausência). Nenhum teste pode
+// herdar segredo/config real da máquina que roda a suíte — nem
+// AI_DATABASE_URL (isolamento do banco de IA), nem as chaves dos três
+// provedores, nem a escolha de AI_PROVIDER. Os testes de provider já mockam
+// config/env explicitamente e não dependem disto; isto protege os testes de
+// integração que sobem o app real (aiCampaignsRoutes.test.ts,
+// aiCampaignsAdminAuth.test.ts, crmPreviewReadonly.test.ts) contra herdar
+// esses valores sem perceber. Um teste que precise de um valor específico
+// para uma dessas variáveis define isso explicitamente ele mesmo.
+delete process.env.AI_DATABASE_URL
+delete process.env.OPENAI_API_KEY
+delete process.env.ANTHROPIC_API_KEY
+delete process.env.GROQ_API_KEY
+delete process.env.AI_PROVIDER

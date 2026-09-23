@@ -1,14 +1,27 @@
 import 'dotenv/config'
 import { z } from 'zod'
 
+// Modo somente-leitura para ambientes de Preview: dispensa integrações
+// operacionais (Meta/Nuvemshop/admin/jobs) no boot, exigindo apenas o
+// necessário para servir dados reais via /crm-api. Lido diretamente de
+// process.env porque precisa decidir o formato do schema abaixo.
+const isPreviewReadOnly = process.env.CRM_PREVIEW_READONLY === 'true'
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().default(3000),
   APP_BASE_URL: z.string().default(''),
 
-  DATABASE_URL: z.string().min(1, 'DATABASE_URL é obrigatória'),
+  CRM_PREVIEW_READONLY: z.string().default('false').transform((v) => v === 'true'),
 
-  NUVEMSHOP_STORE_ID: z.string().min(1, 'NUVEMSHOP_STORE_ID é obrigatório'),
+  DATABASE_URL: z.string().min(1, 'DATABASE_URL é obrigatória'),
+  DIRECT_URL: isPreviewReadOnly
+    ? z.string().min(1, 'DIRECT_URL é obrigatória em CRM_PREVIEW_READONLY')
+    : z.string().default(''),
+
+  NUVEMSHOP_STORE_ID: isPreviewReadOnly
+    ? z.string().default('')
+    : z.string().min(1, 'NUVEMSHOP_STORE_ID é obrigatório'),
   NUVEMSHOP_ACCESS_TOKEN: z.string().default(''),
   NUVEMSHOP_CLIENT_ID: z.string().default(''),
   NUVEMSHOP_CLIENT_SECRET: z.string().default(''),
@@ -16,18 +29,28 @@ const envSchema = z.object({
   NUVEMSHOP_API_VERSION: z.string().default('v1'),
   WEBHOOK_SECRET: z.string().default(''),
 
-  META_ACCESS_TOKEN: z.string().min(1, 'META_ACCESS_TOKEN é obrigatório'),
-  META_PHONE_NUMBER_ID: z.string().min(1, 'META_PHONE_NUMBER_ID é obrigatório'),
+  META_ACCESS_TOKEN: isPreviewReadOnly
+    ? z.string().default('')
+    : z.string().min(1, 'META_ACCESS_TOKEN é obrigatório'),
+  META_PHONE_NUMBER_ID: isPreviewReadOnly
+    ? z.string().default('')
+    : z.string().min(1, 'META_PHONE_NUMBER_ID é obrigatório'),
   META_API_VERSION: z.string().default('v20.0'),
   META_VERIFY_TOKEN: z.string().default(''),
   META_APP_SECRET: z.string().default(''),
   META_REQUEST_TIMEOUT_MS: z.coerce.number().default(8000),
 
-  ADMIN_SECRET: z.string().min(1, 'ADMIN_SECRET é obrigatório'),
-  JOBS_SECRET: z.string().min(1, 'JOBS_SECRET é obrigatório'),
+  ADMIN_SECRET: isPreviewReadOnly
+    ? z.string().default('')
+    : z.string().min(1, 'ADMIN_SECRET é obrigatório'),
+  JOBS_SECRET: isPreviewReadOnly
+    ? z.string().default('')
+    : z.string().min(1, 'JOBS_SECRET é obrigatório'),
   INBOX_ADMIN_SECRET: z.string().default(''),
-  CRM_READ_SECRET: z.string().default(''),
-  // Fail-closed: envio manual da Inbox exige opt-in explícito para sair do dry-run.
+  CRM_READ_SECRET: isPreviewReadOnly
+    ? z.string().min(1, 'CRM_READ_SECRET ? obrigat?ria em CRM_PREVIEW_READONLY')
+    : z.string().default(''),
+  // Fail-closed: envio manual da Inbox exige opt-in expl?cito para sair do dry-run.
   INBOX_SEND_DRY_RUN: z.string().default('true').transform((v) => v === 'true'),
 
   ORDER_CONFIRMATION_TEMPLATE: z.string().default('confirmacao_pedido_drosa'),
@@ -88,6 +111,61 @@ const envSchema = z.object({
   AUTOMATION_SEND_ENABLED: z.string().default('false').transform((v) => v === 'true'),
   WHATSAPP_API_NUMBER: z.string().default(''),
   META_WABA_ID: z.string().default(''),
+
+  // AI Campaign Intelligence — server-side only, nunca exposto ao browser.
+  // Ausência da API key do provedor selecionado não derruba o boot: bloqueia
+  // só a geração de campanhas (AiProviderConfigError), preservando as 7
+  // áreas existentes. A escolha de provedor é sempre explícita via
+  // AI_PROVIDER — sem fallback automático entre eles nesta fase.
+  AI_PROVIDER: z.enum(['anthropic', 'openai', 'groq']).default('anthropic'),
+  ANTHROPIC_API_KEY: z.string().default(''),
+  ANTHROPIC_MODEL: z.string().default('claude-opus-5'),
+  OPENAI_API_KEY: z.string().default(''),
+  OPENAI_MODEL: z.string().default('gpt-5'),
+  // Groq — terceiro provedor independente, API compatível com a da OpenAI
+  // (mesmo SDK `openai`, só com baseURL trocada). Mesma regra dos outros
+  // dois: sem fallback automático, sem chave = geração indisponível.
+  GROQ_API_KEY: z.string().default(''),
+  GROQ_MODEL: z.string().default('openai/gpt-oss-120b'),
+  GROQ_BASE_URL: z.string().default('https://api.groq.com/openai/v1'),
+
+  // Final Pre-Activation Readiness — banco isolado para campaign_drafts/
+  // ai_runs. Vazio = não configurado = geração de campanha fica indisponível
+  // (503 AI_DATABASE_NOT_CONFIGURED), nunca cai de volta para gravar no
+  // DATABASE_URL do Preview. Nenhuma migração é aplicada por esta variável
+  // existir — ela só passa a ser lida quando alguém a configurar de propósito.
+  AI_DATABASE_URL: z.string().default(''),
+
+  // Email Campaign Intelligence — envio real de e-mail NÃO existe nesta fase:
+  // não há provedor de e-mail, fonte de consentimento, histórico de envio nem
+  // lista de descadastro/supressão. Esta flag é só uma das condições do gate
+  // fail-closed (emailSendGate.ts) — mesmo `true`, o gate continua fechado
+  // enquanto as outras quatro condições não existirem. Default false.
+  EMAIL_SEND_ENABLED: z.string().default('false').transform((v) => v === 'true'),
+  // Email Consent Ledger — pepper do HMAC-SHA256 que transforma o e-mail em
+  // emailHash (o e-mail em texto nunca vai para as tabelas de consentimento).
+  // Segredo de servidor: mínimo de 32 caracteres, nunca logado, nunca exposto
+  // ao browser. Vazio não derruba o boot: só impede gravar/consultar consentimento
+  // (EmailHashPepperNotConfiguredError). Trocar o pepper invalida todos os hashes.
+  EMAIL_HASH_PEPPER: z.string().default(''),
+  // Email Unsubscribe — chave HMAC que assina o token do link de descadastro
+  // (List-Unsubscribe / One-Click). Segredo de servidor DISTINTO do pepper
+  // (nunca reutilizar uma chave para dois fins), mínimo de 32 caracteres, nunca
+  // logado. Vazio não derruba o boot: só desliga a emissão/validação de links
+  // (a rota pública responde 503 e nenhum link pode ser gerado). A PREVIOUS
+  // existe para rotação: links já enviados continuam válidos porque o
+  // descadastro precisa funcionar para sempre; troque a principal e mova a
+  // antiga para PREVIOUS. Trocar sem PREVIOUS invalida todos os links enviados.
+  EMAIL_UNSUBSCRIBE_SECRET: z.string().default(''),
+  EMAIL_UNSUBSCRIBE_SECRET_PREVIOUS: z.string().default(''),
+
+  // Controles pagos — nenhum provedor de IA é chamado sem estes limites
+  // explícitos. Aplicados igualmente aos dois provedores (nunca um limite
+  // "especial" para OpenAI ou Anthropic).
+  AI_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
+  AI_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().default(4096),
+  AI_MAX_CONCURRENT_GENERATIONS: z.coerce.number().int().positive().default(2),
+  AI_GENERATION_MAX_PER_MINUTE: z.coerce.number().int().positive().default(10),
 })
 
 const parsed = envSchema.safeParse(process.env)
