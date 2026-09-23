@@ -606,31 +606,46 @@ BACKFILL_ERRORS=0
 ```
 `ordersRead=4212 · checkoutsRead=827` (mais ~4/3 desde o dry-run, minutos antes — mesma atividade orgânica contínua). Escrita restrita exclusivamente a `EmailConsentEvent`/`EmailMarketingConsent`, via `writeBackfill` (`skipDuplicates: true`, único caminho de escrita do job). Nenhuma tabela histórica (`Customer`/`Order`/`abandoned_checkouts`) foi tocada — o backfill só lê delas dentro de uma transação `READ ONLY`.
 
-### 19.7 Segunda execução — prova de idempotência
+### 19.7 Segunda execução — prova de idempotência (confirmada pelo estado do banco, não só pela mensagem do script)
 Mesmo pepper real, buscado de novo do Secret Manager em um processo novo e isolado:
 ```
-BACKFILL_EVENTS_INSERTED=0 (todos os 5027 eventos já existiam — skipDuplicates)
-BACKFILL_STATES_WRITTEN=3955 (recomputados, mesmo resultado)
-BACKFILL_ERRORS=0
-BACKFILL_IDEMPOTENT=YES
+SECOND_RUN_EVENTS_INSERTED=0 (todos os 5027 eventos já existiam — skipDuplicates)
+SECOND_RUN_STATES_WRITTEN(script)=3955 (recomputados, mesmo resultado)
+SECOND_RUN_ERRORS=0
 ```
+A mensagem do script foi confirmada por consulta direta ao banco, usando o timestamp exato de conclusão da 1ª execução (`2026-09-23T12:40:09.141Z`, do próprio log estruturado) como fronteira — qualquer linha com `updatedAt` posterior a esse instante só pode ter sido tocada pela 2ª execução, já que nada mais escreve nessa tabela:
+```
+TOUCHED_STRICTLY_AFTER_RUN1_END=3955   (as 3955 linhas foram todas re-upsertadas pela 2ª execução)
+CREATED_STRICTLY_AFTER_RUN1_END=0      (nenhuma linha nova — EMAIL_MARKETING_CONSENT_COUNT ficou em 3955 antes e depois)
+```
+`SECOND_RUN_STATES_CREATED=0 · SECOND_RUN_STATES_UPDATED=3955`. `recomputeStates()` (`emailConsentService.ts:78-93`) sempre faz `upsert` para cada hash do lote — não distingue create/update no valor de retorno — por isso a única forma confiável de separar os dois é medir `createdAt`/`updatedAt` no banco, não confiar só no agregado do script. `BACKFILL_SECOND_RUN=PASS · BACKFILL_IDEMPOTENT=YES` (evidência: 0 eventos novos, 0 estados novos, 0 duplicatas — ver §19.8).
+
+### 19.7a Reconciliação: 3950 (dry-run) vs 3955 (states written)
+São duas métricas DIFERENTES por desenho de código, não a mesma contagem medida duas vezes:
+- **`universe`** (3950 no dry-run, 3954 já dentro da própria execução real) vem de `readUniverseEmails()` (`backfillEmailConsent.ts:139-150`): só `customers.email` UNION e-mail de pedidos com `paymentStatus='paid' AND status NOT IN (cancelled,canceled,refunded)`. É a mesma população da auditoria original de 21/09.
+- **`preview.emailsWithEvents` / `BACKFILL_STATES_WRITTEN`** (3955) vem de `buildBackfillEvents()`/`previewBackfill()`, que processa **todos** os pedidos e checkouts lidos por `readOrderRows()`/`readCheckoutRows()`, sem filtro de status de pagamento — inclui e-mails que só aparecem em pedido não pago/cancelado ou em checkout abandonado, que `readUniverseEmails()` propositalmente exclui.
+- Evolução dos números: dry-run (universo=3950, ordersRead=4208, checkoutsRead=824) → execução real minutos depois (universo=3954, ordersRead=4212, checkoutsRead=827) — o universo cresceu +4, exatamente acompanhando os +4 pedidos/+3 checkouts lidos a mais (atividade orgânica contínua da loja, mesmo fenômeno já aceito em §19.4). Dentro da própria execução real, `preview.emailsWithEvents`(3955) − `universe.size`(3954) = **1**: um único e-mail teve sinal de consentimento vindo de um pedido/checkout fora do filtro de "universo" (não-pago ou só-checkout). Confirmado no banco: `EMAIL_MARKETING_CONSENT_COUNT=3955` e `UNIQUE_MARKETING_CONSENT_EMAIL_HASHES=3955` batem exatamente com `preview.emailsWithEvents`, não com `universe.size` — o código está gravando estado para todo e-mail com QUALQUER sinal de consentimento, não só para quem está no "universo enviável", o que é o comportamento pretendido do ledger (registrar consentimento é mais amplo que "quem pode receber campanha hoje").
+`RECONCILIATION_3950_VS_3955=EXPLAINED` — não há estados extras não explicados; a diferença de 5 entre o número citado na autorização (3950, medido ~12 min antes) e o resultado final (3955) se decompõe em +4 de universo (atividade orgânica) e +1 de diferença estrutural entre as duas métricas (comportamento pretendido do código, não bug).
 
 ### 19.8 Verificação final do banco — só agregados
 ```
 EMAIL_CONSENT_EVENT_COUNT=5027
+UNIQUE_CONSENT_EVENT_EMAIL_HASHES=3955
 EMAIL_MARKETING_CONSENT_COUNT=3955
+UNIQUE_MARKETING_CONSENT_EMAIL_HASHES=3955
 EMAIL_SUPPRESSION_COUNT=0
 EMAIL_SEND_COUNT=0
 EMAIL_EVENT_LOG_COUNT=0
 DUPLICATE_CONSENT_EVENTS=0
+DUPLICATE_MARKETING_CONSENT_STATES=0
 DUPLICATE_PROVIDER_EVENTS=0
 PLAINTEXT_EMAIL_IN_NEW_LEDGERS=NOT_FOUND
 MARKETING_CONSENT_BY_STATUS: OPT_IN=2186 · OPT_OUT=1642 · UNKNOWN=127
 ```
-`EMAIL_SUPPRESSION_COUNT=0` é esperado — o backfill nunca escreve supressão. `EMAIL_SEND_COUNT=0`/`EMAIL_EVENT_LOG_COUNT=0` confirmam que nenhum envio ou evento de provedor foi criado, mesmo indiretamente.
+`EMAIL_SUPPRESSION_COUNT=0` é esperado — o backfill nunca escreve supressão. `EMAIL_SEND_COUNT=0`/`EMAIL_EVENT_LOG_COUNT=0` confirmam que nenhum envio ou evento de provedor foi criado, mesmo indiretamente. `DUPLICATE_MARKETING_CONSENT_STATES=0` é estruturalmente garantido (`emailHash` é `@id` em `EmailMarketingConsent`), verificado por `GROUP BY "emailHash" HAVING count(*)>1` mesmo assim. `UNIQUE_MARKETING_CONSENT_EMAIL_HASHES(3955) = EMAIL_MARKETING_CONSENT_COUNT(3955)` confirma que não há nenhuma duplicata por hash na tabela de estado.
 
 ### 19.9 Quality gate final
-`npm run typecheck` limpo. `npm run test:unit` — 54 arquivos / 871 testes, todos passando. `npm run test:integration` — 21 arquivos / 185 testes, todos passando (as linhas de erro no stderr são cenários de falha injetados pelos próprios testes, para provar que erros de banco viram 500 genérico sem vazar detalhe — não são falhas reais). `npm run test:e2e` não encontrou arquivos (pasta `e2e` vazia, condição pré-existente, não introduzida nesta rodada). `npm run build` (`tsc`) limpo. `npm run lint` reportou 678 erros pré-existentes, todos em arquivos `.js` já commitados na `HEAD` atual (`app.js`, `index.js`, testes `.test.js` antigos) — `git status` confirmou árvore de trabalho limpa antes de qualquer comando desta rodada, ou seja, nenhum desses erros foi introduzido por esta ativação; não tentei corrigi-los por estarem fora do escopo autorizado (banco/backfill, não limpeza de lint pré-existente).
+`npm run typecheck` limpo. `npm run test:unit` — 54 arquivos / 871 testes, todos passando. `npm run test:integration` — 21 arquivos / 185 testes, todos passando (as linhas de erro no stderr são cenários de falha injetados pelos próprios testes, para provar que erros de banco viram 500 genérico sem vazar detalhe — não são falhas reais). `npm run test:e2e` não encontrou arquivos (pasta `e2e` vazia, condição pré-existente, não introduzida nesta rodada). `npm run build` (`tsc`) limpo. **`npm run lint` deu números inconsistentes nesta rodada** (678, depois 783, depois "2 erros" em três invocações sucessivas, sem nenhuma mudança de código entre elas) — rastreado até o hook do RTK (Rust Token Killer, configurado globalmente em `~/.claude/CLAUDE.md`/`RTK.md`) que reescreve `npm run lint` de forma transparente e cuja camada de resumo/cache está com bug, produzindo contagens fabricadas. Invocando o binário local direto (`./node_modules/.bin/eslint src --ext .ts -f json`, contornando o hook) o resultado real é **0 erros, 0 warnings em 169 arquivos** — o comando `eslint src --ext .ts` que o próprio `package.json` define está limpo. Reportado ao usuário como achado separado (ferramenta de terceiros com bug), não como um bloqueio desta ativação.
 Reconfirmado por grep: `adapter.send(` só existe em `emailDispatcher.ts` fora de testes; gate de envio (`EMAIL_SEND_ENABLED=false` e demais flags) inalterado.
 
 ### 19.10 Resultado consolidado
@@ -655,7 +670,7 @@ EMAIL_CONSENT_EVENT_COUNT=5027 · EMAIL_MARKETING_CONSENT_COUNT=3955 · EMAIL_SU
 EMAIL_SEND_COUNT=0 · EMAIL_EVENT_LOG_COUNT=0
 DUPLICATE_CONSENT_EVENTS=0 · DUPLICATE_PROVIDER_EVENTS=0 · PLAINTEXT_EMAIL_IN_NEW_LEDGERS=NOT_FOUND
 
-TESTS=871+185/1056 passed (unit+integration) · TYPECHECK=PASS · LINT=678 erros pré-existentes (não introduzidos, fora do escopo) · BUILD=PASS
+TESTS=871+185/1056 passed (unit+integration) · TYPECHECK=PASS · LINT=PASS (0 erros/169 arquivos via binário eslint direto — ver §19.9 sobre o hook RTK com bug) · BUILD=PASS
 
 BRANCH=feat/email-consent-suppression-tracking
 EMAIL_SEND_ENABLED=NO · REAL_EMAIL_SENT=NO · DATABASE_MUTATED=YES (só as 3 migrations + as 2 tabelas de consentimento) · PII_EXPOSED=NO
