@@ -644,7 +644,7 @@ async function renderPaymentsArea(method, gen, signal) {
   $('content').innerHTML = summary + (rows.length ? html : emptyState('Nenhum pedido pendente encontrado')); if (rows.length) wire($('content'))
 }
 
-// ─�� ÁREA: REMARKETING (aba local de Carrinho) ────────────────────────────────────────────────
+// ── ÁREA: REMARKETING (aba local de Carrinho) ────────────────────────────────────────────────
 async function renderRemarketingArea(gen, signal) {
   const qs = new URLSearchParams({ page: String(state.page), pageSize: '25' })
   const d = await api('remarketing?' + qs, signal)
@@ -1048,7 +1048,7 @@ function renderEmailRecommendation(r, rank) {
       <div class="email-rec-chips">
         <span class="chip">Prioridade ${num(r.priority)} · ${esc(EMAIL_PRIORITY_LABEL[r.priority] || '')}</span>
         ${pill(confLabel, confTone)}
-        <span class="chip" title="Sem hist��rico de envio de e-mail o cooldown não pode ser aplicado">Cooldown ${num(r.cooldown.days)} dias · não aplicável (sem histórico de e-mail)</span>
+        <span class="chip" title="Sem histórico de envio de e-mail o cooldown não pode ser aplicado">Cooldown ${num(r.cooldown.days)} dias · não aplicável (sem histórico de e-mail)</span>
         ${pill('Elegibilidade de envio não validada', 'warning')}
         ${degraded.length ? `<span class="chip warn" title="Estas direções usam um texto alternativo honesto porque o dado real não existe">Sem: ${esc(degraded.join(', '))}</span>` : ''}
       </div>
