@@ -5,16 +5,13 @@ import { EmailConsentState, isConsentSendEligible } from './emailConsentResolver
 import { normalizeEmail } from './emailConsentSignals'
 import { isEmailSuppressed } from './emailSuppressionService'
 import { hasRecentEmailSend } from './emailTrackingService'
+import { isEmailProviderConfigured } from './emailProviderFactory'
 
-// Gate de envio de e-mail — FAIL-CLOSED por construção. Nesta fase nenhum
-// e-mail real pode sair: não existe provedor de e-mail, fonte de consentimento
-// validada nem histórico de envio, e o código de supressão/descadastro ainda
-// não foi ativado (migration não aplicada, link não exercitado). Cada
-// condição abaixo é verificada de forma independente e TODAS precisam ser
-// verdadeiras. As duas constantes marcadas como `false` não são configuráveis
-// por env: só uma implementação real (em rodada posterior, com decisão humana
-// sobre o provedor) as troca — nunca uma variável de ambiente esquecida ligada.
-export const EMAIL_PROVIDER_CONFIGURED = false as boolean
+// Gate de envio de e-mail — FAIL-CLOSED por construção. O adapter real pode
+// existir sem liberar envio: provider, fonte de consentimento, supressão/
+// descadastro e EMAIL_SEND_ENABLED são condições independentes e TODAS precisam
+// estar prontas. Configurar o Resend sozinho não abre nenhuma campanha.
+export const EMAIL_PROVIDER_CONFIGURED = isEmailProviderConfigured()
 // Continua false DE PROPÓSITO mesmo com o código de supressão e descadastro
 // já escrito (emailSuppressionService, emailUnsubscribeToken, rota pública):
 // enquanto a migration `add_email_suppression` não estiver aplicada e o link
