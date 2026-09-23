@@ -12,13 +12,9 @@ import { isEmailProviderConfigured } from './emailProviderFactory'
 // descadastro e EMAIL_SEND_ENABLED são condições independentes e TODAS precisam
 // estar prontas. Configurar o Resend sozinho não abre nenhuma campanha.
 export const EMAIL_PROVIDER_CONFIGURED = isEmailProviderConfigured()
-// Continua false DE PROPÓSITO mesmo com o código de supressão e descadastro
-// já escrito (emailSuppressionService, emailUnsubscribeToken, rota pública):
-// enquanto a migration `add_email_suppression` não estiver aplicada e o link
-// de descadastro não tiver sido exercitado de ponta a ponta num ambiente real,
-// declarar "implementado" seria afirmar o que não foi provado. Só vira true por
-// decisão humana explícita, depois dessa prova.
-export const EMAIL_UNSUBSCRIBE_SUPPRESSION_IMPLEMENTED = false as boolean
+// Só fica true no ambiente em que migration + rota pública + One-Click foram
+// exercitados de ponta a ponta. O default continua false para novos ambientes.
+export const EMAIL_UNSUBSCRIBE_SUPPRESSION_IMPLEMENTED = env.EMAIL_UNSUBSCRIBE_SUPPRESSION_IMPLEMENTED
 
 export interface EmailSendGateResult {
   allowed: boolean
@@ -30,6 +26,8 @@ export function evaluateEmailSendGate(): EmailSendGateResult {
   if (!EMAIL_PROVIDER_CONFIGURED) missing.push('EMAIL_PROVIDER_NOT_CONFIGURED')
   if (EMAIL_MARKETING_CONSENT_SOURCE !== 'CONFIGURED') missing.push('EMAIL_MARKETING_CONSENT_SOURCE_NOT_CONFIGURED')
   if (!EMAIL_UNSUBSCRIBE_SUPPRESSION_IMPLEMENTED) missing.push('EMAIL_UNSUBSCRIBE_SUPPRESSION_NOT_IMPLEMENTED')
+  if (!env.EMAIL_DOMAIN_AUTHENTICATED) missing.push('EMAIL_DOMAIN_NOT_AUTHENTICATED')
+  if (!env.EMAIL_LEGAL_REVIEW_APPROVED) missing.push('EMAIL_LEGAL_REVIEW_REQUIRED')
   if (!env.EMAIL_SEND_ENABLED) missing.push('EMAIL_SEND_DISABLED')
   return { allowed: missing.length === 0, missing }
 }

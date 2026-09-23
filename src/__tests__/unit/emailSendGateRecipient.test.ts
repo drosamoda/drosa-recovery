@@ -111,13 +111,15 @@ describe('evaluateEmailSendForRecipient — gate global primeiro, destinatário 
 })
 
 describe('regressão: o gate global continua FECHADO nesta fase', () => {
-  it('as quatro condições globais seguem ausentes (nenhuma constante foi virada)', () => {
+  it('provider, consentimento, supressão, domínio, jurídico e flag de envio são condições independentes', () => {
     const gate = evaluateEmailSendGate()
     expect(gate.allowed).toBe(false)
     expect(gate.missing).toEqual([
       'EMAIL_PROVIDER_NOT_CONFIGURED',
       'EMAIL_MARKETING_CONSENT_SOURCE_NOT_CONFIGURED',
       'EMAIL_UNSUBSCRIBE_SUPPRESSION_NOT_IMPLEMENTED',
+      'EMAIL_DOMAIN_NOT_AUTHENTICATED',
+      'EMAIL_LEGAL_REVIEW_REQUIRED',
       'EMAIL_SEND_DISABLED',
     ])
   })

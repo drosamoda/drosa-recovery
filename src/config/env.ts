@@ -136,12 +136,14 @@ const envSchema = z.object({
   // existir — ela só passa a ser lida quando alguém a configurar de propósito.
   AI_DATABASE_URL: z.string().default(''),
 
-  // Email Campaign Intelligence — envio real de e-mail NÃO existe nesta fase:
-  // não há provedor de e-mail, fonte de consentimento, histórico de envio nem
-  // lista de descadastro/supressão. Esta flag é só uma das condições do gate
-  // fail-closed (emailSendGate.ts) — mesmo `true`, o gate continua fechado
-  // enquanto as outras quatro condições não existirem. Default false.
+  // Envio de e-mail continua fail-closed: esta flag é apenas a última chave.
+  // Provider, consentimento, supressão/descadastro, domínio autenticado e
+  // revisão jurídica são gates independentes. Default false.
   EMAIL_SEND_ENABLED: z.string().default('false').transform((v) => v === 'true'),
+  EMAIL_MARKETING_CONSENT_SOURCE: z.enum(['NOT_CONFIGURED', 'CONFIGURED']).default('NOT_CONFIGURED'),
+  EMAIL_UNSUBSCRIBE_SUPPRESSION_IMPLEMENTED: z.string().default('false').transform((v) => v === 'true'),
+  EMAIL_DOMAIN_AUTHENTICATED: z.string().default('false').transform((v) => v === 'true'),
+  EMAIL_LEGAL_REVIEW_APPROVED: z.string().default('false').transform((v) => v === 'true'),
   // Provedor real de e-mail. `none` mantém o gate fechado; Resend só é
   // considerado configurado quando API key + webhook secret estão presentes.
   EMAIL_PROVIDER: z.enum(['none', 'resend']).default('none'),
