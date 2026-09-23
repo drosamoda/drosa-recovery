@@ -1,4 +1,4 @@
-import { AbandonedCheckoutStatus, MessageStatus } from '@prisma/client'
+import { AbandonedCheckoutStatus, MessageStatus, Prisma } from '@prisma/client'
 import { prisma } from '../config/prisma'
 import { logger } from '../config/logger'
 import { normalizePhoneBrazil } from '../helpers/phoneService'
@@ -82,6 +82,8 @@ async function persistOrder(payload: NuvemshopOrder): Promise<{ created: boolean
   const customer = await upsertCustomer(payload, normalizedPhone)
 
   return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${nuvemshopOrderId}))`)
+
     const existing = await tx.order.findUnique({ where: { nuvemshopOrderId } })
     const data = {
       orderNumber,
@@ -139,7 +141,7 @@ async function persistOrder(payload: NuvemshopOrder): Promise<{ created: boolean
     }
 
     return { created: !existing, converted }
-  })
+  }, { maxWait: 10_000, timeout: 15_000 })
 }
 
 export async function runBackfillNuvemshopOrders(

@@ -30,6 +30,7 @@ vi.mock('../../config/logger', () => ({
 
 vi.mock('../../config/prisma', () => {
   const tx = {
+    $executeRaw: vi.fn(),
     order: { findUnique: mocks.orderFindUnique, create: mocks.orderCreate, update: mocks.orderUpdate },
     abandonedCheckout: { findMany: mocks.checkoutFindMany, update: mocks.checkoutUpdate },
     messageLog: { updateMany: mocks.messageUpdateMany },

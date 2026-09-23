@@ -54,7 +54,7 @@ async function persistCustomer(params: UpsertParams): Promise<Customer> {
         source: params.source ?? null,
       },
     })
-  })
+  }, { maxWait: 10_000, timeout: 15_000 })
 }
 
 export const customerService = {
@@ -80,7 +80,7 @@ export const customerService = {
         create: { normalizedPhone, reason: 'inbound_keyword', source: 'meta_webhook' },
       })
       await tx.customer.updateMany({ where: { normalizedPhone }, data: { optOut: true } })
-    })
+    }, { maxWait: 10_000, timeout: 15_000 })
   },
 
   async findByPhoneOrEmail(params: {
