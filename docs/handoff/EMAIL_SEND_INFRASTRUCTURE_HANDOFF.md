@@ -571,3 +571,95 @@ Suíte **1056/1056** (sem o timeout de hook desta vez), `tsc`, `eslint` e `tsc -
 
 ### 18.6 Para destravar a migration/backfill
 Preciso de uma credencial de banco com direito de `CREATE TABLE`/`CREATE TYPE`/`CREATE INDEX` e `INSERT` nas tabelas novas — historicamente fornecida pelo Peter como `MIGRATE_DATABASE_URL` (variável de usuário do Windows, método de duas colagens, Session Pooler do Supabase). Assim que existir, o restante do plano (§16.6) roda sem depender de mais nenhuma decisão: `migrate status` → `migrate deploy` → `migrate status` → novo dry-run → backfill real → segunda execução (idempotência) → contagens agregadas.
+
+## 19. Atualização de 2026-09-23 — Migrations aplicadas em produção; backfill real executado; idempotência provada
+
+Peter forneceu `DATABASE_URL`, `DIRECT_URL` e `MIGRATE_DATABASE_URL` como variáveis de usuário do Windows (Session Pooler do Supabase, método de duas colagens com validação estrutural — `STARTS_WITH_POSTGRES=true`, `CONTAINS_NEWLINE=false` — antes de eu tentar usá-las) e autorizou, em duas decisões explícitas, seguir com a divergência de baseline do dry-run e com a leitura em memória do pepper real. Nenhuma delas foi decidida por mim.
+
+### 19.1 Pré-voo
+`git status` limpo, branch `feat/email-consent-suppression-tracking` @ `fbe15af`, igual a `origin`. `npx prisma migrate status` mostrou exatamente as 3 migrations de e-mail pendentes + a divergência já conhecida e benigna de `20260918151500_add_conversation_message_entity` (da `main`).
+
+### 19.2 Migrations — APLICADAS
+`npx prisma migrate deploy` foi bloqueado uma vez pelo classificador de permissões do Claude Code ("Production Deploy"); Peter mudou o modo de permissão da sessão para "Ask permissions/default" e a reexecução foi aprovada. As três migrations (`20260921230000_add_email_consent_ledger`, `20260921233000_add_email_suppression`, `20260921234500_add_email_tracking`) foram aplicadas com sucesso — todas aditivas (`CREATE TYPE`/`CREATE TABLE`/`CREATE INDEX`, nenhum `DROP`/`TRUNCATE`/`RENAME`/`GRANT`). `npx prisma migrate status` confirmou "Database schema is up to date!" em seguida.
+
+### 19.3 Verificação de schema pós-migration — read-only
+Script read-only (`information_schema.columns`/`table_constraints`, `pg_indexes`) confirmou: as 5 tabelas novas existem, nenhuma tem coluna de e-mail em texto puro (só `emailHash`), PK/UNIQUE presentes, índices no número esperado, todas em 0 linhas antes do backfill. As 5 tabelas pré-existentes (`customers`, `orders`, `abandoned_checkouts`, `whatsapp_consents`, `suppressions`) permaneceram com a mesma contagem de colunas — nenhuma alteração destrutiva.
+
+### 19.4 Dry-run contra produção — divergência de baseline aceita por Peter
+```
+Baseline anterior (21/09, via crm_preview_reader): universo=3755 · opt-in=2122 · opt-out=1532 · conflitos=97 · not_collected=4
+Dry-run desta rodada (23/09, produção pós-migration): universo=3950 · opt-in=2185 · opt-out=1634 · conflitos=126 · not_collected=5
+ordersRead=4208 (era ~3995) · checkoutsRead=824 (era ~726)
+```
+Reportei a divergência (+195 no universo, ~5,2%) antes de qualquer escrita, junto com a leitura de que ela é consistente com ~2 dias de atividade orgânica da loja (pedidos/checkouts crescendo na mesma proporção, distribuição opt-in/opt-out praticamente igual) e com o backfill de pedidos 16→21/09 já registrado em `project_drosa_recovery_prod_ops`. **Peter aceitou explicitamente** a divergência como crescimento de base entre os dois snapshots — `BASELINE_DIVERGENCE=ACCEPTED_AS_PRODUCTION_GROWTH` — e autorizou prosseguir.
+
+### 19.5 EMAIL_HASH_PEPPER real — leitura em memória, autorizada e escopada
+Peter autorizou, só para este backfill, ler `drosa-recovery-email-hash-pepper` do Secret Manager (`gcloud secrets versions access latest`) direto para a variável de ambiente do processo que executa o backfill — nunca impresso, nunca em arquivo, nunca no Registry, nunca em log, descartado ao fim de cada processo (`Remove-Item Env:\EMAIL_HASH_PEPPER`). Confirmei antes, lendo o código-fonte, que nenhum caminho de erro do backfill (`EmailHashPepperNotConfiguredError`, `hashEmail`) inclui o valor do pepper na mensagem. Cada execução do backfill real (as duas descritas abaixo) rodou como um processo isolado que buscou o secret de novo e o descartou ao terminar — o pepper nunca persistiu entre execuções nem apareceu em nenhuma saída de comando.
+
+### 19.6 Backfill real — primeira execução
+```
+BACKFILL_EVENTS_INSERTED=5027
+BACKFILL_STATES_WRITTEN=3955
+BACKFILL_UNKNOWN=127
+BACKFILL_CONFLICTS (SIGNAL_CONFLICT)=127
+BACKFILL_ERRORS=0
+```
+`ordersRead=4212 · checkoutsRead=827` (mais ~4/3 desde o dry-run, minutos antes — mesma atividade orgânica contínua). Escrita restrita exclusivamente a `EmailConsentEvent`/`EmailMarketingConsent`, via `writeBackfill` (`skipDuplicates: true`, único caminho de escrita do job). Nenhuma tabela histórica (`Customer`/`Order`/`abandoned_checkouts`) foi tocada — o backfill só lê delas dentro de uma transação `READ ONLY`.
+
+### 19.7 Segunda execução — prova de idempotência
+Mesmo pepper real, buscado de novo do Secret Manager em um processo novo e isolado:
+```
+BACKFILL_EVENTS_INSERTED=0 (todos os 5027 eventos já existiam — skipDuplicates)
+BACKFILL_STATES_WRITTEN=3955 (recomputados, mesmo resultado)
+BACKFILL_ERRORS=0
+BACKFILL_IDEMPOTENT=YES
+```
+
+### 19.8 Verificação final do banco — só agregados
+```
+EMAIL_CONSENT_EVENT_COUNT=5027
+EMAIL_MARKETING_CONSENT_COUNT=3955
+EMAIL_SUPPRESSION_COUNT=0
+EMAIL_SEND_COUNT=0
+EMAIL_EVENT_LOG_COUNT=0
+DUPLICATE_CONSENT_EVENTS=0
+DUPLICATE_PROVIDER_EVENTS=0
+PLAINTEXT_EMAIL_IN_NEW_LEDGERS=NOT_FOUND
+MARKETING_CONSENT_BY_STATUS: OPT_IN=2186 · OPT_OUT=1642 · UNKNOWN=127
+```
+`EMAIL_SUPPRESSION_COUNT=0` é esperado — o backfill nunca escreve supressão. `EMAIL_SEND_COUNT=0`/`EMAIL_EVENT_LOG_COUNT=0` confirmam que nenhum envio ou evento de provedor foi criado, mesmo indiretamente.
+
+### 19.9 Quality gate final
+`npm run typecheck` limpo. `npm run test:unit` — 54 arquivos / 871 testes, todos passando. `npm run test:integration` — 21 arquivos / 185 testes, todos passando (as linhas de erro no stderr são cenários de falha injetados pelos próprios testes, para provar que erros de banco viram 500 genérico sem vazar detalhe — não são falhas reais). `npm run test:e2e` não encontrou arquivos (pasta `e2e` vazia, condição pré-existente, não introduzida nesta rodada). `npm run build` (`tsc`) limpo. `npm run lint` reportou 678 erros pré-existentes, todos em arquivos `.js` já commitados na `HEAD` atual (`app.js`, `index.js`, testes `.test.js` antigos) — `git status` confirmou árvore de trabalho limpa antes de qualquer comando desta rodada, ou seja, nenhum desses erros foi introduzido por esta ativação; não tentei corrigi-los por estarem fora do escopo autorizado (banco/backfill, não limpeza de lint pré-existente).
+Reconfirmado por grep: `adapter.send(` só existe em `emailDispatcher.ts` fora de testes; gate de envio (`EMAIL_SEND_ENABLED=false` e demais flags) inalterado.
+
+### 19.10 Resultado consolidado
+```
+FINAL_DB_ACTIVATION_STATUS=COMPLETE
+
+MIGRATE_DATABASE_URL_PRESENT=true
+MIGRATION_CONSENT_LEDGER=APPLIED
+MIGRATION_SUPPRESSION=APPLIED
+MIGRATION_TRACKING=APPLIED
+PRISMA_MIGRATION_STATUS=up to date
+
+BACKFILL_DRY_RUN=PASS (divergência de baseline aceita por Peter — ver §19.4)
+BACKFILL_REAL=PASS
+BACKFILL_SECOND_RUN=PASS
+BACKFILL_IDEMPOTENT=YES
+BACKFILL_EVENTS_INSERTED=5027
+BACKFILL_STATES_WRITTEN=3955
+BACKFILL_ERRORS=0
+
+EMAIL_CONSENT_EVENT_COUNT=5027 · EMAIL_MARKETING_CONSENT_COUNT=3955 · EMAIL_SUPPRESSION_COUNT=0
+EMAIL_SEND_COUNT=0 · EMAIL_EVENT_LOG_COUNT=0
+DUPLICATE_CONSENT_EVENTS=0 · DUPLICATE_PROVIDER_EVENTS=0 · PLAINTEXT_EMAIL_IN_NEW_LEDGERS=NOT_FOUND
+
+TESTS=871+185/1056 passed (unit+integration) · TYPECHECK=PASS · LINT=678 erros pré-existentes (não introduzidos, fora do escopo) · BUILD=PASS
+
+BRANCH=feat/email-consent-suppression-tracking
+EMAIL_SEND_ENABLED=NO · REAL_EMAIL_SENT=NO · DATABASE_MUTATED=YES (só as 3 migrations + as 2 tabelas de consentimento) · PII_EXPOSED=NO
+
+READY_FOR_PROVIDER_CONFIGURATION=NO
+```
+`READY_FOR_PROVIDER_CONFIGURATION=NO` porque os dois secrets criados em §18.2 ainda não foram wireados ao Cloud Run (fora do escopo desta rodada) e nenhuma escolha de provider foi feita. `DATABASE_URL`, `DIRECT_URL` e `MIGRATE_DATABASE_URL` permanecem no escopo de usuário do Windows — a remoção fica a cargo do Peter, como pedido.
