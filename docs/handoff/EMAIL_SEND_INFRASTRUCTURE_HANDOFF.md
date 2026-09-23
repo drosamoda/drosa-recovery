@@ -483,3 +483,63 @@ Sequência definitiva, cada passo condicionado ao anterior:
 Suíte **1056/1056**, `tsc --noEmit`, `eslint src --ext .ts` e `tsc -p tsconfig.build.json --noEmit` — todos limpos, rodados DEPOIS dos 3 commits e do push (não antes). Confirmado por grep: `adapter.send(` só é chamado dentro de `emailDispatcher.ts`; nenhuma rota importa `EmailProviderAdapter`. Push feito: `origin/feat/email-consent-suppression-tracking` = `ba94979` (mesmo HEAD do local). PR não criado (sem `gh` CLI); comparação manual: `https://github.com/drosamoda/drosa-recovery/compare/review/crm-v2-visual...feat/email-consent-suppression-tracking?expand=1`.
 
 `LEGAL_REVIEW_REQUIRED_BEFORE_REAL_CAMPAIGN=YES` (inalterado desde o Passo 1 — nenhum disparo real antes da revisão jurídica/LGPD, independente do estado técnico).
+
+## 17. Atualização de 2026-09-22 — FINAL DB ACTIVATION interrompida no Gate 0 (nenhuma escrita feita)
+
+Peter autorizou explicitamente criar `EMAIL_HASH_PEPPER`/`EMAIL_UNSUBSCRIBE_SECRET`, aplicar as 3 migrations e rodar o backfill real — condicionado ao próprio texto da autorização: `GATE 0 — NUVEMSHOP`: "Antes de migration, confirmar `NUVEMSHOP_CUSTOMERS_PROBE=200`... Se não for 200: PARE. Se OAuth ainda apresentar mismatch de host: PARE. Não aplique migration para compensar falha de OAuth."
+
+**Pré-voo (somente leitura, tudo OK):**
+- `git status`/`log`/`diff origin/...`: branch limpa, HEAD `ddc9cad` = `origin/feat/email-consent-suppression-tracking`, sem drift.
+- `npx prisma migrate status` (rodado com a role `crm_preview_reader`, só leitura — sem credencial de escrita/DDL disponível): confirma que as 3 migrations **não estão aplicadas** e que a única divergência é `20260918151500_add_conversation_message_entity` (já documentada nas rodadas anteriores como migration da `main`, não conflitante com o schema de e-mail).
+- Suíte **1056/1056** (uma rodada estourou o timeout de 10 s do hook de `emailTabFrontend.test.ts` sob carga — mesmo problema já documentado; isolado, 23/23), `tsc`, `eslint` e `tsc -p tsconfig.build.json` limpos.
+
+**Gate 0 — NÃO satisfeito, dois bloqueios independentes:**
+1. **`NUVEMSHOP_CUSTOMERS_PROBE` não pôde ser obtido nesta rodada.** Nenhum token novo foi fornecido (`NUVEMSHOP_AUDIT_TOKEN`/`NUVEMSHOP_AUDIT_STORE_ID` ausentes). O único caminho disponível para testar o token real seria ler o valor do Secret Manager em memória (protocolo de duas etapas já usado antes) — essa ação específica foi **bloqueada pelo classificador de permissões do Claude Code** na rodada anterior ("Credential Exploration"), e eu não a repeti nem tentei contornar.
+2. **Mesmo que o Gate 0 passasse, não há credencial de escrita/DDL para o banco.** Confirmado por `[Environment]::GetEnvironmentVariable(...)`: `MIGRATE_DATABASE_URL`, `AUDIT_DB_URL` e `REAL_DB_URL` estão ausentes. Só a role `crm_preview_reader` (somente SELECT) está disponível, e ela não pode rodar `prisma migrate deploy`.
+
+**Decisão:** interpretei o Gate 0 como condição de parada para a sequência inteira (secrets → migration → backfill), não só para o passo de migration isoladamente — a estrutura do próprio documento de autorização coloca o Gate logo depois da autorização e antes da seção de secrets, e a instrução “não aplique migration para compensar falha de OAuth” expressa o espírito de não avançar a infraestrutura sem validar a fonte de dados viva primeiro. **Nenhum secret foi criado, nenhuma migration foi aplicada, nenhum backfill real foi executado, nenhuma linha foi escrita em nenhuma tabela.**
+
+### 17.1 Relatório desta rodada
+```
+FINAL_DB_ACTIVATION_STATUS=BLOCKED_AT_GATE_0
+
+NUVEMSHOP_PROBE=NOT_OBTAINED (bloqueado pelo classificador ao tentar ler o secret; nenhum token novo fornecido)
+READ_CUSTOMERS_SCOPE=UNKNOWN
+
+EMAIL_HASH_PEPPER_CREATED=NO
+EMAIL_UNSUBSCRIBE_SECRET_CREATED=NO
+
+MIGRATION_1=20260921230000_add_email_consent_ledger — NOT APPLIED
+MIGRATION_2=20260921233000_add_email_suppression — NOT APPLIED
+MIGRATION_3=20260921234500_add_email_tracking — NOT APPLIED
+PRISMA_MIGRATION_STATUS=3 migrations pendentes; 1 divergência conhecida e benigna (20260918151500_add_conversation_message_entity, da main)
+
+BACKFILL_DRY_RUN=NOT RE-EXECUTED THIS ROUND (último resultado válido: §15.2/§16, 2122/1532/97/4 sobre universo 3755)
+BACKFILL_REAL=NOT EXECUTED
+BACKFILL_SECOND_RUN=NOT EXECUTED
+BACKFILL_IDEMPOTENT=N/A
+
+EMAIL_CONSENT_EVENT_COUNT=0 (tabela não existe ainda)
+EMAIL_MARKETING_CONSENT_COUNT=0
+EMAIL_SUPPRESSION_COUNT=0
+EMAIL_SEND_COUNT=0
+EMAIL_EVENT_LOG_COUNT=0
+
+DUPLICATE_CONSENT_EVENTS=N/A
+DUPLICATE_PROVIDER_EVENTS=N/A
+PII_IN_NEW_LEDGERS=N/A (nada gravado)
+
+TESTS=1056/1056 · TYPECHECK=PASS · LINT=PASS · BUILD=PASS
+
+EMAIL_SEND_ENABLED=NO · REAL_EMAIL_SENT=NO · WHATSAPP_AUTOMATION_CHANGED=NO
+DNS_CHANGED=NO · PII_EXPOSED=NO · DATABASE_MUTATED=NO · PRODUCTION_CHANGED=NO
+
+READY_FOR_PROVIDER_CONFIGURATION=NO
+BLOCKED_BY=
+  1. NUVEMSHOP_CUSTOMERS_PROBE não confirmado (Gate 0) — falta um token válido testável sem passar
+     pelo bloqueio do classificador (ex.: Peter testar e relatar só o HTTP status, ou fornecer
+     NUVEMSHOP_AUDIT_TOKEN/NUVEMSHOP_AUDIT_STORE_ID como variável de usuário para eu rodar o probe).
+  2. Mismatch de host do OAuth (§15.3/§16.2/§16.3) ainda não corrigido no portal da Nuvemshop.
+  3. Nenhuma credencial de escrita/DDL para o banco está disponível ao agente (bloqueio pré-existente,
+     independente do item 1).
+```
