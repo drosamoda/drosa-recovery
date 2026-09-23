@@ -23,6 +23,7 @@ import aiCampaignsRoutes from './routes/aiCampaigns.routes'
 import emailIntelligenceRoutes from './routes/emailIntelligence.routes'
 import nuvemshopWebhookRoutes from './routes/webhooks.nuvemshop.routes'
 import metaWebhookRoutes from './routes/webhooks.meta.routes'
+import emailUnsubscribeRoutes from './routes/emailUnsubscribe.routes'
 
 import { adminAuth } from './middlewares/adminAuth'
 import { jobsAuth } from './middlewares/jobsAuth'
@@ -144,6 +145,9 @@ app.use('/docs', docsRoutes)
 if (!env.CRM_PREVIEW_READONLY) {
   app.use('/webhooks/nuvemshop', nuvemshopWebhookRoutes)
   app.use('/webhooks/meta', metaWebhookRoutes)
+  // Descadastro de e-mail: público por natureza (o destinatário não tem login),
+  // validado pela assinatura do token. Sem EMAIL_UNSUBSCRIBE_SECRET responde 503.
+  app.use('/unsubscribe/email', emailUnsubscribeRoutes)
 }
 
 app.get('/inbox', (_req, res) => {

@@ -131,6 +131,22 @@ const envSchema = z.object({
   // fail-closed (emailSendGate.ts) — mesmo `true`, o gate continua fechado
   // enquanto as outras quatro condições não existirem. Default false.
   EMAIL_SEND_ENABLED: z.string().default('false').transform((v) => v === 'true'),
+  // Email Consent Ledger — pepper do HMAC-SHA256 que transforma o e-mail em
+  // emailHash (o e-mail em texto nunca vai para as tabelas de consentimento).
+  // Segredo de servidor: mínimo de 32 caracteres, nunca logado, nunca exposto
+  // ao browser. Vazio não derruba o boot: só impede gravar/consultar consentimento
+  // (EmailHashPepperNotConfiguredError). Trocar o pepper invalida todos os hashes.
+  EMAIL_HASH_PEPPER: z.string().default(''),
+  // Email Unsubscribe — chave HMAC que assina o token do link de descadastro
+  // (List-Unsubscribe / One-Click). Segredo de servidor DISTINTO do pepper
+  // (nunca reutilizar uma chave para dois fins), mínimo de 32 caracteres, nunca
+  // logado. Vazio não derruba o boot: só desliga a emissão/validação de links
+  // (a rota pública responde 503 e nenhum link pode ser gerado). A PREVIOUS
+  // existe para rotação: links já enviados continuam válidos porque o
+  // descadastro precisa funcionar para sempre; troque a principal e mova a
+  // antiga para PREVIOUS. Trocar sem PREVIOUS invalida todos os links enviados.
+  EMAIL_UNSUBSCRIBE_SECRET: z.string().default(''),
+  EMAIL_UNSUBSCRIBE_SECRET_PREVIOUS: z.string().default(''),
 
   // Controles pagos — nenhum provedor de IA é chamado sem estes limites
   // explícitos. Aplicados igualmente aos dois provedores (nunca um limite
