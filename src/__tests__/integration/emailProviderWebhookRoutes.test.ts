@@ -32,9 +32,9 @@ describe('POST /webhooks/email/resend', () => {
     const res = await request(app)
       .post('/webhooks/email/resend')
       .set('Content-Type', 'application/json')
-      .set('svix-id', 'msg_1')
-      .set('svix-timestamp', '1780000000')
-      .set('svix-signature', 'v1,test')
+      .set('webhook-id', 'msg_1')
+      .set('webhook-timestamp', '1780000000')
+      .set('webhook-signature', 'v1,test')
       .send(payload)
 
     expect(res.status).toBe(200)
@@ -43,9 +43,9 @@ describe('POST /webhooks/email/resend', () => {
     expect(adapter).toBe(mocks.adapter)
     expect(webhookRequest.rawBody).toBe(payload)
     expect(webhookRequest.headers).toMatchObject({
-      'svix-id': 'msg_1',
-      'svix-timestamp': '1780000000',
-      'svix-signature': 'v1,test',
+      'webhook-id': 'msg_1',
+      'webhook-timestamp': '1780000000',
+      'webhook-signature': 'v1,test',
     })
     expect(res.body).toEqual({ ok: true, received: 1, recorded: 1, duplicates: 0, unlinked: 0, suppressed: 0, rejected: 0 })
   })
@@ -63,9 +63,9 @@ describe('POST /webhooks/email/resend', () => {
     mocks.ingest.mockRejectedValue(error)
     const res = await request(app)
       .post('/webhooks/email/resend')
-      .set('svix-id', 'msg_1')
-      .set('svix-timestamp', '1780000000')
-      .set('svix-signature', 'v1,test')
+      .set('webhook-id', 'msg_1')
+      .set('webhook-timestamp', '1780000000')
+      .set('webhook-signature', 'v1,test')
       .send({ type: 'email.delivered' })
     expect(res.status).toBe(status)
     expect(JSON.stringify(res.body)).not.toContain('bad')
@@ -75,9 +75,9 @@ describe('POST /webhooks/email/resend', () => {
     mocks.ingest.mockRejectedValue(new Error('cliente@example.com database secret'))
     const res = await request(app)
       .post('/webhooks/email/resend')
-      .set('svix-id', 'msg_1')
-      .set('svix-timestamp', '1780000000')
-      .set('svix-signature', 'v1,test')
+      .set('webhook-id', 'msg_1')
+      .set('webhook-timestamp', '1780000000')
+      .set('webhook-signature', 'v1,test')
       .send({ type: 'email.delivered' })
     expect(res.status).toBe(500)
     expect(JSON.stringify(res.body)).not.toMatch(/cliente@example\.com|database secret/)
