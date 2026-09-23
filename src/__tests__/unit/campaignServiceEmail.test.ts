@@ -306,21 +306,22 @@ describe('gate de envio de e-mail — fail-closed por construção', () => {
 })
 
 describe('zero envio real de e-mail', () => {
-  it('nenhum SDK/provedor de e-mail está instalado ou importado (SendGrid, Brevo, Resend, Mailchimp, Klaviyo, nodemailer, SES...)', async () => {
+  it('só o SDK Resend está permitido nesta fase; outros provedores continuam ausentes', async () => {
     const fs = await import('fs')
     const path = await import('path')
     const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8'))
-    const deps = Object.keys({ ...pkg.dependencies, ...pkg.devDependencies }).join(' ')
-    const providers = /sendgrid|brevo|sendinblue|resend|mailchimp|mandrill|klaviyo|nodemailer|postmark|mailgun|aws-sdk\/client-ses|@aws-sdk\/client-sesv2/i
-    expect(deps).not.toMatch(providers)
+    expect(pkg.dependencies?.resend).toBeTruthy()
 
-    const walk = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap(e => {
-      const full = path.join(dir, e.name)
-      return e.isDirectory() ? (e.name === '__tests__' ? [] : walk(full)) : full.endsWith('.ts') ? [full] : []
-    })
-    for (const file of walk(path.join(process.cwd(), 'src'))) {
-      expect(fs.readFileSync(file, 'utf8'), file).not.toMatch(/from ['"](nodemailer|@sendgrid|resend|@mailchimp|mailgun|postmark|@aws-sdk\/client-ses)/i)
-    }
+    const deps = Object.keys({ ...pkg.dependencies, ...pkg.devDependencies }).join(' ')
+    const forbiddenProviders = /sendgrid|brevo|sendinblue|mailchimp|mandrill|klaviyo|nodemailer|postmark|mailgun|aws-sdk\/client-ses|@aws-sdk\/client-sesv2/i
+    expect(deps).not.toMatch(forbiddenProviders)
+
+    // Instalar/configurar o adapter não abre envio: o gate global real continua fechado.
+    const gate = evaluateEmailSendGate()
+    expect(gate.allowed).toBe(false)
+    expect(gate.missing).toContain('EMAIL_SEND_DISABLED')
+    expect(gate.missing).toContain('EMAIL_MARKETING_CONSENT_SOURCE_NOT_CONFIGURED')
+    expect(gate.missing).toContain('EMAIL_UNSUBSCRIBE_SUPPRESSION_NOT_IMPLEMENTED')
   })
 
   it('a única rota de e-mail é de LEITURA (GET): não há POST/PUT/PATCH/DELETE em emailIntelligence.routes', async () => {

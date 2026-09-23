@@ -142,6 +142,13 @@ const envSchema = z.object({
   // fail-closed (emailSendGate.ts) — mesmo `true`, o gate continua fechado
   // enquanto as outras quatro condições não existirem. Default false.
   EMAIL_SEND_ENABLED: z.string().default('false').transform((v) => v === 'true'),
+  // Provedor real de e-mail. `none` mantém o gate fechado; Resend só é
+  // considerado configurado quando API key + webhook secret estão presentes.
+  EMAIL_PROVIDER: z.enum(['none', 'resend']).default('none'),
+  RESEND_API_KEY: z.string().default(''),
+  RESEND_WEBHOOK_SECRET: z.string().default(''),
+  EMAIL_FROM_ADDRESS: z.string().default(''),
+  EMAIL_FROM_NAME: z.string().default("D'Rosa Moda"),
   // Email Consent Ledger — pepper do HMAC-SHA256 que transforma o e-mail em
   // emailHash (o e-mail em texto nunca vai para as tabelas de consentimento).
   // Segredo de servidor: mínimo de 32 caracteres, nunca logado, nunca exposto
