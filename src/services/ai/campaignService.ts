@@ -399,12 +399,13 @@ export const campaignService = {
   async schedule(id: string) {
     const draft = await campaignService.getById(id)
     if (draft.status !== 'APPROVED') throw new InvalidCampaignStateError(`Agendamento exige status APPROVED (atual: ${draft.status})`)
-    // E-mail: agendamento FAIL-CLOSED. Sem provedor, consentimento validado,
-    // descadastro/supressão e EMAIL_SEND_ENABLED, nada é agendado nem enviado.
-    if (draft.channel === 'EMAIL') assertEmailSendAllowed()
-    await assertTemplateApprovedForSend(draft.opportunityType as WhatsappOpportunityType)
-    // WHATSAPP_DRY_RUN permanece true nesta fase — nenhuma execução real de
-    // envio é acionada por este endpoint, mesmo após aprovação humana.
+    if (draft.channel === 'EMAIL') {
+      // E-mail: agendamento FAIL-CLOSED. O template Meta é exclusivo de
+      // WhatsApp e nunca deve bloquear uma campanha de e-mail.
+      assertEmailSendAllowed()
+    } else {
+      await assertTemplateApprovedForSend(draft.opportunityType as WhatsappOpportunityType)
+    }
     return getAiPrisma().campaignDraft.update({ where: { id }, data: { status: 'SCHEDULED', scheduledAt: new Date() } })
   },
 

@@ -16,6 +16,7 @@ import { runAbandonedCheckoutsPreview } from '../jobs/previewAbandonedCheckouts'
 import { automationHealth } from '../jobs/automationHealth'
 import { retryInboxMirrors } from '../jobs/retryInboxMirrors'
 import { remarketingPreview, remarketingSend, segmentNames, Segment } from '../services/remarketingService'
+import { runEmailCampaignExecutor } from '../services/emailCampaignExecutor'
 
 type UpstreamErrorLike = {
   code?: unknown
@@ -154,6 +155,13 @@ router.post('/sync-abandoned-checkouts/:checkoutId', async (req: Request, res: R
 router.post('/process-messages', async (_req: Request, res: Response) => {
   const result = await runProcessMessages()
   res.json(result)
+})
+
+// POST /jobs/process-email-campaigns
+// O próprio executor mantém gates globais + recipient gate + cap de piloto.
+router.post('/process-email-campaigns', async (_req: Request, res: Response) => {
+  const result = await runEmailCampaignExecutor()
+  res.status(result.blockedBy?.length ? 409 : 200).json(result)
 })
 
 // Backfill histórico somente de dados. Nunca agenda mensagens.

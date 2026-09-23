@@ -151,6 +151,17 @@ const envSchema = z.object({
   RESEND_WEBHOOK_SECRET: z.string().default(''),
   EMAIL_FROM_ADDRESS: z.string().default(''),
   EMAIL_FROM_NAME: z.string().default("D'Rosa Moda"),
+  EMAIL_DEFAULT_CTA_URL: z.string().url().default('https://www.drosamoda.com.br/'),
+  // Executor de campanhas: mesmo com o gate global aberto, o worker só roda
+  // quando esta chave operacional também estiver explicitamente habilitada.
+  EMAIL_CAMPAIGN_EXECUTOR_ENABLED: z.string().default('false').transform((v) => v === 'true'),
+  EMAIL_CAMPAIGN_BATCH_SIZE: z.coerce.number().int().min(1).max(100).default(20),
+  // Cap TOTAL por draft para o primeiro piloto. Aumentar exige mudança explícita
+  // de ambiente; o cron sozinho nunca escala uma campanha além deste teto.
+  EMAIL_CAMPAIGN_MAX_TOTAL_SENDS: z.coerce.number().int().min(1).max(1000).default(20),
+  EMAIL_CAMPAIGN_MAX_DRAFTS_PER_RUN: z.coerce.number().int().min(1).max(10).default(1),
+  CRON_EMAIL_CAMPAIGNS_ENABLED: z.string().default('false').transform((v) => v === 'true'),
+  CRON_EMAIL_CAMPAIGNS_INTERVAL: z.coerce.number().int().min(1).max(60).default(5),
   // Email Consent Ledger — pepper do HMAC-SHA256 que transforma o e-mail em
   // emailHash (o e-mail em texto nunca vai para as tabelas de consentimento).
   // Segredo de servidor: mínimo de 32 caracteres, nunca logado, nunca exposto

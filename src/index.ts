@@ -11,6 +11,7 @@ import { requestId } from './middlewares/requestId'
 import { runProcessMessages } from './jobs/processMessages'
 import { runSyncAbandonedCheckouts } from './jobs/syncAbandonedCheckouts'
 import { runSyncBoletoExpiring } from './jobs/syncBoletoExpiring'
+import { runEmailCampaignExecutor } from './services/emailCampaignExecutor'
 
 import healthRoutes from './routes/health.routes'
 import docsRoutes from './routes/docs.routes'
@@ -231,10 +232,28 @@ if (env.NODE_ENV !== 'test') {
       }
     })
 
+    // Campanhas de e-mail: cron separado e DESLIGADO por default. Mesmo ligado,
+    // o executor ainda exige todos os gates globais, recipient gate e cap de piloto.
+    if (env.CRON_EMAIL_CAMPAIGNS_ENABLED) cron.schedule(`*/${env.CRON_EMAIL_CAMPAIGNS_INTERVAL} * * * *`, async () => {
+      try {
+        const result = await runEmailCampaignExecutor()
+        if (result.processedDrafts > 0 || result.blockedBy?.length) {
+          logger.info('[cron] process-email-campaigns', {
+            enabled: result.enabled,
+            processedDrafts: result.processedDrafts,
+            blockedBy: result.blockedBy ?? [],
+          })
+        }
+      } catch (err) {
+        logger.error('[cron] process-email-campaigns erro', { errorName: err instanceof Error ? err.name : 'unknown' })
+      }
+    })
+
     logger.info('[cron] jobs agendados', {
       processMessages: env.CRON_PROCESS_MESSAGES_ENABLED ? `a cada ${env.CRON_PROCESS_MESSAGES_INTERVAL} min` : false,
       syncAbandonedCheckouts: env.CRON_ABANDONED_CART_ENABLED ? `a cada ${env.CRON_ABANDONED_CART_INTERVAL} min` : false,
       syncBoletoExpiring: env.CRON_BOLETO_EXPIRING_ENABLED ? `a cada ${env.CRON_BOLETO_EXPIRING_INTERVAL} min` : false,
+      emailCampaigns: env.CRON_EMAIL_CAMPAIGNS_ENABLED ? `a cada ${env.CRON_EMAIL_CAMPAIGNS_INTERVAL} min` : false,
     })
   })
 }
