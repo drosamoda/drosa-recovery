@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#6d2338">
+  <title>D'Rosa CRM — Central Operacional</title>
+  <link rel="stylesheet" href="/crm-v2-assets/app.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <span class="brand-mark">DR</span>
+        <span class="brand-word">D&rsquo;Rosa<small>Central Operacional</small></span>
+      </div>
+      <nav id="sideNav" class="side-nav"></nav>
+      <div class="sidebar-spacer"></div>
+      <div class="sidebar-footer">
+        <div id="connPill" class="conn-pill">
+          <span class="dot"></span>
+          <span id="connLabel">Não conectado</span>
+          <button id="connToggle" type="button">Conectar</button>
+        </div>
+      </div>
+    </aside>
+
+    <div class="main-col">
+      <header class="mobile-topbar">
+        <span class="brand-mark">DR</span>
+        <span id="mtTitle" class="mt-title">Dashboard</span>
+        <span id="mtConn" class="mt-conn"></span>
+        <button id="mtAuthBtn" class="icon-btn" type="button" aria-label="Conectar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0L19 4m-3.5 3.5L19 11"/></svg>
+        </button>
+      </header>
+
+      <nav id="sectionTabs" class="section-tabs"></nav>
+
+      <div class="page-head">
+        <p id="pageEyebrow" class="eyebrow">OPERAÇÃO WHATSAPP</p>
+        <div class="page-head-row">
+          <div>
+            <h1 id="pageTitle">Dashboard</h1>
+            <p id="pageSubtitle">O que está acontecendo agora.</p>
+          </div>
+          <div id="toolbar" class="toolbar"></div>
+        </div>
+      </div>
+
+      <div id="content" class="content"></div>
+
+      <nav id="bottomTabs" class="bottom-tabs"></nav>
+    </div>
+  </div>
+
+  <div id="authModal" class="auth-modal hidden">
+    <p class="eyebrow">ACESSO SOMENTE LEITURA</p>
+    <h2>Conectar ao CRM</h2>
+    <p>Informe o segredo de leitura para consultar os dados operacionais. Este acesso nunca permite enviar mensagens ou alterar registros.</p>
+    <input id="secret" type="password" placeholder="Segredo de leitura" autocomplete="off">
+    <div class="row">
+      <button id="connect" class="btn btn-primary">Conectar</button>
+      <button id="cancelAuth" class="btn btn-ghost" type="button">Cancelar</button>
+    </div>
+  </div>
+
+  <div id="adminModal" class="auth-modal hidden">
+    <p class="eyebrow">CONFIRMAÇÃO ADMINISTRATIVA</p>
+    <h2>Confirmação administrativa</h2>
+    <p>Esta ação exige o segredo administrativo. Ele é enviado apenas nesta requisição — nunca é salvo no navegador.</p>
+    <input id="adminSecretInput" type="password" placeholder="Segredo administrativo" autocomplete="off">
+    <div class="row">
+      <button id="adminConfirmBtn" class="btn btn-primary">Confirmar</button>
+      <button id="adminCancelBtn" class="btn btn-ghost" type="button">Cancelar</button>
+    </div>
+    <div id="adminModalError"></div>
+  </div>
+
+  <div id="panel" class="side-panel hidden">
+    <div class="side-panel-inner">
+      <button id="closePanel" class="panel-close" aria-label="Fechar">✕</button>
+      <div id="panelContent"></div>
+    </div>
+  </div>
+  <div id="backdrop" class="backdrop hidden"></div>
+
+  <script src="/crm-v2-assets/app.js"></script>
+</body>
+</html>
