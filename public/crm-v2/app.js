@@ -362,16 +362,20 @@ async function renderDashboard(gen, signal) {
   const otherStatuses = Object.keys(m).filter(k => !['total', 'sent', 'delivered', 'read'].includes(k))
 
   const hero = `
-    <div class="kpi-hero">
-      <div class="kpi-hero-figure"><span class="n">${num(m.total)}</span><span class="l">Mensagens criadas no período</span></div>
-      <div class="kpi-chain">
-        <div class="kpi-chain-row"><span class="arrow">↳</span> Enviadas <b>${num(m.sent)}</b></div>
-        <div class="kpi-chain-row muted"><span class="arrow">↳</span> Entregues <b>${fmtValue(m.delivered)}</b><span class="note">sem agregação disponível nesta janela</span></div>
-        <div class="kpi-chain-row muted"><span class="arrow">↳</span> Lidas <b>${fmtValue(m.read)}</b><span class="note">sem agregação disponível nesta janela</span></div>
-      </div>
+    <div class="kpi-grid" aria-label="Indicadores operacionais do período">
+      ${[
+        ['Mensagens criadas', m.total, 'volume registrado'],
+        ['Mensagens enviadas', m.sent, 'saídas aceitas no fluxo'],
+        ['Clientes contatados', d.contactedCustomers, 'telefones distintos'],
+        ['Retornos recebidos', d.inboundMessages, 'mensagens inbound'],
+        ['Conversas com retorno', d.inboundConversations, 'conversas inbound'],
+        ['Carrinhos abandonados', d.abandonedCheckouts, 'detectados no período'],
+        ['Carrinhos convertidos', d.convertedCheckouts, 'conversões registradas'],
+        ['Pix + boleto pendentes', (d.pixPending ?? 0) + (d.boletoPending ?? 0), 'soma dos dois meios'],
+      ].map(([label, value, hint]) => `<div class="kpi-card"><span class="kpi-card-label">${label}</span><strong>${num(value)}</strong><span class="kpi-card-hint">${hint}</span></div>`).join('')}
     </div>`
   const alertsBody = health ? buildAlerts(health) : '<div class="alert-ok"><span class="dot"></span>Não foi possível carregar a Saúde para checar alertas agora.</div>'
-  const attn = `<div class="attn-card"><h2>Precisa de atenção</h2>${alertsBody}</div>`
+  const attn = `<div class="dash-top"><div class="attn-card"><h2>Precisa de atenção</h2>${alertsBody}</div><div class="attn-card"><h2>Qualidade dos dados</h2><div class="quality-list"><div><span>Entrega e leitura agregadas</span><b class="cell-muted">Não suportadas pela API</b></div><div><span>Elegibilidade de carrinho</span><b class="cell-muted">Disponível por registro</b></div><div><span>Receita e ticket médio</span><b class="cell-muted">Sem suporte no dashboard</b></div></div></div></div>`
 
   const chips = `<div class="status-chip-row">${otherStatuses.map(k => `<span class="status-chip">${statusPill(k, MESSAGE_STATUS)}<span class="n">${num(m[k])}</span></span>`).join('') || '<span class="cell-muted">Sem outros status registrados no período.</span>'}
     <span class="status-chip">Clientes contatados <span class="n">${num(d.contactedCustomers)}</span></span>
