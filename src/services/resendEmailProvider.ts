@@ -165,9 +165,12 @@ export class ResendEmailProvider implements EmailProviderAdapter {
     return { providerMessageId }
   }
   parseWebhook(request: WebhookRequest): NormalizedEmailEvent[] {
-    const id = request.headers['svix-id']
-    const timestamp = request.headers['svix-timestamp']
-    const signature = request.headers['svix-signature']
+    // Resend SDK v6.28.1 normaliza os headers Standard Webhooks como
+    // webhook-id / webhook-timestamp / webhook-signature. Mantemos fallback
+    // para os nomes svix-* para compatibilidade com eventos antigos.
+    const id = request.headers['webhook-id'] ?? request.headers['svix-id']
+    const timestamp = request.headers['webhook-timestamp'] ?? request.headers['svix-timestamp']
+    const signature = request.headers['webhook-signature'] ?? request.headers['svix-signature']
     if (!id || !timestamp || !signature || this.webhookSecret.trim() === '') {
       throw new InvalidWebhookSignatureError()
     }

@@ -73,9 +73,9 @@ describe('ResendEmailProvider.parseWebhook', () => {
     return {
       rawBody: '{"type":"email.delivered"}',
       headers: {
-        'svix-id': 'msg_evt_1',
-        'svix-timestamp': '1780000000',
-        'svix-signature': 'v1,signature',
+        'webhook-id': 'msg_evt_1',
+        'webhook-timestamp': '1780000000',
+        'webhook-signature': 'v1,signature',
       },
     }
   }
@@ -141,7 +141,7 @@ describe('ResendEmailProvider.parseWebhook', () => {
     expect(provider.parseWebhook(request())).toEqual([])
   })
 
-  it('verifica a assinatura sobre o raw body com os três headers Svix', () => {
+  it('verifica a assinatura sobre o raw body com os três headers Standard Webhooks', () => {
     const sdk = client()
     sdk.webhooks.verify.mockReturnValue(verified('email.delivered'))
     const provider = new ResendEmailProvider({ apiKey: API_KEY, webhookSecret: WEBHOOK_SECRET, client: sdk })

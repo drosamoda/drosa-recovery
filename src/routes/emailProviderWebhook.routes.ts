@@ -17,6 +17,9 @@ router.post('/resend', async (req: Request, res: Response) => {
     const summary = await ingestProviderWebhook(adapter, {
       rawBody: req.rawBody ?? '',
       headers: {
+        'webhook-id': req.get('webhook-id') ?? undefined,
+        'webhook-timestamp': req.get('webhook-timestamp') ?? undefined,
+        'webhook-signature': req.get('webhook-signature') ?? undefined,
         'svix-id': req.get('svix-id') ?? undefined,
         'svix-timestamp': req.get('svix-timestamp') ?? undefined,
         'svix-signature': req.get('svix-signature') ?? undefined,
