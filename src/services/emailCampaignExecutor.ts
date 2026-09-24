@@ -12,6 +12,7 @@ import { issueUnsubscribeHeaders, sendEmailThroughGate } from './emailDispatcher
 import { evaluateEmailRecipientGate, assertEmailSendAllowed, type EmailRecipientGateResult } from './emailSendGate'
 import { getEmailProviderAdapter } from './emailProviderFactory'
 import { hashEmail } from './emailConsentService'
+import { refreshEmailConsentFromNuvemshop } from './emailLiveConsentService'
 import {
   reserveEmailSend,
   type EmailSendReservation,
@@ -40,6 +41,7 @@ export interface ExecutorRecipient {
 
 export interface EmailCampaignExecutorDeps {
   resolveRecipients: (segmentKey: EmailSegmentKey, now: Date) => Promise<ExecutorRecipient[]>
+  refreshRecipientConsent: (email: string) => Promise<boolean>
   evaluateRecipient: (email: string) => Promise<EmailRecipientGateResult>
   hashRecipient: (email: string) => string
   reserveSend: (input: { emailHash: string; campaignKey: string; wave?: string }) => Promise<EmailSendReservation>
@@ -177,6 +179,7 @@ function defaultDeps(adapter: EmailProviderAdapter): EmailCampaignExecutorDeps {
   const aiPrisma = getAiPrisma()
   return {
     resolveRecipients: (segmentKey, now) => queryEmailRecipientsForSegment(segmentKey, now),
+    refreshRecipientConsent: async (email) => (await refreshEmailConsentFromNuvemshop(email)).ok,
     evaluateRecipient: (email) => evaluateEmailRecipientGate(email),
     hashRecipient: (email) => hashEmail(email),
     reserveSend: (input) => reserveEmailSend(input),
@@ -258,6 +261,15 @@ export async function processEmailCampaignDraft(
       state.hasMore = true
       state.pilotCapReached = alreadySentTotal + state.sent >= options.maxTotalSends
       break
+    }
+
+    // Revalida a preferência diretamente na Nuvemshop imediatamente
+    // antes do gate local. Assim um opt-out recente não depende de snapshot
+    // histórico nem de sincronização assíncrona. Qualquer erro/ausência bloqueia.
+    const liveConsentOk = await deps.refreshRecipientConsent(recipient.email)
+    if (!liveConsentOk) {
+      state.blocked++
+      continue
     }
 
     const decision = await deps.evaluateRecipient(recipient.email)

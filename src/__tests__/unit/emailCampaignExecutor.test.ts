@@ -41,6 +41,7 @@ function deps(overrides: Partial<EmailCampaignExecutorDeps> = {}): EmailCampaign
       { email: 'ana@example.com', recentAbandonedCart: false },
       { email: 'bia@example.com', recentAbandonedCart: false },
     ]),
+    refreshRecipientConsent: vi.fn().mockResolvedValue(true),
     evaluateRecipient: vi.fn(async (email: string): Promise<EmailRecipientGateResult> =>
       email.startsWith('ana')
         ? { allowed: true, blocks: [], consentState: 'CONFIRMED_OPT_IN' }
@@ -86,6 +87,17 @@ describe('emailCampaignExecutor', () => {
       results: expect.objectContaining({ sent: 1, blocked: 1 }),
     }))
     expect(JSON.stringify(vi.mocked(d.updateDraft).mock.calls)).not.toMatch(/ana@example\.com|bia@example\.com/)
+  })
+
+  it('bloqueia antes do gate local quando a preferência viva da Nuvemshop não pode ser confirmada', async () => {
+    const d = deps({ refreshRecipientConsent: vi.fn().mockResolvedValue(false) })
+    const result = await processEmailCampaignDraft(draft, d, { batchSize: 20, maxTotalSends: 20 })
+
+    expect(result.sent).toBe(0)
+    expect(result.blocked).toBe(2)
+    expect(d.evaluateRecipient).not.toHaveBeenCalled()
+    expect(d.reserveSend).not.toHaveBeenCalled()
+    expect(d.dispatch).not.toHaveBeenCalled()
   })
 
   it('respeita cap total de piloto e não envia além do limite', async () => {
