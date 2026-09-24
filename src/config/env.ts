@@ -143,6 +143,11 @@ const envSchema = z.object({
   EMAIL_MARKETING_CONSENT_SOURCE: z.enum(['NOT_CONFIGURED', 'CONFIGURED']).default('NOT_CONFIGURED'),
   EMAIL_UNSUBSCRIBE_SUPPRESSION_IMPLEMENTED: z.string().default('false').transform((v) => v === 'true'),
   EMAIL_DOMAIN_AUTHENTICATED: z.string().default('false').transform((v) => v === 'true'),
+  // Transferência internacional de dados é um gate próprio: para providers que
+  // armazenam/processam dados fora do Brasil, só pode abrir após existir mecanismo
+  // documentado aplicável à operação (ex.: decisão de adequação, cláusulas-padrão
+  // ANPD incorporadas ao contrato ou outra hipótese válida do art. 33 da LGPD).
+  EMAIL_TRANSFER_MECHANISM_APPROVED: z.string().default('false').transform((v) => v === 'true'),
   EMAIL_LEGAL_REVIEW_APPROVED: z.string().default('false').transform((v) => v === 'true'),
   // Provedor real de e-mail. `none` mantém o gate fechado; Resend só é
   // considerado configurado quando API key + webhook secret estão presentes.
