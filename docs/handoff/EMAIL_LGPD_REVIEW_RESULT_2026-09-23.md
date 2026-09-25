@@ -116,3 +116,52 @@ CUSTOMER_SEND=BLOCKED
 - Resend DPA: https://resend.com/legal/dpa
 - Resend subprocessors: https://resend.com/legal/subprocessors
 - Resend GDPR/data residency: https://resend.com/security/gdpr
+
+## 8. Atualização final de 24/09/2026
+
+### Auditoria viva da preferência atual na Nuvemshop
+
+A consulta read-only foi repetida contra o endpoint de customers da loja, com paginação completa e sem persistir PII no relatório.
+
+- customers lidos: 4.408
+- accepts_marketing=true: 3.207
+- accepts_marketing=false: 1.201
+- accepts_marketing ausente/nulo: 0
+- accepts_marketing_updated_at presente: 4.408
+- rate-limit errors: 0
+- base do CRM comparada: 4.016
+- encontrados na API viva: 3.433
+- stale opt-in histórico detectado: 1
+- opt-ins recuperados por estado atual: 162
+
+O executor em produção já faz revalidação individual imediatamente antes de cada envio e grava NUVEMSHOP_CUSTOMER_API como fonte autoritativa. Ausência de cliente, preferência desconhecida/timestamp inválido ou erro upstream bloqueiam o destinatário.
+
+### Produção
+
+Revisão live: drosa-recovery-email-lgpd-v3 (100% do tráfego).
+
+Gates confirmados:
+- EMAIL_MARKETING_CONSENT_SOURCE=CONFIGURED
+- EMAIL_UNSUBSCRIBE_SUPPRESSION_IMPLEMENTED=true
+- EMAIL_DOMAIN_AUTHENTICATED=true
+- EMAIL_PROVIDER=resend
+- EMAIL_TRANSFER_MECHANISM_APPROVED=false
+- EMAIL_LEGAL_REVIEW_APPROVED=false
+- EMAIL_SEND_ENABLED=false
+- EMAIL_CAMPAIGN_EXECUTOR_ENABLED=false
+- CRON_EMAIL_CAMPAIGNS_ENABLED=false
+
+Health checks: /health=200, /health/deep=200, /crm=200.
+
+### Solicitação formal ao Resend
+
+Foi enviado em 24/09/2026 um pedido formal ao contato de privacidade do Resend solicitando comprovação do mecanismo válido para Brasil -> Estados Unidos sob o art. 33 da LGPD e Resolução CD/ANPD 19/2024, inclusive confirmação de adoção das cláusulas-padrão brasileiras ou outro mecanismo aplicável.
+
+Até resposta/documento verificável:
+
+EMAIL_TRANSFER_MECHANISM_APPROVED=false
+EMAIL_LEGAL_REVIEW_APPROVED=false
+CUSTOMER_SEND=BLOCKED
+CUSTOMER_PILOT=BLOCKED
+
+Esse bloqueio é deliberado e não é uma pendência técnica interna; depende de documentação/aceite externo do provedor ou troca por arquitetura/provedor com mecanismo internacional válido.
