@@ -153,6 +153,60 @@ export async function recordEmailConsentEvent(
   return prisma.$transaction((tx) => writeConsentEvent(tx, emailHash, input))
 }
 
+export interface RecordConsentEventsBatchResult {
+  inputEvents: number
+  uniqueHashes: number
+  eventsInserted: number
+  statesRecomputed: number
+}
+
+// Caminho em lote para fontes confiáveis já normalizadas em memória (ex. /customers).
+// O e-mail existe somente durante a preparação do HMAC; createMany recebe apenas
+// emailHash + ids opacos + metadados de consentimento. Reexecução é idempotente
+// pelo @@unique(emailHash, source, evidenceRef) do ledger.
+export async function recordEmailConsentEventsBatch(
+  inputs: readonly RecordConsentEventInput[],
+  pepper: string = env.EMAIL_HASH_PEPPER,
+  batchSize = 200,
+): Promise<RecordConsentEventsBatchResult> {
+  if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 1000) {
+    throw new InvalidConsentEventError('batchSize inválido.')
+  }
+
+  const prepared = inputs.map((input) => ({
+    emailHash: prepareConsentEvent(input, pepper),
+    customerId: input.customerId ?? null,
+    status: input.status,
+    source: input.source,
+    evidenceRef: input.evidenceRef,
+    sourceUpdatedAt: input.sourceUpdatedAt ?? null,
+    capturedAt: input.capturedAt ?? new Date(),
+  }))
+  const byHash = new Map<string, typeof prepared>()
+  for (const event of prepared) {
+    const list = byHash.get(event.emailHash) ?? []
+    list.push(event)
+    byHash.set(event.emailHash, list)
+  }
+
+  const hashes = [...byHash.keys()]
+  let eventsInserted = 0
+  let statesRecomputed = 0
+  for (let start = 0; start < hashes.length; start += batchSize) {
+    const chunk = hashes.slice(start, start + batchSize)
+    const data = chunk.flatMap((hash) => byHash.get(hash) ?? [])
+    const outcome = await prisma.$transaction(async (tx) => {
+      const created = await tx.emailConsentEvent.createMany({ data, skipDuplicates: true })
+      const resolutions = await recomputeStates(tx, chunk)
+      return { inserted: created.count, recomputed: resolutions.size }
+    }, { timeout: 60_000 })
+    eventsInserted += outcome.inserted
+    statesRecomputed += outcome.recomputed
+  }
+
+  return { inputEvents: inputs.length, uniqueHashes: hashes.length, eventsInserted, statesRecomputed }
+}
+
 const EMAIL_HASH_FORMAT = /^[0-9a-f]{64}$/
 
 export type RecordConsentEventByHashInput = Omit<RecordConsentEventInput, 'email'>
