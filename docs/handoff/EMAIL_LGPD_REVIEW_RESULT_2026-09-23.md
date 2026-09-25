@@ -234,3 +234,57 @@ EXTERNAL_TRANSFER_MECHANISM=PENDING
 PRIVACY_POLICY_ADDENDUM_PUBLICATION=PENDING_CONTENT_SCOPE
 
 Nenhuma campanha de clientes deve ser enviada enquanto os dois bloqueios externos acima não estiverem resolvidos e documentados.
+
+## 10. Atualização final de 25/09/2026 — 14h47 BRT
+
+### Auditoria viva repetida
+
+A consulta read-only foi repetida contra a API de customers da Nuvemshop com paginação completa, sem imprimir credenciais e sem persistir PII no relatório.
+
+- páginas lidas: 23
+- customers lidos: 4.442
+- accepts_marketing=true: 3.242
+- accepts_marketing=false: 1.200
+- preferência nula/ausente: 0
+- accepts_marketing_updated_at presente: 4.442
+- customers sem e-mail: 0
+- linhas com e-mail duplicado: 1
+- base CRM comparada: 4.053
+- encontrados na API viva: 3.464
+- não encontrados na API viva: 589
+- estado vivo opt-in entre encontrados: 2.376
+- estado vivo opt-out entre encontrados: 1.088
+- DB_TRUE_LIVE_FALSE: 1
+- DB_FALSE_LIVE_TRUE: 173
+- stale opt-in histórico: 1
+- opt-ins recuperados pelo estado atual: 173
+- erros de rate limit: 0
+
+A conclusão permanece a mesma: snapshot histórico não é usado isoladamente para autorizar envio. O executor revalida a preferência atual de cada destinatário na Nuvemshop imediatamente antes do recipient gate.
+
+### Fechamento adicional de transparência
+
+Foi preparado um fechamento técnico adicional para:
+- exibir link visível de descadastro no corpo HTML e texto das campanhas;
+- exibir link visível para aviso específico de privacidade do canal;
+- publicar aviso público em /privacy/email-marketing;
+- manter List-Unsubscribe/One-Click como mecanismo técnico paralelo;
+- documentar formalmente a solicitação de execução das cláusulas-padrão brasileiras com o Resend em EMAIL_ANPD_SCC_EXECUTION_REQUEST.md.
+
+Essas melhorias não abrem os gates de envio.
+
+### Bloqueio remanescente
+
+Não foi localizada resposta verificável do Resend no Gmail conectado e a documentação pública do fornecedor continua demonstrando armazenamento de Customer Data nos Estados Unidos e mecanismos contratuais explícitos para UE/Reino Unido, não a incorporação das cláusulas-padrão brasileiras da ANPD.
+
+Portanto:
+
+EMAIL_TRANSFER_MECHANISM_APPROVED=false
+EMAIL_LEGAL_REVIEW_APPROVED=false
+EMAIL_SEND_ENABLED=false
+EMAIL_CAMPAIGN_EXECUTOR_ENABLED=false
+CRON_EMAIL_CAMPAIGNS_ENABLED=false
+CUSTOMER_SEND=BLOCKED
+CUSTOMER_PILOT=BLOCKED
+
+O bloqueio remanescente depende de documento/aceite da contraparte ou de mudança de provider/arquitetura com mecanismo internacional comprovado.

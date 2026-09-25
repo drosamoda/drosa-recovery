@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  addEmailComplianceFooter,
   processEmailCampaignDraft,
   renderEmailCampaignMessage,
   runEmailCampaignExecutor,
@@ -128,5 +129,18 @@ describe('emailCampaignExecutor', () => {
     expect(rendered.html).toContain('Estamos por aqui')
     expect(rendered.html).toContain('Ver catálogo')
     expect(rendered.html).toContain('https://www.drosamoda.com.br/')
+  })
+
+  it('inclui descadastro visível e aviso de privacidade no HTML e no texto', () => {
+    const base = renderEmailCampaignMessage((draft.strategies as EmailStrategy[])[0], 'https://www.drosamoda.com.br/')
+    const rendered = addEmailComplianceFooter(
+      base,
+      'https://crm.example.com/unsubscribe/email?t=abc',
+      'https://crm.example.com/privacy/email-marketing',
+    )
+    expect(rendered.html).toContain('Cancelar recebimento de e-mails promocionais')
+    expect(rendered.html).toContain('Privacidade e uso de e-mail')
+    expect(rendered.text).toContain('Cancelar recebimento: https://crm.example.com/unsubscribe/email?t=abc')
+    expect(rendered.text).toContain('Privacidade e uso de e-mail: https://crm.example.com/privacy/email-marketing')
   })
 })

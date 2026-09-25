@@ -26,6 +26,7 @@ import nuvemshopWebhookRoutes from './routes/webhooks.nuvemshop.routes'
 import metaWebhookRoutes from './routes/webhooks.meta.routes'
 import emailUnsubscribeRoutes from './routes/emailUnsubscribe.routes'
 import emailProviderWebhookRoutes from './routes/emailProviderWebhook.routes'
+import emailPrivacyRoutes from './routes/emailPrivacy.routes'
 
 import { adminAuth } from './middlewares/adminAuth'
 import { jobsAuth } from './middlewares/jobsAuth'
@@ -142,6 +143,7 @@ if (env.CRM_PREVIEW_READONLY) {
 // ── Rotas públicas ─────────────────────────────────────────────────────
 app.use('/health', healthRoutes)
 app.use('/docs', docsRoutes)
+app.use('/privacy/email-marketing', emailPrivacyRoutes)
 
 // ── Webhooks (sem auth de usuário — validados por HMAC/assinatura) ─────
 if (!env.CRM_PREVIEW_READONLY) {
