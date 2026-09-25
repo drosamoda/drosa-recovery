@@ -155,6 +155,41 @@ export function renderEmailCampaignMessage(
   }
 }
 
+export function addEmailComplianceFooter(
+  rendered: { subject: string; html: string; text: string },
+  unsubscribeUrl: string | null,
+  privacyUrl: string | null,
+): { subject: string; html: string; text: string } {
+  const unsubscribeHref = unsubscribeUrl ? safeHttpsUrl(unsubscribeUrl) : null
+  const privacyHref = privacyUrl ? safeHttpsUrl(privacyUrl) : null
+  if (unsubscribeHref === null && privacyHref === null) return rendered
+
+  const links: string[] = []
+  const textLines: string[] = []
+  if (unsubscribeHref) {
+    links.push(`<a href="${escapeHtml(unsubscribeHref)}" style="color:#666">Cancelar recebimento de e-mails promocionais</a>`)
+    textLines.push(`Cancelar recebimento: ${unsubscribeHref}`)
+  }
+  if (privacyHref) {
+    links.push(`<a href="${escapeHtml(privacyHref)}" style="color:#666">Privacidade e uso de e-mail</a>`)
+    textLines.push(`Privacidade e uso de e-mail: ${privacyHref}`)
+  }
+
+  const footer = `<hr style="border:0;border-top:1px solid #e5e5e5;margin:28px 0 16px"><p style="font-size:12px;line-height:1.5;color:#666;margin:0">${links.join(' &nbsp;|&nbsp; ')}</p>`
+  return {
+    subject: rendered.subject,
+    html: rendered.html.replace('</td></tr></table></td></tr></table></body></html>', `${footer}</td></tr></table></td></tr></table></body></html>`),
+    text: `${rendered.text}\n\n${textLines.join('\n')}`,
+  }
+}
+
+function extractListUnsubscribeUrl(headers: Readonly<Record<string, string>>): string | null {
+  const key = Object.keys(headers).find((candidate) => candidate.toLowerCase() === 'list-unsubscribe')
+  if (!key) return null
+  const match = /<(https:\/\/[^>\s]+)>/i.exec(headers[key])
+  return match ? safeHttpsUrl(match[1]) : null
+}
+
 function trackingCampaignKey(draftId: string): string {
   const normalized = draftId.replace(/[^A-Za-z0-9_-]/g, '_')
   return `draft_${normalized}`.slice(0, 60)
@@ -295,14 +330,19 @@ export async function processEmailCampaignDraft(
       continue
     }
 
-    const rendered = renderEmailCampaignMessage(strategy, ctaUrl)
+    const headers = deps.issueHeaders(recipient.email, { sendId: reservation.sendId })
+    const rendered = addEmailComplianceFooter(
+      renderEmailCampaignMessage(strategy, ctaUrl),
+      extractListUnsubscribeUrl(headers),
+      safeHttpsUrl(`${env.APP_BASE_URL}/privacy/email-marketing`),
+    )
     const message: OutboundEmail = {
       to: recipient.email,
       from: { address: env.EMAIL_FROM_ADDRESS, name: env.EMAIL_FROM_NAME },
       subject: rendered.subject,
       html: rendered.html,
       text: rendered.text,
-      headers: deps.issueHeaders(recipient.email, { sendId: reservation.sendId }),
+      headers,
       tracking: { sendId: reservation.sendId, campaignKey },
     }
 
