@@ -12,6 +12,7 @@ import { runProcessMessages } from './jobs/processMessages'
 import { runSyncAbandonedCheckouts } from './jobs/syncAbandonedCheckouts'
 import { runSyncBoletoExpiring } from './jobs/syncBoletoExpiring'
 import { runEmailCampaignExecutor } from './services/emailCampaignExecutor'
+import { runEmailConsentSync } from './jobs/syncEmailConsent'
 
 import healthRoutes from './routes/health.routes'
 import docsRoutes from './routes/docs.routes'
@@ -251,11 +252,30 @@ if (env.NODE_ENV !== 'test') {
       }
     })
 
+    // Refresh do consentimento atual: separado de campanhas e também desligado
+    // por default. Só grava o ledger/estado derivado; nunca agenda ou envia e-mail.
+    if (env.CRON_EMAIL_CONSENT_SYNC_ENABLED) cron.schedule(`17 */${env.CRON_EMAIL_CONSENT_SYNC_INTERVAL_HOURS} * * *`, async () => {
+      try {
+        const result = await runEmailConsentSync()
+        logger.info('[cron] sync-email-consent', {
+          customersFetched: result.customersFetched,
+          eventsInserted: result.eventsInserted,
+          statesRecomputed: result.statesRecomputed,
+          rateLimitErrors: result.rateLimitErrors,
+        })
+      } catch (err) {
+        logger.error('[cron] sync-email-consent erro', { errorName: err instanceof Error ? err.name : 'unknown' })
+      }
+    })
+
     logger.info('[cron] jobs agendados', {
       processMessages: env.CRON_PROCESS_MESSAGES_ENABLED ? `a cada ${env.CRON_PROCESS_MESSAGES_INTERVAL} min` : false,
       syncAbandonedCheckouts: env.CRON_ABANDONED_CART_ENABLED ? `a cada ${env.CRON_ABANDONED_CART_INTERVAL} min` : false,
       syncBoletoExpiring: env.CRON_BOLETO_EXPIRING_ENABLED ? `a cada ${env.CRON_BOLETO_EXPIRING_INTERVAL} min` : false,
       emailCampaigns: env.CRON_EMAIL_CAMPAIGNS_ENABLED ? `a cada ${env.CRON_EMAIL_CAMPAIGNS_INTERVAL} min` : false,
+      emailConsentSync: env.CRON_EMAIL_CONSENT_SYNC_ENABLED
+        ? `a cada ${env.CRON_EMAIL_CONSENT_SYNC_INTERVAL_HOURS}h`
+        : false,
     })
   })
 }

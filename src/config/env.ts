@@ -167,6 +167,10 @@ const envSchema = z.object({
   EMAIL_CAMPAIGN_MAX_DRAFTS_PER_RUN: z.coerce.number().int().min(1).max(10).default(1),
   CRON_EMAIL_CAMPAIGNS_ENABLED: z.string().default('false').transform((v) => v === 'true'),
   CRON_EMAIL_CAMPAIGNS_INTERVAL: z.coerce.number().int().min(1).max(60).default(5),
+  // Sincronização periódica do estado ATUAL de consentimento da Nuvemshop.
+  // Default false: primeiro validar execução manual + idempotência em canário.
+  CRON_EMAIL_CONSENT_SYNC_ENABLED: z.string().default('false').transform((v) => v === 'true'),
+  CRON_EMAIL_CONSENT_SYNC_INTERVAL_HOURS: z.coerce.number().int().min(1).max(24).default(6),
   // Email Consent Ledger — pepper do HMAC-SHA256 que transforma o e-mail em
   // emailHash (o e-mail em texto nunca vai para as tabelas de consentimento).
   // Segredo de servidor: mínimo de 32 caracteres, nunca logado, nunca exposto

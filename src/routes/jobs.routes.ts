@@ -17,6 +17,7 @@ import { automationHealth } from '../jobs/automationHealth'
 import { retryInboxMirrors } from '../jobs/retryInboxMirrors'
 import { remarketingPreview, remarketingSend, segmentNames, Segment } from '../services/remarketingService'
 import { runEmailCampaignExecutor } from '../services/emailCampaignExecutor'
+import { EmailConsentSyncError, runEmailConsentSync } from '../jobs/syncEmailConsent'
 
 type UpstreamErrorLike = {
   code?: unknown
@@ -162,6 +163,21 @@ router.post('/process-messages', async (_req: Request, res: Response) => {
 router.post('/process-email-campaigns', async (_req: Request, res: Response) => {
   const result = await runEmailCampaignExecutor()
   res.status(result.blockedBy?.length ? 409 : 200).json(result)
+})
+
+// Sincroniza somente o ledger de consentimento com o estado ATUAL de /customers.
+// Rota protegida por jobsAuth no index; não agenda nem envia campanhas.
+router.post('/sync-email-consent', async (_req: Request, res: Response) => {
+  try {
+    res.json(await runEmailConsentSync())
+  } catch (error) {
+    if (!(error instanceof EmailConsentSyncError)) throw error
+    res.status(error.code === 'CONFIG_MISSING' ? 503 : 502).json({
+      error: 'nuvemshop_email_consent_sync_failed',
+      code: error.code,
+      upstreamStatus: error.upstreamStatus,
+    })
+  }
 })
 
 // Backfill histórico somente de dados. Nunca agenda mensagens.
