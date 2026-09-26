@@ -167,6 +167,16 @@ app.get('/crm', (_req, res) => {
 app.get('/crm-v2', (_req, res) => {
   res.sendFile(path.join(process.cwd(), 'public', 'crm-v2', 'index.html'))
 })
+// Piloto React+Vite (Central Operacional nova) — NÃO linkado em nenhum menu,
+// NÃO anunciado, coexiste com /crm e /crm-v2 sem substituir nenhum dos dois.
+// Só assume a rota /crm-v2 num cutover explícito e futuro (ver
+// docs/handoff/REACT_MIGRATION_BLUEPRINT_2026-09-26.md seções 3-4 e 9).
+// Requer `npm run build:frontend` antes: frontend/dist não é commitado.
+const frontendDist = path.join(process.cwd(), 'frontend', 'dist')
+app.use('/crm-next', express.static(frontendDist))
+app.get(['/crm-next', '/crm-next/*'], (_req, res) => {
+  res.sendFile(path.join(frontendDist, 'index.html'))
+})
 
 // ── Rotas protegidas ───────────────────────────────────────────────────
 if (!env.CRM_PREVIEW_READONLY) {
