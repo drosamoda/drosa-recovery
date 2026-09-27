@@ -23,6 +23,15 @@ export const MESSAGE_STATUS: Record<string, Label> = {
   unknown: { label: 'Estado desconhecido', tone: 'neutral' },
 }
 
+// Status de destinatario de remarketing (enum RemarketingRecipientStatus).
+export const RECIPIENT_STATUS: Record<string, Label> = {
+  eligible: { label: 'Elegível', tone: 'neutral' },
+  suppressed: { label: 'Não disparado · bloqueado', tone: 'warning' },
+  queued: { label: 'Na fila', tone: 'neutral' },
+  sent: { label: 'Disparado', tone: 'neutral' },
+  failed: { label: 'Falhou', tone: 'danger' },
+}
+
 // Categorias de falha/bloqueio produzidas por normalizeFailure() no backend.
 export const FAILURE_CATEGORY: Record<string, Label> = {
   CONSENT_BLOCK: { label: 'Sem consentimento', tone: 'warning' },
@@ -51,6 +60,18 @@ export const ELIGIBILITY_REASON: Record<string, Label> = {
   history_completeness_unverified: { label: 'Histórico incompleto', tone: 'warning' },
   order_timing_uncertain: { label: 'Momento do pedido incerto', tone: 'warning' },
   evaluation_unavailable: { label: 'Avaliação indisponível', tone: 'neutral' },
+  too_recent: { label: 'Dentro do atraso configurado', tone: 'neutral' },
+  too_old: { label: 'Fora da janela (antigo)', tone: 'neutral' },
+  invalid_phone: { label: 'Telefone inválido', tone: 'warning' },
+  missing_recovery_url: { label: 'Sem link de recuperação', tone: 'warning' },
+  invalid_recovery_url: { label: 'Link de recuperação inválido', tone: 'warning' },
+  skipped: { label: 'Já marcado como não disparado', tone: 'neutral' },
+  already_sent: { label: 'Já disparado', tone: 'neutral' },
+  cooldown_active: { label: 'Em intervalo de espera', tone: 'neutral' },
+  invalid_template: { label: 'Template inválido', tone: 'danger' },
+  invalid_template_data: { label: 'Dados do template inválidos', tone: 'warning' },
+  invalid_encoding: { label: 'Codificação inválida', tone: 'warning' },
+  unknown_checkout_state: { label: 'Estado do carrinho desconhecido', tone: 'neutral' },
 }
 
 export function humanize(code: string): string {
