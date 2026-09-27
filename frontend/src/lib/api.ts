@@ -1,4 +1,5 @@
 import { getStoredSecret, clearStoredSecret } from './auth'
+import { AUTH_LOST_EVENT } from './session'
 
 export class ApiError extends Error {
   status: number
@@ -20,17 +21,20 @@ async function readErrorBody(response: Response): Promise<{ error?: string; code
   }
 }
 
-// Mesmo contrato HTTP do app.js atual: header x-crm-read-secret em toda
-// chamada a /crm-api/*. Somente GET — o frontend novo nao chama nenhuma rota
-// de escrita.
+// Duas credenciais aceitas pelo backend em paralelo: header legado
+// x-crm-read-secret (so quando o usuario informou o segredo) ou o cookie
+// httpOnly da sessao da Central (enviado automaticamente, same-origin).
+// Somente GET — o frontend novo nao chama nenhuma rota de escrita de dados.
 export async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
   const secret = getStoredSecret()
   const response = await fetch(`/crm-api/${path}`, {
-    headers: { 'x-crm-read-secret': secret },
+    headers: secret ? { 'x-crm-read-secret': secret } : {},
+    credentials: 'same-origin',
     signal,
   })
   if (response.status === 401) {
     clearStoredSecret()
+    window.dispatchEvent(new Event(AUTH_LOST_EVENT))
     throw new ApiError('Segredo de leitura invalido ou ausente.', 401)
   }
   if (!response.ok) {

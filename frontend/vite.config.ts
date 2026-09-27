@@ -19,6 +19,11 @@ export default defineConfig({
         target: process.env.VITE_BACKEND_URL || `http://localhost:${process.env.VITE_BACKEND_PORT || 3000}`,
         changeOrigin: true,
       },
+      // Sessão única da Central (cookie httpOnly) — mesmo alvo do /crm-api.
+      '/central-auth': {
+        target: process.env.VITE_BACKEND_URL || `http://localhost:${process.env.VITE_BACKEND_PORT || 3000}`,
+        changeOrigin: true,
+      },
     },
   },
   build: {

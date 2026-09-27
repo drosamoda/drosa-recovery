@@ -28,6 +28,7 @@ import emailUnsubscribeRoutes from './routes/emailUnsubscribe.routes'
 import emailProviderWebhookRoutes from './routes/emailProviderWebhook.routes'
 import emailPrivacyRoutes from './routes/emailPrivacy.routes'
 import biRoutes from './routes/bi.routes'
+import centralAuthRoutes from './routes/centralAuth.routes'
 
 import { adminAuth } from './middlewares/adminAuth'
 import { jobsAuth } from './middlewares/jobsAuth'
@@ -133,7 +134,9 @@ app.use('/crm-v2-assets', express.static(path.join(process.cwd(), 'public', 'crm
 if (env.CRM_PREVIEW_READONLY) {
   app.use((req, res, next) => {
     const isAiCampaignWrite = req.path.startsWith('/crm-api/ai/campaigns')
-    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && !isAiCampaignWrite) {
+    // Login/logout da sessão da Central só emitem/limpam cookie — não tocam banco.
+    const isCentralAuth = env.CENTRAL_SESSION_ENABLED && ['/central-auth/login', '/central-auth/logout'].includes(req.path)
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && !isAiCampaignWrite && !isCentralAuth) {
       res.status(404).json({ error: 'Rota não encontrada' })
       return
     }
@@ -192,6 +195,8 @@ app.use('/crm-api/ai', crmAuth, aiCampaignsRoutes)
 app.use('/crm-api/email', crmAuth, emailIntelligenceRoutes)
 // BI & Inteligência: somente GET sobre views bi_* existentes + embed Metabase assinado.
 app.use('/crm-api/bi', crmAuth, biRoutes)
+// Sessão única da Central (Fase G) — desligada por padrão; x-crm-read-secret segue valendo.
+if (env.CENTRAL_SESSION_ENABLED) app.use('/central-auth', centralAuthRoutes)
 
 // ── 404 ────────────────────────────────────────────────────────────────
 app.use((_req, res) => {

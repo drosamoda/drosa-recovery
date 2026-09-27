@@ -26,6 +26,10 @@ export interface FailureLimiterState {
 export interface FailureRateLimiter {
   // Registra UMA falha para a chave e devolve o estado resultante.
   hit(key: string): FailureLimiterState
+  // Consulta o estado SEM registrar falha (para barrar antes de verificar).
+  check(key: string): FailureLimiterState
+  // Esquece a chave (ex.: login bem-sucedido).
+  clear(key: string): void
   reset(): void
 }
 
@@ -69,6 +73,15 @@ export function createFailureRateLimiter(options: FailureRateLimiterOptions): Fa
         limited: entry.count > maxFailures,
         retryAfterSeconds: Math.max(1, Math.ceil((entry.resetAt - at) / 1000)),
       }
+    },
+    check(key: string): FailureLimiterState {
+      const at = now()
+      const entry = entries.get(key)
+      if (entry === undefined || entry.resetAt <= at) return { limited: false, retryAfterSeconds: 0 }
+      return { limited: entry.count >= maxFailures, retryAfterSeconds: Math.max(1, Math.ceil((entry.resetAt - at) / 1000)) }
+    },
+    clear(key: string): void {
+      entries.delete(key)
     },
     reset(): void {
       entries.clear()

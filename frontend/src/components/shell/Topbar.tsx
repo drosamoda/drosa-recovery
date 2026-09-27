@@ -1,14 +1,9 @@
-import { useState } from 'react'
-import { clearStoredSecret, getStoredSecret } from '../../lib/auth'
+import { useAuth } from './authContext'
 
 export function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
-  const [connected, setConnected] = useState(() => Boolean(getStoredSecret()))
-
-  function disconnect() {
-    clearStoredSecret()
-    setConnected(false)
-    window.location.reload()
-  }
+  const { access, signOut } = useAuth()
+  const connected = access.kind === 'session' || access.kind === 'legacy'
+  const label = access.kind === 'session' ? `${access.me.email} · ${access.me.role === 'admin' ? 'admin' : 'leitura'}` : 'Segredo de leitura (legado)'
 
   return (
     <header className="flex h-16 items-center justify-between border-b border-ink-faint/15 bg-surface-raised px-4 md:px-6">
@@ -25,11 +20,11 @@ export function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
       <div />
       <div className="flex items-center gap-4 text-sm">
         <span className={connected ? 'text-status-success' : 'text-ink-faint'}>
-          {connected ? 'Autenticacao configurada' : 'Desconectado'}
+          {connected ? label : 'Desconectado'}
         </span>
         {connected && (
-          <button type="button" onClick={disconnect} className="text-ink-muted hover:text-ink">
-            Desconectar
+          <button type="button" onClick={() => void signOut()} className="text-ink-muted hover:text-ink">
+            Sair
           </button>
         )}
       </div>
