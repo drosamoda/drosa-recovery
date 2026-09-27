@@ -74,6 +74,14 @@ export const ELIGIBILITY_REASON: Record<string, Label> = {
   unknown_checkout_state: { label: 'Estado do carrinho desconhecido', tone: 'neutral' },
 }
 
+// Status textuais do modulo de e-mail (emailIntelligence). Valor cru no tooltip.
+export const EMAIL_STATUS: Record<string, Label> = {
+  eligible_verified: { label: 'Elegibilidade verificada', tone: 'neutral' },
+  needs_data: { label: 'Precisa de dados', tone: 'neutral' },
+  ready: { label: 'Pronta', tone: 'neutral' },
+  applied: { label: 'Aplicada', tone: 'neutral' },
+}
+
 export function humanize(code: string): string {
   return code.replace(/[_-]+/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase())
 }
