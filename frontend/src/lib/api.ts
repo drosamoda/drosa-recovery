@@ -23,5 +23,9 @@ export async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> 
   if (!response.ok) {
     throw new ApiError(`Falha ao carregar dados (HTTP ${response.status}).`, response.status)
   }
-  return (await response.json()) as T
+  try {
+    return (await response.json()) as T
+  } catch {
+    throw new ApiError('Resposta invalida do servidor.', response.status)
+  }
 }

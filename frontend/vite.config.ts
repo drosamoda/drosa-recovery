@@ -9,7 +9,11 @@ export default defineConfig({
   base: '/crm-next/',
   server: {
     proxy: {
-      '/crm-api': 'http://localhost:8080',
+      // Porta real do backend local (mesma variavel PORT do .env do backend,
+      // default 3000 conforme package.json/env.ts). Sobrescreva com
+      // VITE_BACKEND_PORT quando o backend estiver rodando em outra porta
+      // (ex.: para evitar conflito com outro projeto na mesma maquina).
+      '/crm-api': `http://localhost:${process.env.VITE_BACKEND_PORT || 3000}`,
     },
   },
   build: {

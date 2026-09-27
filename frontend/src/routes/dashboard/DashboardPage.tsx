@@ -7,7 +7,7 @@ import { apiGet, ApiError } from '../../lib/api'
 import type { DashboardResponse } from '../../lib/types'
 
 export function DashboardPage() {
-  const { data, isLoading, isError, error, refetch } = useQuery({
+  const { data, isPending, isError, error, refetch } = useQuery({
     queryKey: ['dashboard', 'today'],
     queryFn: ({ signal }) => apiGet<DashboardResponse>('dashboard?period=today', signal),
   })
@@ -16,7 +16,11 @@ export function DashboardPage() {
     <div>
       <PageHeader title="Dashboard" subtitle="O que esta acontecendo agora." />
 
-      {isLoading && <LoadingState />}
+      {/* isPending (nao isLoading): cobre tambem a janela de retry automatico
+          entre uma falha e a proxima tentativa, onde isLoading do react-query
+          v5 (= isPending && isFetching) fica false sem ainda haver erro nem
+          dado — achado real em smoke test, ver FOUNDATION_INTEGRATION_REPORT. */}
+      {isPending && <LoadingState />}
 
       {isError && (
         <ErrorState
