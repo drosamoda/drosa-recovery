@@ -10,7 +10,7 @@ const NAV_ITEMS = [
   { key: 'conversations', label: 'Conversas', to: '/conversations', enabled: true },
   { key: 'recovery', label: 'Recovery', to: '/recovery', enabled: true },
   { key: 'campaigns', label: 'Campanhas & IA', to: '/campaigns', enabled: true },
-  { key: 'bi', label: 'BI & Inteligencia', to: '/bi', enabled: false },
+  { key: 'bi', label: 'BI & Inteligência', to: '/bi', enabled: true },
   { key: 'health', label: 'Saúde', to: '/health', enabled: true },
 ]
 

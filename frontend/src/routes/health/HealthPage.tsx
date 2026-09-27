@@ -147,7 +147,7 @@ function WebhooksTab() {
       {(d) => (
         <>
           <Notice>
-            <strong>Últimos {d.data.length} eventos</strong> (de {d.pagination.total.toLocaleString('pt-BR')} registrados). Contagens e taxa de erro valem só para esta janela, não são histórico global. Agregado completo por provider/tópico não é exposto pela API atual <span className="text-ink-faint">(NOT_AVAILABLE_FROM_CURRENT_API)</span>; erros históricos seguem em investigação separada. Esta tela não altera o processamento de webhooks.
+            <strong>Últimos {d.data.length} eventos</strong> (de {d.pagination.total.toLocaleString('pt-BR')} registrados). Contagens e taxa de erro valem só para esta janela, não são histórico global. Agregado completo por provider/tópico e período: <strong>BI &amp; Inteligência › Integrações</strong> (view bi_webhook_daily_summary); erros históricos seguem em investigação separada. Esta tela não altera o processamento de webhooks.
           </Notice>
           <DataTable columns={columns} rows={aggregate(d.data)} rowKey={(r) => r.key} />
         </>

@@ -9,6 +9,7 @@ import { ConversationsPage } from './routes/conversations/ConversationsPage'
 import { RecoveryPage } from './routes/recovery/RecoveryPage'
 import { CampaignsPage } from './routes/campaigns/CampaignsPage'
 import { HealthPage } from './routes/health/HealthPage'
+import { BiPage } from './routes/bi/BiPage'
 
 // Base '/crm-next' enquanto o piloto nao substitui '/crm-v2' (ver
 // REACT_MIGRATION_BLUEPRINT secao 4). Toda rota e somente leitura.
@@ -21,6 +22,7 @@ const pages: { path: string; element: ReactNode }[] = [
   { path: '/recovery', element: <RecoveryPage /> },
   { path: '/campaigns', element: <CampaignsPage /> },
   { path: '/health', element: <HealthPage /> },
+  { path: '/bi', element: <BiPage /> },
 ]
 
 export const router = createBrowserRouter(

@@ -27,6 +27,7 @@ import metaWebhookRoutes from './routes/webhooks.meta.routes'
 import emailUnsubscribeRoutes from './routes/emailUnsubscribe.routes'
 import emailProviderWebhookRoutes from './routes/emailProviderWebhook.routes'
 import emailPrivacyRoutes from './routes/emailPrivacy.routes'
+import biRoutes from './routes/bi.routes'
 
 import { adminAuth } from './middlewares/adminAuth'
 import { jobsAuth } from './middlewares/jobsAuth'
@@ -189,6 +190,8 @@ app.use('/crm-api', crmAuth, crmRoutes)
 app.use('/crm-api/ai', crmAuth, aiCampaignsRoutes)
 // Inteligência de e-mail: somente leitura (GET). Nenhum envio de e-mail existe.
 app.use('/crm-api/email', crmAuth, emailIntelligenceRoutes)
+// BI & Inteligência: somente GET sobre views bi_* existentes + embed Metabase assinado.
+app.use('/crm-api/bi', crmAuth, biRoutes)
 
 // ── 404 ────────────────────────────────────────────────────────────────
 app.use((_req, res) => {

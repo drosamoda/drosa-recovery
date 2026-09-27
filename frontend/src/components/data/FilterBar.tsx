@@ -22,10 +22,10 @@ export function FilterBar({ placeholder, onSearch, children }: { placeholder: st
   )
 }
 
-export function SelectFilter({ label, value, options, onChange }: { label: string; value: string; options: { value: string; label: string }[]; onChange: (value: string) => void }) {
+export function SelectFilter({ label, value, options, onChange, includeAll = true }: { label: string; value: string; options: { value: string; label: string }[]; onChange: (value: string) => void; includeAll?: boolean }) {
   return (
     <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} className="rounded-md border border-ink-faint/30 bg-surface-raised px-3 py-2 text-sm">
-      <option value="">{label}: todos</option>
+      {includeAll && <option value="">{label}: todos</option>}
       {options.map((o) => (
         <option key={o.value} value={o.value}>
           {o.label}
