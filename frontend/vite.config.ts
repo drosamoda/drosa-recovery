@@ -37,5 +37,7 @@ export default defineConfig({
     // rejeita — ver CLIENTE_360_JOURNEY_MIGRATION_REPORT), entao nao foi
     // necessario nenhuma flag que desligue deteccao de erro do Vitest.
     pool: 'forks',
+    // Estrategia de mocks: ver src/lib/__tests__/setup.ts.
+    clearMocks: true,
   },
 })

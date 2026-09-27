@@ -6,8 +6,8 @@ import { NavLink } from 'react-router-dom'
 const NAV_ITEMS = [
   { key: 'dashboard', label: 'Dashboard', to: '/', enabled: true },
   { key: 'customers', label: 'Cliente 360', to: '/customers', enabled: true },
-  { key: 'messages', label: 'Mensagens', to: '/messages', enabled: false },
-  { key: 'conversations', label: 'Conversas', to: '/conversations', enabled: false },
+  { key: 'messages', label: 'Mensagens', to: '/messages', enabled: true },
+  { key: 'conversations', label: 'Conversas', to: '/conversations', enabled: true },
   { key: 'recovery', label: 'Recovery', to: '/recovery', enabled: false },
   { key: 'campaigns', label: 'Campanhas & IA', to: '/campaigns', enabled: false },
   { key: 'bi', label: 'BI & Inteligencia', to: '/bi', enabled: false },

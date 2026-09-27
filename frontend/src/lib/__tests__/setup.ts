@@ -8,3 +8,13 @@ import { cleanup } from '@testing-library/react'
 afterEach(() => {
   cleanup()
 })
+
+// ESTRATEGIA DE MOCKS (obrigatoria para todo teste novo):
+// - clearMocks: true (vite.config.ts) limpa apenas chamadas/resultados entre
+//   testes; NAO use beforeEach(mockReset) nem mockReset global — combinado com
+//   um mockImplementation que rejeita, foi a causa raiz de falso-negativo e
+//   crash do worker nesta base.
+// - Cada teste configura o proprio mockResolvedValue/mockRejectedValue DENTRO
+//   do it(), nunca em beforeEach compartilhado.
+// - Nao aumentar timeout para esconder worker travado: promise pendente deve
+//   ter resolve acessivel e o teste deve dar unmount().

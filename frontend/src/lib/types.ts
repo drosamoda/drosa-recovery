@@ -180,3 +180,269 @@ export interface JourneyDetail extends JourneyListRow {
   timeline: JourneyEvent[]
   messages: JourneyMessage[]
 }
+
+// ---------------------------------------------------------------------------
+// Fases B/C/D — shapes validados contra a API REAL de producao (27/09), nao
+// so pelo TypeScript do backend. Achados: totais monetarios vem como string
+// (Decimal do Prisma); metaStatus de template e sempre 'NOT_AVAILABLE';
+// /ai/campaigns e /ai/learning respondem 503 AI_DATABASE_NOT_CONFIGURED.
+// ---------------------------------------------------------------------------
+
+export interface ListResponse<T> {
+  data: T[]
+  pagination: Pagination
+}
+
+export type MessageStatus = 'pending' | 'processing' | 'sent' | 'delivered' | 'read' | 'failed' | 'skipped' | 'unknown'
+
+export interface MessageListItem {
+  id: string
+  createdAt: string
+  customer: string | null
+  phone: string | null
+  source: string | null
+  entityType: string
+  entityId: string | null
+  template: string | null
+  status: string
+  attempts: number
+  conversion: null
+  failureCategory: string | null
+}
+
+export interface MessageDetail {
+  id: string
+  customer: { id: string; name: string } | null
+  phone: string | null
+  source: string | null
+  entityType: string
+  entityId: string | null
+  templateName: string | null
+  templateLanguage: string | null
+  status: string
+  scheduledAt: string | null
+  acceptedAt: string | null
+  sentAt: string | null
+  deliveredAt: string | null
+  readAt: string | null
+  retryCount: number
+  nextRetryAt: string | null
+  reason: string | null
+  errorCode: string | null
+  failureCategory: string | null
+  mirrorStatus: string | null
+  timeline: { stage: string; at: string | null }[]
+}
+
+export interface TemplateItem {
+  id: string
+  name: string
+  eventType: string
+  metaTemplateName: string
+  languageCode: string
+  category: string
+  messagePreview: string | null
+  active: boolean
+  usageCount: number
+  lastUsedAt: string | null
+  metaStatus: string
+}
+
+export interface ConversationListItem {
+  id: string
+  contact: string | null
+  phone: string | null
+  status: string
+  lastMessageAt: string | null
+  lastInboundAt: string | null
+  preview: string | null
+}
+
+export interface ConversationMessage {
+  id: string
+  direction: 'inbound' | 'outbound' | string
+  type: string
+  body: string | null
+  status: string | null
+  timestamp: string | null
+  createdAt: string
+}
+
+export interface ConversationDetail {
+  id: string
+  status: string
+  lastMessageAt: string | null
+  lastInboundAt: string | null
+  contact: { id: string; phone: string | null; name: string | null }
+  messages: ConversationMessage[]
+}
+
+export interface CheckoutItem {
+  id: string
+  checkout: string
+  customer: string | null
+  phone: string | null
+  products: string | null
+  total: string | number
+  currency: string | null
+  date: string | null
+  status: string
+  eligible: boolean | null
+  blockers: string[]
+  message: { id: string; template: string | null; status: string } | null
+  convertedAt: string | null
+  convertedOrderId: string | null
+}
+
+export interface PaymentItem {
+  id: string
+  order: string
+  customer: string | null
+  phone: string | null
+  total: string | number
+  date: string | null
+  paymentStatus: string
+  orderStatus: string
+  template: string | null
+  messageStatus: string | null
+  error: { category: string | null; reason: string | null; errorCode: string | null; retries: number } | null
+}
+
+export interface RemarketingRecipient {
+  id: string
+  entityType: string
+  templateName: string
+  status: string
+  reason: string | null
+  eligibilitySnapshot: { reasons?: string[]; segment?: string; template?: string; checkedAt?: string } | null
+  createdAt: string
+}
+
+export interface RemarketingRun {
+  id: string
+  segment: string
+  mode: string
+  status: string
+  candidateCount: number
+  eligibleCount: number
+  sentCount: number
+  skippedCount: number
+  failedCount: number
+  startedAt: string
+  completedAt: string | null
+  recipients: RemarketingRecipient[]
+}
+
+export interface RemarketingResponse extends ListResponse<RemarketingRun> {
+  runtime: { enabled: boolean; automationSendEnabled: boolean; dryRun: boolean }
+}
+
+export interface AutomationRule {
+  id: string
+  name: string
+  eventType: string
+  templateName: string
+  delayMinutes: number
+  active: boolean
+  maxSendsPerEntity: number
+  stopIfOrderExists: boolean
+  runtime: { cronEnabled: boolean; automationSendEnabled: boolean; flowEnabled: boolean; whatsappDryRun: boolean }
+}
+
+export interface WebhookEvidence {
+  createdAt: string
+  processed: boolean
+  hmacValid: boolean
+  error: string | null
+}
+
+export interface HealthResponse {
+  meta: { configured: boolean; latestEvidence: WebhookEvidence | null }
+  nuvemshop: { configured: boolean; latestEvidence: WebhookEvidence | null }
+  recoveryEngine: { pending: number; processing: number; failed: number; unknown: number; oldestPending: string | null }
+  inboxMirror: { failed: number; latestSuccess: string | null }
+  runtime: Record<string, boolean | null | undefined>
+}
+
+export interface AuditEvent {
+  id: string
+  provider: string
+  topic: string | null
+  externalId: string | null
+  hmacValid: boolean
+  processed: boolean
+  processedAt: string | null
+  error: string | null
+  createdAt: string
+}
+
+export interface AuditResponse extends ListResponse<AuditEvent> {
+  fullAuditLog: { status: string; missing: string[] }
+}
+
+export interface Opportunity {
+  id: string
+  channel: string
+  type: string
+  title: string
+  reason: string
+  audienceCount: number
+  eligibleCount: number | null
+  blockedCount: number
+  recommendedTiming: string | null
+  recommendedChannel: string | null
+  confidence: string | null
+  eligibilityStatus?: string
+  withValidEmailCount?: number
+  evidence?: { topBlockers?: { reason: string; count: number }[]; template?: string }
+}
+
+export interface EmailSegment {
+  segmentKey: string
+  name: string
+  objective: string
+  status: string
+  audienceCount: number
+  withValidEmailCount: number
+  sendEligibleCount: number | null
+  blockedCount: number
+  eligibilityStatus: string
+  dataQuality: { level: string; notes: string[] }
+}
+
+export interface EmailAudiences {
+  generatedAt: string
+  consentSource: string
+  sendEligibility: string
+  suppression: { status: string; excludedCount: number }
+  base: { totalCustomers: number; emailKnown: number; emailValid: number; emailInvalid: number; buyers: number }
+  segments: EmailSegment[]
+}
+
+export interface EmailRecommendation {
+  campaignKey: string
+  campaignName: string
+  segmentName: string
+  audienceCount: number
+  withValidEmailCount: number
+  sendEligibleCount: number | null
+  priority: number
+  requirementsStatus: string
+  sendBlockers: string[]
+  actionable: boolean
+  confidence: string
+}
+
+export interface EmailRecommendations {
+  generatedAt: string
+  plan: EmailRecommendation[]
+  summary: { total: number; planned: number; actionable: number; needsData: number; superseded: number }
+}
+
+export interface EmailLibrary {
+  libraryVersion: string
+  total: number
+  ready: number
+  needsData: number
+  sendGate: { allowed: boolean; missing: string[] }
+}

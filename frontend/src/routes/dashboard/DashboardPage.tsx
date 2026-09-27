@@ -32,7 +32,7 @@ export function DashboardPage() {
       {data && (
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
           <StatCard label="Mensagens criadas" value={data.messages.total} />
-          <StatCard label="Enviadas no periodo" value={data.messages.sent} />
+          <StatCard label="Disparadas no período" value={data.messages.sent} />
           <StatCard label="Clientes contatados" value={data.contactedCustomers} />
           <StatCard label="Mensagens recebidas" value={data.inboundMessages} />
           <StatCard label="Conversas recebidas" value={data.inboundConversations} />

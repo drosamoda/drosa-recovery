@@ -12,6 +12,8 @@ import { Tabs } from '../../components/overlay/Tabs'
 import { Timeline } from '../../components/viz/Timeline'
 import { apiGet, ApiError } from '../../lib/api'
 import type { CustomerDetail, JourneyDetail } from '../../lib/types'
+import { formatMoney } from '../../lib/labels'
+import { Notice } from '../../components/feedback/Notice'
 import { CustomerSummaryCard } from './CustomerSummaryCard'
 
 const TABS = [
@@ -24,16 +26,6 @@ const TABS = [
 ]
 
 const JOURNEY_FILTER_DEFAULTS = { action: '', message: '', consent: '', responded: '', flow: '', period: 'all' }
-
-// /crm-api/customers/:id devolve total como string (Decimal do Prisma
-// serializado em JSON, nunca number na pratica — confirmado contra a API
-// real, nao suposto) — formata como moeda quando for um numero valido, sem
-// arriscar interpretar errado um valor que a API nao garanta ser numerico.
-function formatMoney(total: number | string): string {
-  const numeric = typeof total === 'number' ? total : Number(total)
-  if (Number.isFinite(numeric)) return numeric.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-  return String(total)
-}
 
 export function CustomerDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -120,6 +112,13 @@ export function CustomerDetailPage() {
           <StatCard label="Carrinhos" value={customer.checkouts.length} />
           <StatCard label="Mensagens WhatsApp" value={customer.messages.length} />
           <StatCard label="Conversas" value={customer.conversations.length} />
+          {/* /crm-api/customers/:id nao expoe historico de e-mail por cliente:
+              gap declarado, sem dado ficticio nem UI vazia fingindo zero. */}
+          <div className="col-span-2 md:col-span-4">
+            <Notice>
+              Histórico de e-mail por cliente: não disponível na API atual <span className="text-ink-faint">(NOT_AVAILABLE_FROM_CURRENT_API)</span>.
+            </Notice>
+          </div>
         </div>
       )}
 
