@@ -25,4 +25,17 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: true,
   },
+  test: {
+    environment: 'jsdom',
+    setupFiles: ['./src/lib/__tests__/setup.ts'],
+    globals: true,
+    // pool 'forks' em vez do default 'threads': um teste com uma promise
+    // verdadeiramente eterna (sem nenhuma forma de settle) derrubou um
+    // worker de threads nesta rodada; processos separados isolam melhor
+    // esse tipo de falha. A causa raiz de fundo foi outra e ja corrigida
+    // nos proprios arquivos de teste (beforeEach(mockReset) + mock que
+    // rejeita — ver CLIENTE_360_JOURNEY_MIGRATION_REPORT), entao nao foi
+    // necessario nenhuma flag que desligue deteccao de erro do Vitest.
+    pool: 'forks',
+  },
 })

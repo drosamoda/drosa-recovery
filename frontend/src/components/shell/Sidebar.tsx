@@ -5,7 +5,7 @@ import { NavLink } from 'react-router-dom'
 // proposito ate serem migradas (ver REACT_MIGRATION_BLUEPRINT secao 7).
 const NAV_ITEMS = [
   { key: 'dashboard', label: 'Dashboard', to: '/', enabled: true },
-  { key: 'customers', label: 'Cliente 360', to: '/customers', enabled: false },
+  { key: 'customers', label: 'Cliente 360', to: '/customers', enabled: true },
   { key: 'messages', label: 'Mensagens', to: '/messages', enabled: false },
   { key: 'conversations', label: 'Conversas', to: '/conversations', enabled: false },
   { key: 'recovery', label: 'Recovery', to: '/recovery', enabled: false },
