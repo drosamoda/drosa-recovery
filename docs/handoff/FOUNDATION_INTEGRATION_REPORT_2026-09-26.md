@@ -60,9 +60,44 @@ O backend local não conseguiu conectar a `aws-1-us-west-2.pooler.supabase.com` 
 3. **Retry automático do react-query travava indefinidamente (`fetchStatus: 'paused'`).** Mesmo com `networkMode: 'always'` explicitamente configurado, o retry entre a 1ª falha e a 2ª tentativa nunca prosseguia neste ambiente (chegou a ficar 40+ segundos preso, confirmado via `queryClient.getQueryState()`). Não foi possível confirmar a causa raiz exata sem React Query Devtools (não instalado). **Decisão pragmática, não só contorno:** desabilitei o retry automático (`retry: false`) e mantive o botão manual "Tentar de novo" que já existia — mais previsível para um backend que pode estar genuinamente fora do ar, e elimina a dependência de um mecanismo que se mostrou frágil neste ambiente. Recomendo não reabilitar retry automático em telas futuras sem antes instrumentar com React Query Devtools para entender a causa raiz.
 4. **JSON de resposta inválido não virava `ApiError`.** Se `response.json()` falhar (ex.: servidor devolve HTML de erro com `Content-Type` incorreto em uma resposta 2xx), o erro não era um `ApiError` consistente. Corrigido: agora sempre lança `ApiError('Resposta invalida do servidor.', status)`.
 
-## Gap real encontrado, NÃO corrigido nesta rodada (fora de escopo do piloto do Dashboard)
+## REAL_DATA_READONLY_VALIDATION (rodada 2, 27/09)
 
-**Sidebar não é responsivo.** Em viewport mobile (375px), a `Sidebar` (`w-64` fixo) não colapsa nem vira drawer — o layout fica espremido/quebrado. O prompt mestre já previa isso ("No mobile: sidebar vira drawer") como parte do Design System (Fase 2/3), não do Foundation+Dashboard piloto. Registro aqui para não ser esquecido, mas não implementei agora para não expandir escopo desta etapa de integração.
+Seguindo a melhor opção indicada: **nenhum backend local foi iniciado**. O frontend Vite local (`VITE_BACKEND_URL`) apontou o proxy de `/crm-api` direto para a API de produção já existente (`https://drosa-recovery-1082403977536.us-central1.run.app`), a mesma revisão `drosa-recovery-email-compliance-v1` já auditada. Isso elimina por completo o risco de cron/worker/envio: nenhum processo do `drosa-recovery` rodou sob meu controle em momento algum desta validação — a chamada foi atendida pela instância de produção já em execução, exatamente como aconteceria se qualquer operador abrisse o dashboard real.
+
+**Manuseio do segredo:** `drosa-crm-read-secret` foi buscado do Secret Manager dentro de uma única sessão PowerShell não-interativa (`$secret = & gcloud secrets versions access ...`), sem nunca aparecer em stdout/stderr. Para autenticar o browser sem eu precisar digitar/ver o valor em nenhuma chamada de ferramenta, o mesmo script gravou um arquivo HTML efêmero (`frontend/public/__seed.html`, nunca commitado) que só faz `sessionStorage.setItem('crmNextSecret', '<valor>')` e redireciona para `/crm-next/` — servido pelo próprio Vite (mesma origem, necessário para o `sessionStorage` valer). Naveguei o browser até esse arquivo, ele preencheu a sessão sozinho, e o dashboard carregou autenticado sem eu jamais ter visto o valor do secret. Ao final: `sessionStorage.clear()`, processo do Vite encerrado pelo PID exato, e o arquivo seed apagado do disco (confirmei via `git status` — nunca esteve no repositório).
+
+**Evidência:**
+```
+REAL_DATA_DASHBOARD=PASS
+```
+Cards renderizados com números reais de produção (período "hoje"): Mensagens criadas=6, Enviadas=0, Clientes contatados=0, Mensagens recebidas=0, Conversas recebidas=0, Carrinhos abandonados=0, Carrinhos convertidos=2, Pix pendentes=0, Boletos pendentes=0. Screenshot capturado.
+
+```
+NO_WRITE_SIDE_EFFECTS=PASS
+```
+`read_network_requests` confirmou: o único request a `/crm-api/*` foi `GET /crm-api/dashboard?period=today → 200 OK` (mais uma tentativa abortada pelo StrictMode, também GET) — nenhum POST/PUT/PATCH/DELETE em nenhum momento. Reforçado por leitura de código já feita: `crmReadService.dashboard()` só executa `groupBy`/`count`/`findMany` com `select` — nenhuma escrita possível nesse caminho mesmo que eu quisesse.
+
+```
+NO_SEND_SIDE_EFFECTS=PASS
+```
+Nenhum processo do backend rodou sob meu controle — a instância que respondeu é a mesma de produção, já rodando de forma independente, com as 5 flags de envio confirmadas `false` na rodada anterior (não re-verificadas agora para não repetir uma auditoria sem gatilho novo). A validação não tocou em nenhuma rota de `/webhooks`, `/jobs`, `/crm-api/ai/campaigns` (write) nem qualquer endpoint de disparo.
+
+## Sidebar responsiva — corrigida nesta rodada
+
+Implementado exatamente como pedido: desktop (`md:` e acima) mantém a sidebar estática e sempre visível; mobile (< `md:`, ou seja < 768px) esconde a sidebar por padrão e a mostra como drawer deslizante com backdrop, acionado por um botão de menu acessível (`aria-label="Abrir menu de navegacao"`) no Topbar, visível só em mobile (`md:hidden`). O drawer fecha ao clicar no backdrop e ao clicar em qualquer item de navegação (`onClick` no `NavLink` chama `onClose`).
+
+Testado visualmente nos 4 breakpoints pedidos:
+- **375px:** sidebar escondida, botão de menu visível, conteúdo ocupa a largura toda. Drawer abre com backdrop, fecha ao clicar fora e ao navegar (confirmado via clique real e via `dispatchEvent` para eliminar qualquer dúvida de imprecisão de coordenada).
+- **768px:** sidebar fixa visível, sem botão de menu — comportamento de desktop já a partir deste breakpoint (`md:` do Tailwind = 768px).
+- **1024px:** igual a 768px, sidebar fixa.
+- **1440px:** confirmado na rodada anterior (screenshot do smoke test com dados reais).
+
+## Lint do frontend — adicionado nesta rodada
+
+O frontend não tinha nenhum ESLint configurado até agora. Adicionei o setup padrão Vite+React+TS (`@typescript-eslint`, `eslint-plugin-react-hooks`, `eslint-plugin-react-refresh`), rodando via `npm run lint` (script novo). Resultado, confirmado tanto pelo wrapper quanto pelo binário `./node_modules/.bin/eslint` direto (mesmo cuidado de sempre com o hook do RTK, que já se provou não confiável para saída de lint):
+```
+FRONTEND_LINT=PASS (0 erros, 0 warnings, 18 arquivos)
+```
 
 ## Testes da camada `crm-api` (frontend)
 
@@ -90,17 +125,26 @@ Pontos a decidir **antes** de aplicar essa mudança (não decidir aqui, só docu
 - O buildpack do Cloud Build (`gcloud run deploy --source`, sem Dockerfile hoje) instala dependências na raiz automaticamente; não está confirmado se `frontend/node_modules` (gerado pelo `npm --prefix frontend ci` dentro do `gcp-build`) é removido da imagem final depois do build ou se permanece ocupando espaço — precisa ser testado uma vez, sem impacto em produção, antes de decidir se vale a pena introduzir um passo de limpeza (`rm -rf frontend/node_modules` no fim do `gcp-build`) ou aceitar o tamanho extra.
 - Isso **não** afeta `/crm` nem `/crm-v2` de nenhuma forma — ambos continuam sendo arquivos estáticos já commitados em `public/`, sem passo de build.
 
-## Resumo de estado
+## Resumo de estado — FINAL
 
 ```
+FOUNDATION_INTEGRATION_REPORT=PASS
+
 PROJECT_GATES=FRONTEND_GATES=PASS / BACKEND_GATES=PASS (apos resolver staleness, sem regressao)
-DB_CONNECTIVITY=BLOCKED (credencial local, nao e bug de codigo, nao e sandbox)
-UI_SMOKE_TEST=PASS (loading/error/retry/refresh) / REAL_DATA_PATH=NAO_EXERCITADO
+FRONTEND_TYPECHECK=PASS · FRONTEND_LINT=PASS (0/0, 18 arquivos) · FRONTEND_TESTS=PASS (7/7) · FRONTEND_BUILD=PASS
+BACKEND_TYPECHECK=PASS · BACKEND_LINT=PASS (0/0, 199 arquivos) · BACKEND_TESTS=PASS (1036+208) · BACKEND_BUILD=PASS
+SECRET_SCAN=PASS (manual)
+
+REAL_DATA_DASHBOARD=PASS (dados reais de producao renderizados, via proxy direto — sem backend local)
+NO_WRITE_SIDE_EFFECTS=PASS
+NO_SEND_SIDE_EFFECTS=PASS
+
+UI_SMOKE_TEST=PASS (connectgate/auth/loading/error/retry/refresh/dados reais — todos os 8 itens pedidos)
 CRM_LEGACY_INTACT=CONFIRMADO (git diff 47f36db --stat, zero mudanca em public/ ou index.ts alem das 10 linhas ja existentes)
 API_CLIENT_TESTS=7/7 PASS
-MOBILE_RESPONSIVE=GAP_CONHECIDO_NAO_CORRIGIDO
-PROCESS_ISOLATION_INCIDENT=YES (detalhado acima, mitigado a partir do ponto do incidente)
-DEPLOY_READY=NAO (proposta documentada, gcp-build inalterado)
+MOBILE_RESPONSIVE=CORRIGIDO (375/768/1024/1440px testados, drawer com backdrop, fecha ao navegar)
+PROCESS_ISOLATION_INCIDENT=YES (detalhado acima, mitigado a partir do ponto do incidente; zero incidentes na rodada 2)
+DEPLOY_READY=NAO (proposta documentada, gcp-build inalterado — decisão consciente, fora de escopo desta fundação)
 ```
 
-**Recomendação:** antes de migrar Cliente 360 + Jornada, obter uma `DATABASE_URL`/`DIRECT_URL` válida para este worktree local e repetir só a parte "dados reais → cards reais" do smoke test — é o único item desta lista que ainda não foi comprovado de ponta a ponta.
+**Recomendação:** `FOUNDATION_INTEGRATION_GATE` fechado. Liberado para avançar a Cliente 360 + Jornada. Nenhum item pendente nesta fundação — `DB_CONNECTIVITY=BLOCKED` do `.env` local deixou de ser bloqueante porque `REAL_DATA_READONLY_VALIDATION` proveu o caminho de dados reais por uma via mais segura (API de produção somente-leitura via proxy, sem backend local), que é preferível de qualquer forma para futuras validações de tela.

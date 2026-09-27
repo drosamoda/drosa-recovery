@@ -14,9 +14,15 @@ const NAV_ITEMS = [
   { key: 'health', label: 'Saude', to: '/health', enabled: false },
 ]
 
-export function Sidebar() {
-  return (
-    <aside className="flex h-full w-64 flex-col border-r border-ink-faint/15 bg-surface-raised">
+interface SidebarProps {
+  // Presente (mobile): sidebar vira drawer controlado por open/onClose.
+  // Ausente (desktop, md: e acima): sidebar sempre visivel, estatica.
+  mobile?: { open: boolean; onClose: () => void }
+}
+
+export function Sidebar({ mobile }: SidebarProps) {
+  const content = (
+    <>
       <div className="px-5 py-6">
         <p className="text-xs font-semibold uppercase tracking-wide text-bordo">D'Rosa</p>
         <p className="text-lg font-semibold text-ink">Central Operacional</p>
@@ -28,6 +34,7 @@ export function Sidebar() {
               key={item.key}
               to={item.to}
               end={item.to === '/'}
+              onClick={() => mobile?.onClose()}
               className={({ isActive }) =>
                 `block rounded-md px-3 py-2 text-sm font-medium transition-colors ${
                   isActive ? 'bg-bordo-soft text-bordo' : 'text-ink-muted hover:bg-surface-sunken hover:text-ink'
@@ -50,6 +57,34 @@ export function Sidebar() {
       <div className="border-t border-ink-faint/15 px-5 py-4 text-xs text-ink-faint">
         Piloto React · nao publicado em /crm-v2
       </div>
-    </aside>
+    </>
+  )
+
+  if (!mobile) {
+    // Desktop (md: e acima): sidebar estatica, sempre visivel.
+    return <aside className="hidden md:flex h-full w-64 flex-col border-r border-ink-faint/15 bg-surface-raised">{content}</aside>
+  }
+
+  // Mobile (< md:): drawer deslizante com backdrop, escondido por padrao.
+  return (
+    <>
+      <div
+        aria-hidden={!mobile.open}
+        onClick={mobile.onClose}
+        className={`fixed inset-0 z-40 bg-black/30 transition-opacity md:hidden ${
+          mobile.open ? 'opacity-100' : 'pointer-events-none opacity-0'
+        }`}
+      />
+      <aside
+        role="dialog"
+        aria-modal="true"
+        aria-label="Menu de navegacao"
+        className={`fixed inset-y-0 left-0 z-50 flex h-full w-64 flex-col border-r border-ink-faint/15 bg-surface-raised transition-transform md:hidden ${
+          mobile.open ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        {content}
+      </aside>
+    </>
   )
 }

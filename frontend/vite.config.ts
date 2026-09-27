@@ -9,11 +9,16 @@ export default defineConfig({
   base: '/crm-next/',
   server: {
     proxy: {
-      // Porta real do backend local (mesma variavel PORT do .env do backend,
-      // default 3000 conforme package.json/env.ts). Sobrescreva com
-      // VITE_BACKEND_PORT quando o backend estiver rodando em outra porta
-      // (ex.: para evitar conflito com outro projeto na mesma maquina).
-      '/crm-api': `http://localhost:${process.env.VITE_BACKEND_PORT || 3000}`,
+      // Alvo do proxy de /crm-api. VITE_BACKEND_URL (URL completa) tem
+      // prioridade — usado para REAL_DATA_READONLY_VALIDATION apontando
+      // direto para a API de producao ja protegida por x-crm-read-secret,
+      // sem subir nenhum backend local (evita qualquer risco de cron/worker/
+      // envio, ja que nenhum processo do drosa-recovery roda sob controle
+      // deste dev server). Sem essa var, cai no default de dev local.
+      '/crm-api': {
+        target: process.env.VITE_BACKEND_URL || `http://localhost:${process.env.VITE_BACKEND_PORT || 3000}`,
+        changeOrigin: true,
+      },
     },
   },
   build: {
