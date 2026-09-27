@@ -32,7 +32,7 @@ describe('RecoveryPage', () => {
   it('funil subordinado sobre a amostra, compra posterior separada e motivos agregados', async () => {
     mockedApiGet.mockResolvedValue(checkouts)
     renderWithProviders(<RecoveryPage />)
-    expect(await screen.findByText(/Amostra da página carregada \(4 de 400/)).toBeInTheDocument()
+    expect(await screen.findByText(/Amostra da página atual — 4 registros \(de 400/)).toBeInTheDocument()
     const funnel = screen.getByText('Avaliados').closest('ol') as HTMLElement
     const stage = (label: string) => within(funnel).getByText(label).parentElement as HTMLElement
     expect(within(stage('Avaliados')).getByText('4')).toBeInTheDocument()
@@ -42,7 +42,8 @@ describe('RecoveryPage', () => {
     expect(within(stage('Lidos')).getByText('1')).toBeInTheDocument()
     // compra posterior NAO e etapa do funil
     expect(within(funnel).queryByText(/Pedido|Compra|Convers/)).not.toBeInTheDocument()
-    expect(screen.getByText('Pedidos observados após contato')).toBeInTheDocument()
+    expect(screen.getByText('Pedidos com contato registrado')).toBeInTheDocument()
+    expect(screen.queryByText(/após contato/)).not.toBeInTheDocument()
     expect(screen.queryByText(/recuperad|ROI|convers[aã]o/i)).not.toBeInTheDocument()
     // motivo agregado com rotulo amigavel e contagem real (2x consent_unproven)
     const reason = screen.getAllByTitle('consent_unproven')[0]
@@ -54,7 +55,7 @@ describe('RecoveryPage', () => {
     // dado fora de ordem proposital: mais disparados do que elegíveis
     mockedApiGet.mockResolvedValue(page([co({ eligible: false, message: { id: 'x', template: 't', status: 'delivered' } })]))
     renderWithProviders(<RecoveryPage />)
-    await screen.findByText(/Amostra da página/)
+    await screen.findByText(/Amostra da página atual/)
     expect(screen.getAllByText('100.0% de avaliados').length).toBeGreaterThan(0)
   })
 

@@ -54,7 +54,8 @@ describe('HealthPage', () => {
     mockedApiGet.mockImplementation(((path: string) => Promise.resolve(path.startsWith('audit') ? audit : health)) as never)
     renderWithProviders(<HealthPage />)
     await userEvent.click(screen.getByRole('button', { name: 'Webhooks' }))
-    expect(await screen.findByText(/Amostra dos 3 eventos mais recentes de 3.343/)).toBeInTheDocument()
+    expect(await screen.findByText('Últimos 3 eventos')).toBeInTheDocument()
+    expect(screen.getByText(/não são histórico global/)).toBeInTheDocument()
     const row = screen.getByText('order/paid').closest('tr') as HTMLElement
     expect(within(row).getByText('50.0%')).toBeInTheDocument()
   })

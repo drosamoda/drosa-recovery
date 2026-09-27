@@ -75,6 +75,18 @@ describe('CampaignsPage', () => {
     expect(document.querySelector('.text-status-danger')).toBeNull()
   })
 
+  it('título contraditório (N elegíveis com eligibleCount=0) vira headline neutra + DATA_QUALITY_WARNING', async () => {
+    const bad: Opportunity = { ...opp, id: 'o2', type: 'ABANDONED_CART', title: '100 carrinhos abandonados elegíveis', audienceCount: 100, eligibleCount: 0, blockedCount: 100 }
+    mockedApiGet.mockImplementation(((path: string) => (path.startsWith('ai/opportunities') ? Promise.resolve({ data: [bad, opp] }) : route(path))) as never)
+    renderWithProviders(<CampaignsPage />)
+    expect(await screen.findByRole('heading', { name: 'Carrinhos abandonados' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '100 carrinhos abandonados elegíveis' })).not.toBeInTheDocument()
+    expect(screen.getByText(/DATA_QUALITY_WARNING/)).toHaveTextContent('100 carrinhos abandonados elegíveis')
+    // titulo coerente (sem "elegiveis") segue como veio, sem aviso
+    expect(screen.getByRole('heading', { name: '9 pedidos com Pix pendente' })).toBeInTheDocument()
+    expect(screen.getAllByText(/DATA_QUALITY_WARNING/)).toHaveLength(1)
+  })
+
   it('erro real (500) em oportunidades aparece como erro', async () => {
     mockedApiGet.mockRejectedValue(new ApiError('Falha interna', 500))
     renderWithProviders(<CampaignsPage />)

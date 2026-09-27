@@ -11,7 +11,7 @@ import { Field } from '../../components/data/Field'
 import { Notice } from '../../components/feedback/Notice'
 import { SelectFilter } from '../../components/data/FilterBar'
 import { apiGet } from '../../lib/api'
-import { ELIGIBILITY_REASON, EMAIL_STATUS, humanize, lookup } from '../../lib/labels'
+import { ELIGIBILITY_REASON, EMAIL_STATUS, OPPORTUNITY_TYPE, humanize, lookup, titleContradictsCounters } from '../../lib/labels'
 import type { AutomationRule, EmailAudiences, EmailLibrary, EmailRecommendation, EmailRecommendations, EmailSegment, Opportunity } from '../../lib/types'
 
 const TABS = [
@@ -72,12 +72,21 @@ function OpportunitiesTab() {
 
 function OpportunityCard({ opportunity: o }: { opportunity: Opportunity }) {
   const blockers = o.evidence?.topBlockers ?? []
+  const contradictory = titleContradictsCounters(o.title, o.eligibleCount)
+  const headline = contradictory ? (OPPORTUNITY_TYPE[o.type] ?? humanize(o.type)) : o.title
   return (
     <article className="rounded-card border border-ink-faint/15 bg-surface-raised p-4">
       <p className="text-xs uppercase tracking-wide text-ink-faint" title={o.type}>
         {o.channel} · {humanize(o.type)}
       </p>
-      <h3 className="mt-1 text-sm font-semibold text-ink">{o.title}</h3>
+      <h3 className="mt-1 text-sm font-semibold text-ink" title={o.title}>
+        {headline}
+      </h3>
+      {contradictory && (
+        <p className="mt-1 rounded-md bg-status-warning/10 px-2 py-1 text-xs text-ink" data-quality-warning="title-counter-mismatch">
+          DATA_QUALITY_WARNING: o título do backend (“{o.title}”) não corresponde ao contador real de elegíveis. Valem os contadores abaixo.
+        </p>
+      )}
       <p className="mt-1 text-sm text-ink-muted">{o.reason}</p>
       <dl className="mt-3">
         <Field label="População">{count(o.audienceCount)}</Field>

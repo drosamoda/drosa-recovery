@@ -139,7 +139,7 @@ function WebhooksTab() {
     { key: 'total', label: 'Total', render: (r) => r.total },
     { key: 'processed', label: 'Processados', render: (r) => r.processed, hideOnMobile: true },
     { key: 'errors', label: 'Erros', render: (r) => r.errors },
-    { key: 'rate', label: 'Taxa de erro', render: (r) => `${((r.errors / r.total) * 100).toFixed(1)}%`, hideOnMobile: true },
+    { key: 'rate', label: 'Taxa de erro (janela)', render: (r) => `${((r.errors / r.total) * 100).toFixed(1)}%`, hideOnMobile: true },
     { key: 'last', label: 'Última ocorrência', render: (r) => formatDateTime(r.last), hideOnMobile: true },
   ]
   return (
@@ -147,7 +147,7 @@ function WebhooksTab() {
       {(d) => (
         <>
           <Notice>
-            Amostra dos {d.data.length} eventos mais recentes de {d.pagination.total.toLocaleString('pt-BR')}. Agregado completo por provider/tópico não é exposto pela API atual <span className="text-ink-faint">(NOT_AVAILABLE_FROM_CURRENT_API)</span>. Esta tela não altera o processamento de webhooks.
+            <strong>Últimos {d.data.length} eventos</strong> (de {d.pagination.total.toLocaleString('pt-BR')} registrados). Contagens e taxa de erro valem só para esta janela, não são histórico global. Agregado completo por provider/tópico não é exposto pela API atual <span className="text-ink-faint">(NOT_AVAILABLE_FROM_CURRENT_API)</span>; erros históricos seguem em investigação separada. Esta tela não altera o processamento de webhooks.
           </Notice>
           <DataTable columns={columns} rows={aggregate(d.data)} rowKey={(r) => r.key} />
         </>

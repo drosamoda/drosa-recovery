@@ -114,13 +114,13 @@ function CheckoutsTab() {
                   { label: 'Entregues', value: withMessage.filter((r) => DELIVERED.has(r.message?.status ?? '')).length },
                   { label: 'Lidos', value: withMessage.filter((r) => r.message?.status === 'read').length },
                 ]}
-                caption={`Amostra da página carregada (${rows.length} de ${d.pagination.total.toLocaleString('pt-BR')} carrinhos), não o total do período.`}
+                caption={`Amostra da página atual — ${rows.length} registros (de ${d.pagination.total.toLocaleString('pt-BR')} no total). Percentuais valem só para esta amostra, não para o período.`}
               />
               <div className="my-4 grid gap-4 md:grid-cols-[minmax(0,14rem)_minmax(0,1fr)]">
                 {/* Evento observado, NAO etapa do funil nem atribuicao de conversao. */}
-                <StatCard label="Pedidos observados após contato" value={observedOrders} hint="Carrinhos com contato registrado e pedido vinculado. Não é atribuição." />
+                <StatCard label="Pedidos com contato registrado" value={observedOrders} hint="Carrinho com mensagem registrada e pedido vinculado. A API não traz horário do contato vs. pedido: não indica ordem nem atribuição." />
                 <div className="rounded-card border border-ink-faint/15 bg-surface-raised p-4">
-                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-faint">Motivos de bloqueio (amostra)</p>
+                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-faint">Motivos de bloqueio — amostra da página atual</p>
                   {reasons.length === 0 ? (
                     <p className="text-sm text-ink-muted">Nenhum bloqueio nesta página.</p>
                   ) : (

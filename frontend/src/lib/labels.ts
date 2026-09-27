@@ -82,6 +82,31 @@ export const EMAIL_STATUS: Record<string, Label> = {
   applied: { label: 'Aplicada', tone: 'neutral' },
 }
 
+// Headlines neutras por tipo de oportunidade. O titulo do backend
+// (aiOpportunityEngine.fromSegment) usa `eligible || found` e pode dizer
+// "N ... elegiveis" com eligibleCount=0; por isso a headline nao reusa o
+// numero do titulo e os contadores reais aparecem separados.
+export const OPPORTUNITY_TYPE: Record<string, string> = {
+  ABANDONED_CART: 'Carrinhos abandonados',
+  PIX_PENDING: 'Pedidos com Pix pendente',
+  BOLETO_PENDING: 'Boletos pendentes',
+  VIP: 'Clientes VIP',
+  RECENT_CUSTOMER: 'Clientes recentes',
+  ENGAGED_NO_PURCHASE: 'Contatos engajados sem compra',
+  WINBACK: 'Clientes inativos (winback)',
+  REPEAT_PURCHASE: 'Recompra',
+}
+
+// DATA_QUALITY_WARNING: o titulo afirma elegiveis mas o numero nao bate com
+// o contador real. So detecta; nao corrige elegibilidade.
+export function titleContradictsCounters(title: string, eligibleCount: number | null): boolean {
+  if (!/eleg[ií]ve/i.test(title)) return false
+  const match = title.match(/\d[\d.]*/)
+  if (!match) return false
+  const stated = Number(match[0].replace(/\./g, ''))
+  return eligibleCount === null || stated !== eligibleCount
+}
+
 export function humanize(code: string): string {
   return code.replace(/[_-]+/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase())
 }
