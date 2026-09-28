@@ -90,6 +90,11 @@ vi.mock('../../config/prisma', () => ({
       messageLog: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     })),
     $queryRaw: vi.fn().mockResolvedValue([{ acquired: true }]),
+    automationJobRun: {
+      create: vi.fn().mockResolvedValue({ id: 'run-mock-001' }),
+      update: vi.fn().mockResolvedValue({}),
+      findUnique: vi.fn().mockResolvedValue({ startedAt: new Date(Date.now() - 1000) }),
+    },
   },
 }))
 
@@ -308,6 +313,40 @@ describe('POST /jobs/process-messages', () => {
         }),
       }),
     }))
+  })
+
+  it('grava um AutomationJobRun completo (process_messages) sem PII no summary', async () => {
+    const res = await request(app)
+      .post('/jobs/process-messages')
+      .set('x-jobs-secret', JOBS_SECRET)
+
+    expect(res.status).toBe(200)
+    expect(prisma.automationJobRun.create).toHaveBeenCalledWith({
+      data: { jobKey: 'process_messages', status: 'running' },
+      select: { id: true },
+    })
+    expect(prisma.automationJobRun.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'run-mock-001' },
+      data: expect.objectContaining({ status: 'completed' }),
+    }))
+    const updateCall = vi.mocked(prisma.automationJobRun.update).mock.calls[0][0] as { data: Record<string, unknown> }
+    expect(JSON.stringify(updateCall.data)).not.toMatch(/5531998021418|normalizedPhone|payload/i)
+  })
+
+  it('grava um AutomationJobRun failed com categoria fechada quando o job explode', async () => {
+    vi.mocked(prisma.messageLog.findMany).mockRejectedValueOnce(new Error('secret-host connection refused'))
+
+    const res = await request(app)
+      .post('/jobs/process-messages')
+      .set('x-jobs-secret', JOBS_SECRET)
+
+    expect(res.status).toBe(500)
+    expect(prisma.automationJobRun.update).toHaveBeenCalledWith({
+      where: { id: 'run-mock-001' },
+      data: expect.objectContaining({ status: 'failed', errorCategory: 'unexpected_error' }),
+    })
+    const updateCall = vi.mocked(prisma.automationJobRun.update).mock.calls[0][0] as { data: Record<string, unknown> }
+    expect(JSON.stringify(updateCall.data)).not.toMatch(/secret-host/i)
   })
 
   it('payment_confirmed envia ao contrato os 3 parametros incluindo o link VIP', async () => {
@@ -733,5 +772,13 @@ describe('POST /jobs/sync-abandoned-checkouts', () => {
       errors: 0,
       scheduled: 0,
     })
+    expect(prisma.automationJobRun.create).toHaveBeenCalledWith({
+      data: { jobKey: 'sync_abandoned_checkouts', status: 'running' },
+      select: { id: true },
+    })
+    expect(prisma.automationJobRun.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'run-mock-001' },
+      data: expect.objectContaining({ status: 'completed' }),
+    }))
   })
 })

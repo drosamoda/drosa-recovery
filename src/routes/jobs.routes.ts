@@ -4,6 +4,15 @@ import {
   runSyncAbandonedCheckouts,
 } from '../jobs/syncAbandonedCheckouts'
 import { runProcessMessages } from '../jobs/processMessages'
+import { runSyncBoletoExpiring } from '../jobs/syncBoletoExpiring'
+import { AutomationJobKey } from '@prisma/client'
+import {
+  startAutomationJobRun,
+  finishAutomationJobRun,
+  failAutomationJobRun,
+  classifyJobError,
+} from '../services/automationJobRunService'
+import { logger } from '../config/logger'
 import { runBackfillInboxContacts } from '../jobs/backfillInboxContacts'
 import { runBackfillInboxTemplatePreviews } from '../jobs/backfillInboxTemplatePreviews'
 import { runBackfillInboxSentMessages } from '../jobs/backfillInboxSentMessages'
@@ -75,6 +84,40 @@ function serializeNuvemshopHistoryUnavailable(error: unknown): {
   }
 }
 
+// Wraps a transactional job with best-effort telemetry: a start/finish/fail
+// record in AutomationJobRun. Telemetry never gates or masks the job's own
+// result/exception — if recording itself fails, it's logged and swallowed,
+// and the wrapped call's outcome (return value or thrown error) is
+// preserved exactly as if this wrapper weren't there.
+async function withJobTelemetry<T extends Record<string, unknown>>(
+  jobKey: AutomationJobKey,
+  run: () => Promise<T>,
+): Promise<T> {
+  let runId: string | null = null
+  try {
+    runId = await startAutomationJobRun(jobKey)
+  } catch (err) {
+    logger.error('[jobs] telemetry start failed', { jobKey, error: err instanceof Error ? err.message : 'unknown' })
+  }
+
+  try {
+    const result = await run()
+    if (runId) {
+      await finishAutomationJobRun(runId, result).catch((err) => {
+        logger.error('[jobs] telemetry finish failed', { jobKey, error: err instanceof Error ? err.message : 'unknown' })
+      })
+    }
+    return result
+  } catch (error) {
+    if (runId) {
+      await failAutomationJobRun(runId, classifyJobError(error)).catch((err) => {
+        logger.error('[jobs] telemetry fail-record failed', { jobKey, error: err instanceof Error ? err.message : 'unknown' })
+      })
+    }
+    throw error
+  }
+}
+
 const router = Router()
 router.post('/remarketing-preview', async (req: Request, res: Response) => {
   const segment = req.body?.segment ?? 'all'
@@ -117,7 +160,7 @@ router.post('/abandoned-checkouts-preview/:checkoutId', async (req: Request, res
 
 // POST /jobs/sync-abandoned-checkouts
 router.post('/sync-abandoned-checkouts', async (_req: Request, res: Response) => {
-  const result = await runSyncAbandonedCheckouts()
+  const result = await withJobTelemetry('sync_abandoned_checkouts', () => runSyncAbandonedCheckouts())
   res.json({
     found: result.found,
     eligible: result.scheduled,
@@ -153,7 +196,13 @@ router.post('/sync-abandoned-checkouts/:checkoutId', async (req: Request, res: R
 
 // POST /jobs/process-messages
 router.post('/process-messages', async (_req: Request, res: Response) => {
-  const result = await runProcessMessages()
+  const result = await withJobTelemetry('process_messages', () => runProcessMessages())
+  res.json(result)
+})
+
+// POST /jobs/sync-boleto-expiring
+router.post('/sync-boleto-expiring', async (_req: Request, res: Response) => {
+  const result = await withJobTelemetry('sync_boleto_expiring', () => runSyncBoletoExpiring())
   res.json(result)
 })
 
