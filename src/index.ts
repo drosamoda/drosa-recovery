@@ -165,15 +165,16 @@ if (!env.CRM_PREVIEW_READONLY) {
 app.get('/inbox', (_req, res) => {
   res.sendFile(path.join(process.cwd(), 'public', 'inbox', 'index.html'))
 })
-app.get('/crm', (_req, res) => {
-  res.sendFile(path.join(process.cwd(), 'public', 'crm', 'index.html'))
-})
+const sendLegacyCrm = (_req: Request, res: Response) => res.sendFile(path.join(process.cwd(), 'public', 'crm', 'index.html'))
+const sendLegacyCrmV2 = (_req: Request, res: Response) => res.sendFile(path.join(process.cwd(), 'public', 'crm-v2', 'index.html'))
+// Legados congelados sempre acessíveis por URL explícita (rollback operacional).
+app.get('/crm-legacy', sendLegacyCrm)
+app.get('/crm-v2-legacy', sendLegacyCrmV2)
+app.get('/crm', (req, res) => (env.CENTRAL_REACT_CANONICAL ? res.redirect(302, '/crm-next/') : sendLegacyCrm(req, res)))
 // Piloto visual isolado (redesign radical de interface) — reaproveita EXATAMENTE o mesmo /crm-api
 // e o mesmo crmAuth já usados por /crm; nenhuma lógica de negócio, dado ou regra nova. /crm
 // permanece intocado e servido em paralelo até aprovação humana visual do /crm-v2.
-app.get('/crm-v2', (_req, res) => {
-  res.sendFile(path.join(process.cwd(), 'public', 'crm-v2', 'index.html'))
-})
+app.get('/crm-v2', (req, res) => (env.CENTRAL_REACT_CANONICAL ? res.redirect(302, '/crm-next/') : sendLegacyCrmV2(req, res)))
 // Piloto React+Vite (Central Operacional nova) — NÃO linkado em nenhum menu,
 // NÃO anunciado, coexiste com /crm e /crm-v2 sem substituir nenhum dos dois.
 // Só assume a rota /crm-v2 num cutover explícito e futuro (ver

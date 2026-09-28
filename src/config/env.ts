@@ -222,6 +222,10 @@ const envSchema = z.object({
   // global (o limiter de descadastro continua como está).
   // Preview: módulos operacionais via proxy GET para a API oficial (sem DB
   // operacional). Ambos vazios = modo normal (rotas locais, como hoje).
+  // Cutover: com true, /crm e /crm-v2 redirecionam para a Central React
+  // (/crm-next/) e as UIs antigas ficam congeladas em /crm-legacy e
+  // /crm-v2-legacy (rollback operacional sem deploy de imagem).
+  CENTRAL_REACT_CANONICAL: z.string().default('false').transform((v) => v === 'true'),
   CRM_UPSTREAM_URL: z.string().default(''),
   CRM_UPSTREAM_READ_SECRET: z.string().default(''),
   CENTRAL_TRUSTED_PROXY_HOPS: z.coerce.number().int().min(0).max(3).default(0),

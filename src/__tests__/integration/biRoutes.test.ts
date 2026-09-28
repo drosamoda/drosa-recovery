@@ -75,7 +75,7 @@ describe('GET /crm-api/bi/* — somente leitura, allowlist server-side', () => {
   })
 
   it('embed sem Metabase configurado => 503 METABASE_NOT_CONFIGURED', async () => {
-    const res = await request(await app()).get('/crm-api/bi/embed/recovery').set('x-crm-read-secret', SECRET)
+    const res = await request(await app()).get('/crm-api/bi/embed/integrations').set('x-crm-read-secret', SECRET)
     expect(res.status).toBe(503)
     expect(res.body.code).toBe('METABASE_NOT_CONFIGURED')
   })
@@ -85,32 +85,32 @@ describe('GET /crm-api/bi/* — somente leitura, allowlist server-side', () => {
     process.env.METABASE_SITE_URL = 'https://metabase.example.test/'
     process.env.METABASE_SECRET_KEY = METABASE_KEY
     try {
-      const res = await request(await app()).get('/crm-api/bi/embed/recovery').set('x-crm-read-secret', SECRET)
+      const res = await request(await app()).get('/crm-api/bi/embed/integrations').set('x-crm-read-secret', SECRET)
       expect(res.status).toBe(200)
       expect(JSON.stringify(res.body)).not.toContain(METABASE_KEY)
       const token = String(res.body.url).match(/\/embed\/dashboard\/([^#]+)/)?.[1] ?? ''
       const [h, p, sig] = token.split('.')
       expect(createHmac('sha256', METABASE_KEY).update(`${h}.${p}`).digest('base64url')).toBe(sig)
       const payload = JSON.parse(Buffer.from(p, 'base64url').toString())
-      expect(payload.resource).toEqual({ dashboard: 6 })
+      expect(payload.resource).toEqual({ dashboard: 8 })
       expect(payload.exp - Math.round(Date.now() / 1000)).toBeLessThanOrEqual(600)
       expect(res.body.url.startsWith('https://metabase.example.test/embed/dashboard/')).toBe(true)
-      // cada alias da allowlist mapeia server-side para o ID real
-      const expected: Record<string, number> = { executive: 2, recovery: 6, messages: 3, consents: 5, orders: 7, integrations: 8 }
-      for (const [alias, id] of Object.entries(expected)) {
+      // aliases com KPIs reprovados na auditoria semântica: bloqueados no servidor
+      for (const alias of ['executive', 'recovery', 'messages', 'consents', 'orders']) {
         const r = await request(await app()).get(`/crm-api/bi/embed/${alias}`).set('x-crm-read-secret', SECRET)
-        expect(r.status).toBe(200)
-        const t = String(r.body.url).match(/\/embed\/dashboard\/([^#]+)/)?.[1] ?? ''
-        expect(JSON.parse(Buffer.from(t.split('.')[1], 'base64url').toString()).resource).toEqual({ dashboard: id })
+        expect(r.status).toBe(503)
+        expect(r.body.code).toBe('METABASE_SEMANTIC_REVIEW_PENDING')
+        expect(JSON.stringify(r.body)).not.toContain('embed/dashboard')
       }
-      // alias inexistente, ID numérico e query string não escolhem dashboard
-      for (const path of ['/crm-api/bi/embed/nope', '/crm-api/bi/embed/2', '/crm-api/bi/embed/recovery?dashboard=1']) {
-        const r = await request(await app()).get(path).set('x-crm-read-secret', SECRET)
-        if (r.status === 200) expect(JSON.parse(Buffer.from(String(r.body.url).match(/\/embed\/dashboard\/([^#]+)/)![1].split('.')[1], 'base64url').toString()).resource).toEqual({ dashboard: 6 })
-        else expect(r.status).toBe(404)
+      // alias inexistente e ID numérico não escolhem dashboard
+      for (const path of ['/crm-api/bi/embed/nope', '/crm-api/bi/embed/8']) {
+        expect((await request(await app()).get(path).set('x-crm-read-secret', SECRET)).status).toBe(404)
       }
+      // query string não muda o dashboard
+      const q = await request(await app()).get('/crm-api/bi/embed/integrations?dashboard=1').set('x-crm-read-secret', SECRET)
+      expect(JSON.parse(Buffer.from(String(q.body.url).match(/\/embed\/dashboard\/([^#]+)/)![1].split('.')[1], 'base64url').toString()).resource).toEqual({ dashboard: 8 })
       // sem sessão/segredo: 401, sem URL assinada
-      const anon = await request(await app()).get('/crm-api/bi/embed/recovery')
+      const anon = await request(await app()).get('/crm-api/bi/embed/integrations')
       expect(anon.status).toBe(401)
       expect(JSON.stringify(anon.body)).not.toContain('embed/dashboard')
     } finally {

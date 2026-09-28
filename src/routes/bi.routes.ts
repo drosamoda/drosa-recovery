@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express'
 import { logger } from '../config/logger'
 import { biDatasource, clampDays, isBiDataset, readBiDataset } from '../services/biReadService'
-import { buildEmbedUrl, isMetabaseModule, metabaseStatus, MetabaseNotConfiguredError } from '../services/metabaseEmbed'
+import { buildEmbedUrl, isMetabaseModule, metabaseStatus, MetabaseNotConfiguredError, MetabaseSemanticReviewPendingError } from '../services/metabaseEmbed'
 
 // /crm-api/bi — somente GET, montado atrás do mesmo crmAuth de /crm-api.
 const router = Router()
@@ -16,6 +16,9 @@ router.get('/embed/:module', (req: Request, res: Response) => {
   try {
     return res.json(buildEmbedUrl(module))
   } catch (error) {
+    if (error instanceof MetabaseSemanticReviewPendingError) {
+      return res.status(503).json({ error: 'Painel Metabase em revisão semântica; indicadores nativos da Central valem.', code: error.code })
+    }
     if (error instanceof MetabaseNotConfiguredError) {
       return res.status(503).json({ error: 'Metabase não configurado neste ambiente.', code: error.code })
     }

@@ -31,6 +31,13 @@ export function MetabaseEmbed({ module, title }: { module: string; title: string
   if (query.isPending) return <LoadingState />
   if (query.isError) {
     const code = query.error instanceof ApiError ? query.error.code : null
+    if (code === 'METABASE_SEMANTIC_REVIEW_PENDING') {
+      return (
+        <Notice>
+          Painel Metabase “{title}” em revisão semântica (alguns indicadores não seguem o dicionário da Central). Use os indicadores acima. <span className="text-ink-faint">({code})</span>
+        </Notice>
+      )
+    }
     return (
       <Notice>
         Painel Metabase “{title}” indisponível neste ambiente{code ? <span className="text-ink-faint"> ({code})</span> : null}. Os indicadores acima vêm direto das views de BI.

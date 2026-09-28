@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { PageHeader } from '../../components/shell/PageHeader'
 import { Tabs } from '../../components/overlay/Tabs'
@@ -28,8 +29,13 @@ export function MessagesPage() {
 }
 
 function MessageList() {
+  const [params] = useSearchParams()
   const [search, setSearch] = useState('')
-  const [status, setStatus] = useState('')
+  // links do Action Center chegam com ?status=failed|unknown|pending
+  const [status, setStatus] = useState(() => {
+    const s = params.get('status') ?? ''
+    return s in MESSAGE_STATUS ? s : ''
+  })
   const [page, setPage] = useState(1)
   const [selected, setSelected] = useState<string | null>(null)
   const query = useQuery({

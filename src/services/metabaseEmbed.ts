@@ -19,6 +19,17 @@ export const METABASE_MODULES = {
 
 export type MetabaseModule = keyof typeof METABASE_MODULES
 
+// Auditoria semântica (28/09, docs/handoff/METABASE_SEMANTIC_AUDIT_2026-09-28.md):
+// só dashboards com TODOS os cards KEEP podem ser embutidos na Central. Os
+// demais têm KPIs inválidos (ex.: failure rate sobre total com skipped,
+// "enviadas", funil com purchased_after_contact, "faturamento" com pedidos não
+// pagos) e ficam bloqueados aqui até os cards serem corrigidos no Metabase.
+export const METABASE_SEMANTICALLY_APPROVED: ReadonlySet<MetabaseModule> = new Set<MetabaseModule>(['integrations'])
+
+export class MetabaseSemanticReviewPendingError extends Error {
+  code = 'METABASE_SEMANTIC_REVIEW_PENDING'
+}
+
 export class MetabaseNotConfiguredError extends Error {
   code = 'METABASE_NOT_CONFIGURED'
 }
@@ -43,6 +54,7 @@ export function signMetabaseToken(payload: Record<string, unknown>, secret: stri
 
 export function buildEmbedUrl(module: MetabaseModule, ttlSeconds = 600, now = Date.now()): { url: string; expiresAt: string } {
   const id = METABASE_MODULES[module]
+  if (!METABASE_SEMANTICALLY_APPROVED.has(module)) throw new MetabaseSemanticReviewPendingError('Painel em revisão semântica.')
   if (!isMetabaseConfigured()) throw new MetabaseNotConfiguredError('Metabase não configurado para este módulo.')
   const exp = Math.round(now / 1000) + ttlSeconds
   const token = signMetabaseToken({ resource: { dashboard: id }, params: {}, exp }, env.METABASE_SECRET_KEY)

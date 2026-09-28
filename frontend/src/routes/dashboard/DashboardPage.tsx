@@ -4,7 +4,9 @@ import { StatCard } from '../../components/data/StatCard'
 import { LoadingState } from '../../components/feedback/LoadingState'
 import { ErrorState } from '../../components/feedback/ErrorState'
 import { apiGet, ApiError } from '../../lib/api'
-import type { DashboardResponse } from '../../lib/types'
+import type { DashboardResponse, HealthResponse } from '../../lib/types'
+import { ActionCenter } from '../../components/data/ActionCenter'
+import { buildAttentionItems } from '../../lib/attention'
 
 export function DashboardPage() {
   const { data, isPending, isError, error, refetch } = useQuery({
@@ -12,9 +14,13 @@ export function DashboardPage() {
     queryFn: ({ signal }) => apiGet<DashboardResponse>('dashboard?period=today', signal),
   })
 
+  // Falha no /health não derruba o Dashboard: o bloco só aparece com dado real.
+  const health = useQuery({ queryKey: ['health'], queryFn: ({ signal }) => apiGet<HealthResponse>('health', signal) })
+
   return (
     <div>
       <PageHeader title="Dashboard" subtitle="O que esta acontecendo agora." />
+      {health.data && <ActionCenter items={buildAttentionItems(health.data)} />}
 
       {/* isPending (nao isLoading): cobre tambem a janela de retry automatico
           entre uma falha e a proxima tentativa, onde isLoading do react-query
