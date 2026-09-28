@@ -24,6 +24,8 @@ describe('Preview: proxy GET read-only para a API oficial', () => {
     process.env.CRM_UPSTREAM_URL = 'https://upstream.example.test'
     process.env.CRM_UPSTREAM_READ_SECRET = UPSTREAM_SECRET
     process.env.CRM_PREVIEW_READONLY = 'true'
+    // preview read-only exige DIRECT_URL; o CI não tem .env — definir aqui
+    process.env.DIRECT_URL = process.env.DIRECT_URL || 'postgresql://test:test@localhost:5432/drosa_test'
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
       calls.push({ url: String(url), init })
       return new Response(JSON.stringify(upstreamBody), { status: upstreamStatus, headers: { 'content-type': 'application/json' } })
