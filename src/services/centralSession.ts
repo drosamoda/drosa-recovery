@@ -125,3 +125,17 @@ export function resetLoginLimiter(): void {
   byEmail.reset()
   byIp.reset()
 }
+
+// IP do cliente para o rate limit de login. Entradas à ESQUERDA do
+// X-Forwarded-For são controladas pelo cliente (spoofáveis); só as últimas
+// `hops` entradas foram escritas por proxies confiáveis, e a mais à esquerda
+// delas é o IP que o primeiro proxy confiável viu.
+export function trustedClientIp(forwardedFor: string | string[] | undefined, socketIp: string | undefined, hops = env.CENTRAL_TRUSTED_PROXY_HOPS): string {
+  const fallback = socketIp ?? 'unknown'
+  if (hops <= 0) return fallback
+  const chain = (Array.isArray(forwardedFor) ? forwardedFor.join(',') : forwardedFor ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  return chain.length >= hops ? chain[chain.length - hops] : fallback
+}

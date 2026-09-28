@@ -1,5 +1,8 @@
 # Fase E — Data Quality + Security Preflight (27/09/2026)
 
+> **Status normalizado em 28/09 (Fase H):** AUTH_IMPLEMENTATION=PASS · AUTH_PRODUCTION_READINESS=FAIL · PREVIEW_CODE_READINESS=PASS · PREVIEW_ENV_READINESS=FAIL · PROD_SECRET_EXPOSURE_INCIDENT=YES · PROD_DB_WRITE_GUARD=FAIL. Ver `PHASE_H_PRODUCTION_CHANGE_PACKAGE_2026-09-28.md`.
+
+
 ## Semântica corrigida
 - Recovery: "Pedidos observados após contato" → **"Pedidos com contato registrado"**. A API não traz horário do contato vs. pedido; o texto não afirma ordem nem atribuição.
 - Funil Recovery: legenda **"Amostra da página atual — N registros (de T no total)"**; percentuais valem só para a amostra. Motivos: "amostra da página atual".

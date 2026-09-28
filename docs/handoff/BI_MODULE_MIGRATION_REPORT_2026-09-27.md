@@ -1,5 +1,8 @@
 # Fase F — BI & Inteligência como módulo da Central (27/09/2026)
 
+> **Status normalizado em 28/09 (Fase H):** AUTH_IMPLEMENTATION=PASS · AUTH_PRODUCTION_READINESS=FAIL · PREVIEW_CODE_READINESS=PASS · PREVIEW_ENV_READINESS=FAIL · PROD_SECRET_EXPOSURE_INCIDENT=YES · PROD_DB_WRITE_GUARD=FAIL. Ver `PHASE_H_PRODUCTION_CHANGE_PACKAGE_2026-09-28.md`.
+
+
 Fonte canônica: `drosamoda/drosa-recovery-bi-dashboard` @ `2eed563` (**BI_REPO_ACCESS=PASS**). O app Vercel **não** foi portado; só as consultas às views e o mecanismo de signed embed.
 
 ## Arquitetura
@@ -23,7 +26,7 @@ Todas existem; nenhuma criada/alterada. Smoke real dos 9 datasets com o código 
 3. `elegíveis` das views são calculados com consentimento/supressão **de hoje**, não do momento do disparo.
 
 ## Segredos / migração
-- `METABASE_SECRET_KEY`, `METABASE_EXECUTIVE_DASHBOARD_ID` e URL do `drosa_bi_reader`: não existem no GCP (vivem no Vercel do BI). **METABASE_SECRET_MIGRATION=YES** — nada copiado. Até migrar: embed = 503 `METABASE_NOT_CONFIGURED` (aviso neutro) e dados via transação read-only.
+- `METABASE_SECRET_KEY` (IDs dos dashboards agora fixos e verificados na allowlist) e URL do `drosa_bi_reader`: não existem no GCP (vivem no Vercel do BI). **METABASE_SECRET_MIGRATION=YES** — nada copiado. Até migrar: embed = 503 `METABASE_NOT_CONFIGURED` (aviso neutro) e dados via transação read-only.
 - Metabase (`drosa-bi-metabase`) respondeu `/api/health` 200 em 0,4–0,6 s.
 
 ## Smoke real

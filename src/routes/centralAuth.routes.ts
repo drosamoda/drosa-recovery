@@ -11,6 +11,7 @@ import {
   sessionCookie,
   verifyCredentials,
   verifySessionToken,
+  trustedClientIp,
 } from '../services/centralSession'
 import { env } from '../config/env'
 
@@ -30,7 +31,7 @@ router.post('/login', async (req: Request, res: Response) => {
   const password = typeof req.body?.password === 'string' ? req.body.password : ''
   if (!email || !password) return res.status(400).json({ error: 'Informe e-mail e senha.' })
 
-  const ip = req.ip ?? 'unknown'
+  const ip = trustedClientIp(req.headers['x-forwarded-for'], req.socket.remoteAddress)
   const retryAfter = loginBlockedFor(ip, email)
   if (retryAfter > 0) {
     res.setHeader('Retry-After', String(retryAfter))

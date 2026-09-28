@@ -1,5 +1,8 @@
 # Fase G — Auth única + Preview Readiness (27/09/2026)
 
+> **Status normalizado em 28/09 (Fase H):** AUTH_IMPLEMENTATION=PASS · AUTH_PRODUCTION_READINESS=FAIL · PREVIEW_CODE_READINESS=PASS · PREVIEW_ENV_READINESS=FAIL · PROD_SECRET_EXPOSURE_INCIDENT=YES · PROD_DB_WRITE_GUARD=FAIL. Ver `PHASE_H_PRODUCTION_CHANGE_PACKAGE_2026-09-28.md`.
+
+
 ## AUTH_CURRENT_STATE
 | Superfície | Mecanismo | Onde fica a credencial |
 |---|---|---|
@@ -35,7 +38,7 @@ Backend desta branch inerte (preview read-only) + Vite: login → cookie httpOnl
 5. **Segredos necessários para o preview** (nenhum criado/copiado nesta rodada):
    - `CENTRAL_SESSION_SECRET` — **novo** (gerar no Secret Manager).
    - `CENTRAL_AUTH_USERS` — migração de `DASHBOARD_AUTH_USERS` (Vercel BI).
-   - `METABASE_SECRET_KEY`, `METABASE_EXECUTIVE_DASHBOARD_ID`, `METABASE_SITE_URL` — migração do Vercel BI (**METABASE_SECRET_MIGRATION=YES**).
+   - `METABASE_SECRET_KEY` (IDs dos dashboards agora fixos e verificados na allowlist), `METABASE_SITE_URL` — migração do Vercel BI (**METABASE_SECRET_MIGRATION=YES**).
    - `BI_DATABASE_URL` (opcional, menor privilégio) — migração do Vercel BI.
    - `CRM_READ_SECRET` — já existe.
 

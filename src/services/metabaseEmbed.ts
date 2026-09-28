@@ -5,8 +5,11 @@ import { env } from '../config/env'
 // agora dentro do backend da Central. Regras:
 // - o browser NUNCA escolhe um dashboard ID: só um módulo desta allowlist;
 // - METABASE_SECRET_KEY nunca sai do servidor (só a URL assinada, que expira);
-// - IDs vêm do mapeamento já aprovado no audit de consolidação (26/09).
+// - IDs conferidos em 28/09 na tabela report_dashboard do app DB do Metabase
+//   (leitura). Em 28/09 só o 2 tinha enable_embedding=true; 3/5/6/7/8 precisam
+//   ser habilitados no admin do Metabase para o embed funcionar.
 export const METABASE_MODULES = {
+  executive: 2,
   recovery: 6,
   messages: 3,
   consents: 5,
@@ -14,22 +17,14 @@ export const METABASE_MODULES = {
   integrations: 8,
 } as const
 
-export type MetabaseModule = keyof typeof METABASE_MODULES | 'executive'
+export type MetabaseModule = keyof typeof METABASE_MODULES
 
 export class MetabaseNotConfiguredError extends Error {
   code = 'METABASE_NOT_CONFIGURED'
 }
 
 export function isMetabaseModule(value: string): value is MetabaseModule {
-  return value === 'executive' || Object.prototype.hasOwnProperty.call(METABASE_MODULES, value)
-}
-
-function dashboardId(module: MetabaseModule): number | null {
-  if (module === 'executive') {
-    const id = Number(env.METABASE_EXECUTIVE_DASHBOARD_ID)
-    return Number.isInteger(id) && id > 0 ? id : null
-  }
-  return METABASE_MODULES[module]
+  return Object.prototype.hasOwnProperty.call(METABASE_MODULES, value)
 }
 
 export function isMetabaseConfigured(): boolean {
@@ -47,8 +42,8 @@ export function signMetabaseToken(payload: Record<string, unknown>, secret: stri
 }
 
 export function buildEmbedUrl(module: MetabaseModule, ttlSeconds = 600, now = Date.now()): { url: string; expiresAt: string } {
-  const id = dashboardId(module)
-  if (!isMetabaseConfigured() || id === null) throw new MetabaseNotConfiguredError('Metabase não configurado para este módulo.')
+  const id = METABASE_MODULES[module]
+  if (!isMetabaseConfigured()) throw new MetabaseNotConfiguredError('Metabase não configurado para este módulo.')
   const exp = Math.round(now / 1000) + ttlSeconds
   const token = signMetabaseToken({ resource: { dashboard: id }, params: {}, exp }, env.METABASE_SECRET_KEY)
   return {

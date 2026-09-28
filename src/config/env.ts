@@ -202,7 +202,6 @@ const envSchema = z.object({
   // dashboard ID. Vazio = 503 METABASE_NOT_CONFIGURED (aviso neutro na UI).
   METABASE_SITE_URL: z.string().default(''),
   METABASE_SECRET_KEY: z.string().default(''),
-  METABASE_EXECUTIVE_DASHBOARD_ID: z.string().default(''),
 
   // Sessão única da Central (Fase G) — coexiste com x-crm-read-secret, que
   // continua funcionando igual. Desligada por padrão: com a flag false nenhuma
@@ -216,6 +215,12 @@ const envSchema = z.object({
   // Chave HMAC da sessão (mín. 32 chars). Vazia = login indisponível (503).
   CENTRAL_SESSION_SECRET: z.string().default(''),
   CENTRAL_SESSION_TTL_HOURS: z.coerce.number().int().min(1).max(168).default(12),
+  // Quantos proxies confiáveis ACRESCENTAM entradas ao X-Forwarded-For antes do
+  // app. 0 = usar o IP da conexão (dev/local). Cloud Run direto (sem LB) = 1:
+  // o front-end do Google acrescenta o IP real do cliente como ÚLTIMA entrada.
+  // Só afeta a chave do rate limit de login da Central — não é `trust proxy`
+  // global (o limiter de descadastro continua como está).
+  CENTRAL_TRUSTED_PROXY_HOPS: z.coerce.number().int().min(0).max(3).default(0),
 })
 
 const parsed = envSchema.safeParse(process.env)

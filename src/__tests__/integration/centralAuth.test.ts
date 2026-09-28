@@ -112,6 +112,25 @@ describe('Sessão da Central — flag LIGADA', () => {
     expect(blocked.headers['set-cookie']).toBeUndefined()
   })
 
+  it('atrás do proxy (hops=1): falhas de um cliente não bloqueiam outro; spoof de XFF não troca de chave', async () => {
+    process.env.CENTRAL_TRUSTED_PROXY_HOPS = '1'
+    vi.resetModules()
+    try {
+      const app = await loadApp()
+      for (let i = 0; i < 5; i++) {
+        // atacante tenta variar o XFF a cada tentativa: a última entrada (do proxy) não muda
+        await request(app).post('/central-auth/login').set('X-Forwarded-For', `6.6.6.${i}, 200.0.0.1`).send({ email: 'peter@example.test', password: 'errada' })
+      }
+      const attacker = await request(app).post('/central-auth/login').set('X-Forwarded-For', '7.7.7.7, 200.0.0.1').send({ email: 'peter@example.test', password: PASSWORD })
+      expect(attacker.status).toBe(429)
+      // outro usuário, outro IP real: entra normalmente
+      const legit = await request(app).post('/central-auth/login').set('X-Forwarded-For', '189.40.50.60').send({ email: 'peter@example.test', password: PASSWORD })
+      expect(legit.status).toBe(200)
+    } finally {
+      delete process.env.CENTRAL_TRUSTED_PROXY_HOPS
+    }
+  })
+
   it('login exige JSON (form cross-site simples não dispara login)', async () => {
     const app = await loadApp()
     const res = await request(app).post('/central-auth/login').type('form').send({ email: 'peter@example.test', password: PASSWORD })

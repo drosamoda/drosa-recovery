@@ -95,9 +95,24 @@ describe('GET /crm-api/bi/* — somente leitura, allowlist server-side', () => {
       expect(payload.resource).toEqual({ dashboard: 6 })
       expect(payload.exp - Math.round(Date.now() / 1000)).toBeLessThanOrEqual(600)
       expect(res.body.url.startsWith('https://metabase.example.test/embed/dashboard/')).toBe(true)
-      // executive sem ID configurado continua 503
-      const exec = await request(await app()).get('/crm-api/bi/embed/executive').set('x-crm-read-secret', SECRET)
-      expect(exec.status).toBe(503)
+      // cada alias da allowlist mapeia server-side para o ID real
+      const expected: Record<string, number> = { executive: 2, recovery: 6, messages: 3, consents: 5, orders: 7, integrations: 8 }
+      for (const [alias, id] of Object.entries(expected)) {
+        const r = await request(await app()).get(`/crm-api/bi/embed/${alias}`).set('x-crm-read-secret', SECRET)
+        expect(r.status).toBe(200)
+        const t = String(r.body.url).match(/\/embed\/dashboard\/([^#]+)/)?.[1] ?? ''
+        expect(JSON.parse(Buffer.from(t.split('.')[1], 'base64url').toString()).resource).toEqual({ dashboard: id })
+      }
+      // alias inexistente, ID numérico e query string não escolhem dashboard
+      for (const path of ['/crm-api/bi/embed/nope', '/crm-api/bi/embed/2', '/crm-api/bi/embed/recovery?dashboard=1']) {
+        const r = await request(await app()).get(path).set('x-crm-read-secret', SECRET)
+        if (r.status === 200) expect(JSON.parse(Buffer.from(String(r.body.url).match(/\/embed\/dashboard\/([^#]+)/)![1].split('.')[1], 'base64url').toString()).resource).toEqual({ dashboard: 6 })
+        else expect(r.status).toBe(404)
+      }
+      // sem sessão/segredo: 401, sem URL assinada
+      const anon = await request(await app()).get('/crm-api/bi/embed/recovery')
+      expect(anon.status).toBe(401)
+      expect(JSON.stringify(anon.body)).not.toContain('embed/dashboard')
     } finally {
       delete process.env.METABASE_SITE_URL
       delete process.env.METABASE_SECRET_KEY
