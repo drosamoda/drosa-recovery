@@ -47,7 +47,27 @@
 - [ ] **Step 5: Run all new commands locally**; expect PASS.
 - [ ] **Step 6: Commit** `ci: make frontend and production build mandatory`.
 
-### Task 2: Remove deterministic test flakiness
+### Task 2: Protect main with required checks
+
+**Files:**
+- GitHub repository settings; no application-code file required.
+- Document final rule in `docs/runbooks/GITHUB_BRANCH_PROTECTION.md`.
+
+**Interfaces:**
+- Protect branch `main`.
+- Require pull request before merge.
+- Require the canonical CI check from Task 1 and Vercel only if Vercel remains an intentional required deployment check.
+- Block force pushes and branch deletion.
+- Do not require stale historical check names that no longer run.
+
+- [ ] **Step 1: List the exact check names emitted by a fresh PR after Task 1**.
+- [ ] **Step 2: Enable branch protection using only those verified check names**.
+- [ ] **Step 3: Attempt a non-destructive direct-main update from a test branch path and verify GitHub rejects it before changing main**.
+- [ ] **Step 4: Open/merge a documentation-only test PR through the protected flow, then remove the temporary doc change if necessary**.
+- [ ] **Step 5: Document the rule and recovery procedure for administrators**.
+- [ ] **Step 6: Record `MAIN_PROTECTION=PASS`.
+
+### Task 3: Remove deterministic test flakiness
 
 **Files:**
 - Modify only tests/helpers proven flaky by repeated CI evidence.
@@ -63,7 +83,7 @@
 - [ ] **Step 4: Re-run 20 times plus the full suite twice**.
 - [ ] **Step 5: Commit each distinct flake fix separately**.
 
-### Task 3: Unify redaction for logger and Sentry
+### Task 4: Unify redaction for logger and Sentry
 
 **Files:**
 - Create: `src/config/redaction.ts`
@@ -83,7 +103,7 @@
 - [ ] **Step 5: Run focused tests/typecheck**; expect PASS.
 - [ ] **Step 6: Commit** `security: unify log and Sentry redaction`.
 
-### Task 4: Split liveness, readiness and integration health
+### Task 5: Split liveness, readiness and integration health
 
 **Files:**
 - Modify: `src/routes/health.routes.ts`
@@ -103,7 +123,7 @@
 - [ ] **Step 4: Run integration/frontend tests**; expect PASS.
 - [ ] **Step 5: Commit** `feat(health): split liveness readiness and integrations`.
 
-### Task 5: Add security headers
+### Task 6: Add security headers
 
 **Files:**
 - Modify: `package.json`
@@ -121,7 +141,7 @@
 - [ ] **Step 4: Run integration tests**; expect PASS.
 - [ ] **Step 5: Commit** `security: add HTTP security headers`.
 
-### Task 6: Perform database pool capacity and index experiment
+### Task 7: Perform database pool capacity and index experiment
 
 **Files:**
 - Create: `docs/architecture/DATABASE_POOL_CAPACITY.md`
@@ -139,7 +159,7 @@
 - [ ] **Step 5: Load-test Inbox + dashboard + readiness concurrently and record p50/p95 plus pool timeouts**.
 - [ ] **Step 6: Commit evidence and any justified migration separately**.
 
-### Task 7: Make documentation canonical
+### Task 8: Make documentation canonical
 
 **Files:**
 - Rewrite: `README.md`
@@ -158,7 +178,7 @@
 - [ ] **Step 4: Search repository for stale claims such as “P0 Inbox pending”, “migration not applied” and outdated production revision; correct or archive them**.
 - [ ] **Step 5: Commit** `docs: establish canonical current state`.
 
-### Task 8: Close stale PR and execute gated cleanup when eligible
+### Task 9: Close stale PR and execute gated cleanup when eligible
 
 **Files:**
 - Update: `docs/handoff/POST_CUTOVER_CLEANUP_PLAN_2026-09-28.md`
@@ -170,3 +190,31 @@
 - [ ] **Step 4: Update CURRENT_STATE after each irreversible cleanup**.
 - [ ] **Step 5: Record `CI_CANONICAL=PASS`, `PRODUCTION_BUILD_GATE=PASS`, `TESTS_DETERMINISTIC=PASS`, `REDACTION=PASS`, `HEALTH_MODEL=PASS`, `CURRENT_STATE_DOC=PASS`, `STALE_PR_CLEANUP=PASS`.
 
+
+
+### Task 10: Remediate BI semantic debt without fabricating history
+
+**Files:**
+- Create: `docs/sql/bi/00-export-current-view-definitions.sql`
+- Create: `docs/sql/bi/10-bi-semantic-fixes.sql`
+- Modify: `docs/handoff/METABASE_SEMANTIC_AUDIT_2026-09-28.md`
+- Modify: `src/services/metabaseEmbed.ts` only after each dashboard becomes fully approved
+- Modify: `src/__tests__/integration/biRoutes.test.ts`
+- Modify: `frontend/src/lib/__tests__/biMetrics.test.ts` when metric names/formulas change
+
+**Interfaces:**
+- First export every current `bi_*` view with `pg_get_viewdef` before modifying it.
+- Daily business dates use `America/Sao_Paulo`, not UTC day boundaries, for new corrected views.
+- `purchased_after_contact` is never exposed as causal conversion; retain a compatibility alias only if required and introduce a factual name such as `orders_with_contact_recorded`.
+- Historical WhatsApp consent before the forward-only ledger from the Consent Truth plan is **not reconstructible**; charts must show “historical unavailable before <ledger start>” rather than applying current consent state to old dates.
+- Metabase card remediation uses admin UI/API, not direct writes to Metabase application tables.
+- Known card work: fix 42, 43, 44, 48, 50, 51; hide/rebuild 49; re-audit before adding any dashboard alias to `METABASE_SEMANTICALLY_APPROVED`.
+
+- [ ] **Step 1: Export and commit current production view definitions** without data rows or credentials.
+- [ ] **Step 2: Write failing BI contract tests** for São Paulo day boundaries, correct failure-rate denominator, factual contact-linked-order naming, and explicit unavailable historical consent.
+- [ ] **Step 3: Create corrected view SQL** and apply first to a read-only validation environment or transaction-safe staging copy.
+- [ ] **Step 4: Run boundary probes around 21:00–23:59 Brasília and verify rows fall on the intended local business date**.
+- [ ] **Step 5: Update Metabase cards 42/43/44/48/50/51 and hide/rebuild 49 through supported Metabase administration**.
+- [ ] **Step 6: Re-run the semantic audit; only dashboards whose every visible card is KEEP may be added to `METABASE_SEMANTICALLY_APPROVED`**.
+- [ ] **Step 7: Run BI integration/frontend metric tests and a visual smoke of the BI page**.
+- [ ] **Step 8: Commit SQL, tests and updated semantic audit** as `fix(bi): remediate semantic and timezone debt`.
