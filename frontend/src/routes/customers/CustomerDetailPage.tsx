@@ -125,7 +125,7 @@ export function CustomerDetailPage() {
             <KpiCard label="Mensagens WhatsApp" value={customer.messages.length} icon={MessageCircle} tone="data" />
             <KpiCard label="Conversas" value={customer.conversations.length} icon={MessagesSquare} />
           </div>
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <div>
               <h3 className="t-section mb-2">Pedidos recentes</h3>
               <OrderList rows={orderRows.slice(0, 4)} emptyLabel="Nenhum pedido encontrado." />

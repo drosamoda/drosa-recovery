@@ -165,7 +165,7 @@ function OverviewTab() {
         const e = h.recoveryEngine
         return (
           <>
-            <div className="mb-4 grid gap-4 xl:grid-cols-3">
+            <div className="mb-4 grid grid-cols-1 gap-4 xl:grid-cols-3">
               <div className="xl:col-span-2">
                 <StatusMatrix h={h} />
               </div>
@@ -191,7 +191,7 @@ function OverviewTab() {
               ))}
             </div>
             <h2 className="t-section mb-2">Integrações e componentes</h2>
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               {cards.map((c) => (
                 <HealthCard key={c.title} {...c} />
               ))}

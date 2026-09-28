@@ -141,7 +141,7 @@ function ExecutiveTab({ days }: { days: number }) {
           {(d) => <MessageCards rows={d.data} />}
         </QueryView>
       </Section>
-      <div className="mb-6 grid gap-4 xl:grid-cols-2">
+      <div className="mb-6 grid grid-cols-1 gap-4 xl:grid-cols-2">
         <MessageTrend days={days} />
         <OrdersTrend days={days} />
       </div>
@@ -183,7 +183,7 @@ function RecoveryTab({ days }: { days: number }) {
                 />
               </Section>
               <Section title="Pedido vinculado (não é atribuição)">
-                <div className="grid gap-4 md:grid-cols-[minmax(0,16rem)_minmax(0,1fr)]">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,16rem)_minmax(0,1fr)]">
                   <StatCard label="Carrinhos com pedido vinculado" value={n(c.withLinkedOrder)} />
                   <Notice>
                     DATA_QUALITY_WARNING: a coluna da view se chama <code>purchased_after_contact</code>, mas a definição conta apenas <code>convertedOrderId IS NOT NULL</code> — não exige contato nem ordem temporal. Por isso é mostrada apenas como vínculo de pedido, sem atribuir resultado ao contato.
@@ -222,7 +222,7 @@ function MessagesTab({ days }: { days: number }) {
           {(d) => <MessageCards rows={d.data} />}
         </QueryView>
       </Section>
-      <div className="mb-6 grid gap-4 xl:grid-cols-2">
+      <div className="mb-6 grid grid-cols-1 gap-4 xl:grid-cols-2">
         <MessageTrend days={days} />
         <TemplateBars days={days} />
       </div>
@@ -311,7 +311,7 @@ function OrdersTab({ days }: { days: number }) {
                 <StatCard label="Pedidos (todos os status)" value={n(total.count)} />
                 <StatCard label="Valor (todos os status)" value={formatMoney(total.amount)} hint="Inclui pendentes/cancelados — ver tabela por status" />
               </div>
-              <div className="mb-4 grid gap-4 xl:grid-cols-3">
+              <div className="mb-4 grid grid-cols-1 gap-4 xl:grid-cols-3">
                 <div className="xl:col-span-2">
                   <OrdersTrend days={days} />
                 </div>

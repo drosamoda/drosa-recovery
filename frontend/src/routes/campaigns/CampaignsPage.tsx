@@ -60,7 +60,7 @@ function OpportunitiesTab() {
       </div>
       <QueryView query={query} isEmpty={(d) => d.data.length === 0} emptyTitle="Nenhuma oportunidade no momento." fallbackError="Falha de rede ao consultar /crm-api/ai/opportunities.">
         {(d) => (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {d.data.map((o) => (
               <OpportunityCard key={o.id} opportunity={o} />
             ))}

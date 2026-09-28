@@ -56,7 +56,7 @@ export function MessageAnalytics() {
         <KpiCard label="Bloqueadas" value={nf(m.blocked)} icon={Ban} tone="warning" context="não disparadas por regra" to="/messages?status=skipped" />
         <KpiCard label="Falhas" value={nf(m.failed)} icon={CircleAlert} tone={m.failed > 0 ? 'danger' : 'default'} context={m.unknown ? `${nf(m.unknown)} em estado desconhecido` : undefined} to="/messages?status=failed" />
       </section>
-      <div className="grid gap-4 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <ChartCard className="xl:col-span-2" title={`Volume por dia${opt.days < chartDays ? ' · tendência 7 dias' : ''}`} question="Clique numa série para filtrar a tabela abaixo por esse status.">
           {hasAny(points, ['read', 'delivered', 'awaiting', 'queued', 'blocked', 'failed']) ? (
             <>

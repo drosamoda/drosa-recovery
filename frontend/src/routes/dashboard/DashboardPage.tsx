@@ -96,7 +96,7 @@ export function DashboardPage() {
       ) : null}
 
       {/* Faixa 3 — Tendências + Faixa 4 — Precisa de atenção */}
-      <div className="grid gap-4 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <div className="xl:col-span-2">
           {messages.isPending ? (
             <ChartSkeleton height={260} />
@@ -130,7 +130,7 @@ export function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
         <ChartCard title={`Recovery · carrinhos${trendNote}`} question="O volume de disparos acompanha o abandono?" footer="Elegibilidade calculada com o consentimento de hoje. Pedido vinculado não é atribuição.">
           {cart.isPending ? (
             <ChartSkeletonInline />
@@ -180,7 +180,7 @@ export function DashboardPage() {
       </div>
 
       {/* Faixa 5 — Operação */}
-      <div className="grid gap-4 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <div className="xl:col-span-2">
           <RecentMessages />
         </div>
