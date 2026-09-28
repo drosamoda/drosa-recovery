@@ -23,7 +23,9 @@ function conversation(i: number, phone: string) {
 }
 
 describe('inboxService.listConversations (P0 pool=1)', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
 
   it('uses a constant number of queries regardless of conversation count', async () => {
     const convs = Array.from({ length: 100 }, (_, i) => conversation(i, `55839999900${String(i).padStart(2, '0')}`))
