@@ -218,3 +218,4 @@
 - [ ] **Step 6: Re-run the semantic audit; only dashboards whose every visible card is KEEP may be added to `METABASE_SEMANTICALLY_APPROVED`**.
 - [ ] **Step 7: Run BI integration/frontend metric tests and a visual smoke of the BI page**.
 - [ ] **Step 8: Commit SQL, tests and updated semantic audit** as `fix(bi): remediate semantic and timezone debt`.
+- [ ] **Step 9: Record `BI_SEMANTICS=PASS` and `BI_TIMEZONE=PASS` only after the corrected views and allowed Metabase dashboards pass their tests and smoke**.
