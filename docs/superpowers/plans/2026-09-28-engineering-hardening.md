@@ -188,7 +188,7 @@
 - [ ] **Step 2: Verify the required stability windows before removing preview, Vercel BI, legacy routes or old secrets**.
 - [ ] **Step 3: Execute cleanup one item at a time with before-state, rollback and smoke**.
 - [ ] **Step 4: Update CURRENT_STATE after each irreversible cleanup**.
-- [ ] **Step 5: Record `CI_CANONICAL=PASS`, `PRODUCTION_BUILD_GATE=PASS`, `TESTS_DETERMINISTIC=PASS`, `REDACTION=PASS`, `HEALTH_MODEL=PASS`, `CURRENT_STATE_DOC=PASS`, `STALE_PR_CLEANUP=PASS`.
+- [ ] **Step 5: Record `CI_CANONICAL=PASS`, `PRODUCTION_BUILD_GATE=PASS`, `TESTS_DETERMINISTIC=PASS`, `REDACTION=PASS`, `HEALTH_MODEL=PASS`, `CURRENT_STATE_DOC=PASS`, `STALE_PR_CLEANUP=PASS`**.
 
 
 
