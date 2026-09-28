@@ -53,7 +53,7 @@ describe('HealthPage', () => {
   it('webhooks: agrega a amostra por provider/tópico com taxa, rotulada como amostra', async () => {
     mockedApiGet.mockImplementation(((path: string) => Promise.resolve(path.startsWith('audit') ? audit : health)) as never)
     renderWithProviders(<HealthPage />)
-    await userEvent.click(screen.getByRole('button', { name: 'Webhooks' }))
+    await userEvent.click(screen.getByRole('tab', { name: 'Webhooks' }))
     expect(await screen.findByText('Últimos 3 eventos')).toBeInTheDocument()
     expect(screen.getByText(/não são histórico global/)).toBeInTheDocument()
     const row = screen.getByText('order/paid').closest('tr') as HTMLElement
@@ -63,7 +63,7 @@ describe('HealthPage', () => {
   it('auditoria: eventos paginados e aviso do log completo ausente', async () => {
     mockedApiGet.mockImplementation(((path: string) => Promise.resolve(path.startsWith('audit') ? audit : health)) as never)
     renderWithProviders(<HealthPage />)
-    await userEvent.click(screen.getByRole('button', { name: 'Auditoria' }))
+    await userEvent.click(screen.getByRole('tab', { name: 'Auditoria' }))
     expect(await screen.findByText(/faltam: actor, before, after, reason/)).toBeInTheDocument()
     expect(screen.getByText('boom')).toBeInTheDocument()
   })

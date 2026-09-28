@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { GraduationCap, Lightbulb, Mail, Megaphone, Workflow } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { PageHeader } from '../../components/shell/PageHeader'
 import { Tabs } from '../../components/overlay/Tabs'
@@ -15,11 +16,11 @@ import { ELIGIBILITY_REASON, EMAIL_STATUS, OPPORTUNITY_TYPE, humanize, lookup, t
 import type { AutomationRule, EmailAudiences, EmailLibrary, EmailRecommendation, EmailRecommendations, EmailSegment, Opportunity } from '../../lib/types'
 
 const TABS = [
-  { key: 'opportunities', label: 'Oportunidades' },
-  { key: 'email', label: 'E-mail' },
-  { key: 'campaigns', label: 'Campanhas' },
-  { key: 'automations', label: 'Automações' },
-  { key: 'learning', label: 'Aprendizados' },
+  { key: 'opportunities', label: 'Oportunidades', icon: Lightbulb },
+  { key: 'email', label: 'E-mail', icon: Mail },
+  { key: 'campaigns', label: 'Campanhas', icon: Megaphone },
+  { key: 'automations', label: 'Automações', icon: Workflow },
+  { key: 'learning', label: 'Aprendizados', icon: GraduationCap },
 ]
 
 const count = (n: number | null | undefined) => (n === null || n === undefined ? 'Não calculado' : n.toLocaleString('pt-BR'))
@@ -59,7 +60,7 @@ function OpportunitiesTab() {
       </div>
       <QueryView query={query} isEmpty={(d) => d.data.length === 0} emptyTitle="Nenhuma oportunidade no momento." fallbackError="Falha de rede ao consultar /crm-api/ai/opportunities.">
         {(d) => (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {d.data.map((o) => (
               <OpportunityCard key={o.id} opportunity={o} />
             ))}
@@ -75,7 +76,7 @@ function OpportunityCard({ opportunity: o }: { opportunity: Opportunity }) {
   const contradictory = titleContradictsCounters(o.title, o.eligibleCount)
   const headline = contradictory ? (OPPORTUNITY_TYPE[o.type] ?? humanize(o.type)) : o.title
   return (
-    <article className="rounded-card border border-ink-faint/15 bg-surface-raised p-4">
+    <article className="panel enter p-4">
       <p className="text-xs uppercase tracking-wide text-ink-faint" title={o.type}>
         {o.channel} · {humanize(o.type)}
       </p>

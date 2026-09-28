@@ -56,7 +56,7 @@ describe('BiPage', () => {
   it('embed pede só o módulo da allowlist (nunca um dashboard ID) e renderiza iframe', async () => {
     mockedApiGet.mockImplementation(route('ok') as never)
     renderWithProviders(<BiPage />)
-    await userEvent.click(screen.getByRole('button', { name: 'Recovery' }))
+    await userEvent.click(screen.getByRole('tab', { name: 'Recovery' }))
     expect(await screen.findByTitle('Metabase — Carrinho abandonado')).toHaveAttribute('src', expect.stringContaining('/embed/dashboard/'))
     const embedCalls = mockedApiGet.mock.calls.map((c) => c[0]).filter((p) => p.startsWith('bi/embed/'))
     expect(embedCalls).toEqual(expect.arrayContaining(['bi/embed/recovery']))
@@ -66,7 +66,7 @@ describe('BiPage', () => {
   it('recovery: dois grupos subordinados + pedido vinculado com DATA_QUALITY_WARNING', async () => {
     mockedApiGet.mockImplementation(route('unconfigured') as never)
     renderWithProviders(<BiPage />)
-    await userEvent.click(screen.getByRole('button', { name: 'Recovery' }))
+    await userEvent.click(screen.getByRole('tab', { name: 'Recovery' }))
     expect(await screen.findByText('Com consentimento marketing')).toBeInTheDocument()
     expect(screen.getByText('Carrinhos com pedido vinculado').parentElement).toHaveTextContent('12')
     expect(screen.getByText('purchased_after_contact')).toBeInTheDocument()
@@ -79,7 +79,7 @@ describe('BiPage', () => {
   it('consentimentos: transacional e marketing em paralelo sobre o total de pedidos', async () => {
     mockedApiGet.mockImplementation(route('unconfigured') as never)
     renderWithProviders(<BiPage />)
-    await userEvent.click(screen.getByRole('button', { name: 'Consentimentos' }))
+    await userEvent.click(screen.getByRole('tab', { name: 'Consentimentos' }))
     expect((await screen.findByText('Com consentimento transacional')).parentElement).toHaveTextContent('70.0% dos pedidos')
     expect(screen.getByText('Com consentimento marketing').parentElement).toHaveTextContent('20.0% dos pedidos')
   })
@@ -87,7 +87,7 @@ describe('BiPage', () => {
   it('integrações: agregado completo do período com taxa sobre eventos', async () => {
     mockedApiGet.mockImplementation(route('unconfigured') as never)
     renderWithProviders(<BiPage />)
-    await userEvent.click(screen.getByRole('button', { name: 'Integrações' }))
+    await userEvent.click(screen.getByRole('tab', { name: 'Integrações' }))
     const row = (await screen.findByText('order/paid')).closest('tr') as HTMLElement
     expect(within(row).getByText('5.0%')).toBeInTheDocument()
   })
@@ -96,9 +96,9 @@ describe('BiPage', () => {
     mockedApiGet.mockImplementation(route('unconfigured') as never)
     renderWithProviders(<BiPage />)
     await screen.findByText('Avaliadas')
-    await userEvent.selectOptions(screen.getByLabelText('Período'), '7')
-    expect(await screen.findByText('Mensagens — últimos 7 dias')).toBeInTheDocument()
-    expect(mockedApiGet.mock.calls.some((c) => c[0] === 'bi/data/messageDaily?days=7')).toBe(true)
+    await userEvent.click(screen.getByRole('radio', { name: 'Últimos 90 dias' }))
+    expect(await screen.findByText('Mensagens — últimos 90 dias')).toBeInTheDocument()
+    expect(mockedApiGet.mock.calls.some((c) => c[0] === 'bi/data/messageDaily?days=90')).toBe(true)
   })
 
   it('erro de dataset aparece como erro, não como vazio', async () => {

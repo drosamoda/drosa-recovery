@@ -181,9 +181,17 @@ app.get('/crm-v2', (req, res) => (env.CENTRAL_REACT_CANONICAL ? res.redirect(302
 // docs/handoff/REACT_MIGRATION_BLUEPRINT_2026-09-26.md seções 3-4 e 9).
 // Requer `npm run build:frontend` antes: frontend/dist não é commitado.
 const frontendDist = path.join(process.cwd(), 'frontend', 'dist')
-app.use('/crm-next', express.static(frontendDist))
+// Assets têm hash no nome: cache longo. index.html sempre revalidado, para que
+// uma aba aberta pegue o build novo após deploy.
+app.use('/crm-next/assets', express.static(path.join(frontendDist, 'assets'), { immutable: true, maxAge: '1y' }))
+// asset inexistente (hash de build antigo) = 404 real, nunca o index.html como JS
+app.use('/crm-next/assets', (_req, res) => res.status(404).type('text/plain').send('Not found'))
+app.use('/crm-next', express.static(frontendDist, { index: false }))
 app.get(['/crm-next', '/crm-next/*'], (_req, res) => {
-  res.sendFile(path.join(frontendDist, 'index.html'))
+  // Sem ETag/Last-Modified: o buildpack fixa o mtime e index.html de builds
+  // diferentes tem o mesmo tamanho -> ETag igual -> 304 servia o index antigo.
+  res.setHeader('Cache-Control', 'no-store')
+  res.sendFile(path.join(frontendDist, 'index.html'), { etag: false, lastModified: false })
 })
 
 // ── Rotas protegidas ───────────────────────────────────────────────────

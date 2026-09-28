@@ -63,9 +63,10 @@ describe('RecoveryPage', () => {
     const pix: PaymentItem = { id: 'p1', order: '1001', customer: 'Bia', phone: null, total: '50', date: null, paymentStatus: 'pending', orderStatus: 'open', template: 'pix', messageStatus: 'skipped', error: { category: 'CONSENT_BLOCK', reason: 'consent_unproven', errorCode: null, retries: 0 } }
     mockedApiGet.mockImplementation((path: string) => Promise.resolve(path.startsWith('payments/pix') ? page([pix]) : checkouts) as never)
     renderWithProviders(<RecoveryPage />)
-    await userEvent.click(screen.getByRole('button', { name: 'PIX' }))
+    await userEvent.click(screen.getByRole('tab', { name: 'PIX' }))
     expect(await screen.findByText('1001')).toBeInTheDocument()
-    expect(screen.getByText('Não disparada · bloqueada')).toBeInTheDocument()
+    // aparece na tabela e na legenda do gráfico de contato
+    expect(screen.getAllByText('Não disparada · bloqueada').length).toBeGreaterThan(0)
     expect(screen.getByTitle('CONSENT_BLOCK')).toHaveTextContent('Sem consentimento')
   })
 
@@ -77,7 +78,7 @@ describe('RecoveryPage', () => {
     }
     mockedApiGet.mockImplementation((path: string) => Promise.resolve(path.startsWith('remarketing') ? rm : checkouts) as never)
     renderWithProviders(<RecoveryPage />)
-    await userEvent.click(screen.getByRole('button', { name: 'Remarketing' }))
+    await userEvent.click(screen.getByRole('tab', { name: 'Remarketing' }))
     expect(await screen.findByText('Remarketing desabilitado')).toBeInTheDocument()
     expect(screen.getByText('Dry-run WhatsApp habilitado')).toBeInTheDocument()
     expect(document.querySelector('.text-status-danger')).toBeNull()

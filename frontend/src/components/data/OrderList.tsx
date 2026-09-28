@@ -16,17 +16,17 @@ export function OrderList({ rows, emptyLabel }: { rows: OrderListRow[]; emptyLab
   if (rows.length === 0) return <EmptyState title={emptyLabel} />
 
   return (
-    <ul className="divide-y divide-ink-faint/10 rounded-card border border-ink-faint/15 bg-surface-raised">
+    <ul className="panel enter divide-y divide-white/5 overflow-hidden">
       {rows.map((row) => (
-        <li key={row.id} className="flex flex-col gap-1 px-4 py-3 md:flex-row md:items-center md:justify-between">
+        <li key={row.id} className="flex flex-col gap-1 px-4 py-3 transition-colors hover:bg-white/[0.025] md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-sm font-medium text-ink">{row.title}</p>
             {row.meta && <p className="text-xs text-ink-muted">{row.meta}</p>}
           </div>
-          <div className="flex items-center gap-3 text-sm text-ink-muted">
-            {row.value && <span className="tabular-nums text-ink">{row.value}</span>}
-            <span>{row.status}</span>
-            {row.date && <span>{new Date(row.date).toLocaleDateString('pt-BR')}</span>}
+          <div className="flex flex-wrap items-center gap-3 text-sm text-ink-muted">
+            {row.value && <span className="font-medium tabular-nums text-ink">{row.value}</span>}
+            <span className="rounded-full bg-white/5 px-2 py-0.5 text-xs">{row.status}</span>
+            {row.date && <span className="tabular-nums text-xs text-ink-faint">{new Date(row.date).toLocaleDateString('pt-BR')}</span>}
           </div>
         </li>
       ))}

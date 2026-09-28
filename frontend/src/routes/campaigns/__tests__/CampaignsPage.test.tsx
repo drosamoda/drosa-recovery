@@ -47,17 +47,17 @@ describe('CampaignsPage', () => {
   it('campanhas/aprendizados com 503 AI_DATABASE_NOT_CONFIGURED viram aviso neutro, não erro', async () => {
     mockedApiGet.mockImplementation(route as never)
     renderWithProviders(<CampaignsPage />)
-    await userEvent.click(screen.getByRole('button', { name: 'Campanhas' }))
+    await userEvent.click(screen.getByRole('tab', { name: 'Campanhas' }))
     expect(await screen.findByText('Recurso indisponível neste ambiente.')).toBeInTheDocument()
     expect(screen.queryByText('Dados indisponiveis')).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Aprendizados' }))
+    await userEvent.click(screen.getByRole('tab', { name: 'Aprendizados' }))
     expect(await screen.findByText(/AI_DATABASE_NOT_CONFIGURED/)).toBeInTheDocument()
   })
 
   it('e-mail mostra só métricas reais, gate bloqueado e gap de abertura/clique', async () => {
     mockedApiGet.mockImplementation(route as never)
     renderWithProviders(<CampaignsPage />)
-    await userEvent.click(screen.getByRole('button', { name: 'E-mail' }))
+    await userEvent.click(screen.getByRole('tab', { name: 'E-mail' }))
     expect(await screen.findByText('Bloqueado')).toBeInTheDocument()
     expect(screen.getByText(/Falta: EMAIL_SEND_DISABLED/)).toBeInTheDocument()
     expect(screen.getByText(/abertura, clique, bounce e descadastro não são expostas/)).toBeInTheDocument()
@@ -69,7 +69,7 @@ describe('CampaignsPage', () => {
   it('automações: cron false = "Cron desabilitado" neutro', async () => {
     mockedApiGet.mockImplementation(route as never)
     renderWithProviders(<CampaignsPage />)
-    await userEvent.click(screen.getByRole('button', { name: 'Automações' }))
+    await userEvent.click(screen.getByRole('tab', { name: 'Automações' }))
     expect(await screen.findByText('Cron desabilitado')).toBeInTheDocument()
     expect(screen.getByText('Carrinho 30min')).toBeInTheDocument()
     expect(document.querySelector('.text-status-danger')).toBeNull()

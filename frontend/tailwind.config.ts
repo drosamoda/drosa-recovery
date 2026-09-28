@@ -1,41 +1,30 @@
 import type { Config } from 'tailwindcss'
 
-// Paleta D'Rosa: bordo como cor primaria (uso pontual: ativo, CTA, destaque),
-// off-white sofisticado como fundo, grafite como texto. Ver ADR de identidade
-// visual em docs/handoff/REACT_MIGRATION_BLUEPRINT_2026-09-26.md.
+// Visual 2.0 — todas as cores apontam para os tokens de src/design-tokens.css.
+// Os nomes semânticos antigos (bordo/surface/ink/status) foram mantidos para
+// que todas as telas herdem o novo tema; `bordo` agora é o magenta D'Rosa.
+const v = (name: string) => `rgb(var(--c-${name}) / <alpha-value>)`
+
 export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
     extend: {
       colors: {
-        bordo: {
-          DEFAULT: '#6b1530',
-          hover: '#7d1a38',
-          soft: '#f6e9ec',
-        },
-        surface: {
-          DEFAULT: '#fcfbfa',
-          raised: '#ffffff',
-          sunken: '#f5f3f1',
-        },
-        ink: {
-          DEFAULT: '#1c1b1a',
-          muted: '#5c5a57',
-          faint: '#8a8783',
-        },
-        status: {
-          success: '#2f7a4d',
-          warning: '#b5790a',
-          danger: '#b3261e',
-          neutral: '#6b6864',
-        },
+        bordo: { DEFAULT: v('accent'), hover: v('accent-hover'), soft: v('accent-soft') },
+        accent: { DEFAULT: v('accent'), hover: v('accent-hover'), soft: v('accent-soft') },
+        data: { DEFAULT: v('data'), soft: v('data-soft') },
+        canvas: v('canvas'),
+        surface: { DEFAULT: v('surface'), raised: v('raised'), sunken: v('sunken'), overlay: v('overlay') },
+        ink: { DEFAULT: v('ink'), muted: v('ink-muted'), faint: v('ink-faint') },
+        status: { success: v('success'), warning: v('warning'), danger: v('danger'), info: v('info'), neutral: v('neutral') },
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        sans: ['"Inter Variable"', 'Inter', 'ui-sans-serif', 'system-ui', 'Segoe UI', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'Consolas', 'monospace'],
       },
-      borderRadius: {
-        card: '12px',
-      },
+      borderRadius: { card: 'var(--radius-card)' },
+      boxShadow: { panel: 'var(--shadow-panel)', pop: 'var(--shadow-pop)', glow: 'var(--glow-accent)' },
+      transitionTimingFunction: { out: 'var(--ease-out)' },
     },
   },
   plugins: [],

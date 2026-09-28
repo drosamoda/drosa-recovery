@@ -91,7 +91,7 @@ describe('MessagesPage', () => {
     const t: TemplateItem = { id: 't1', name: 'Carrinho', eventType: 'abandoned_checkout', metaTemplateName: 'carrinho_v1', languageCode: 'pt_BR', category: 'MARKETING', messagePreview: null, active: true, usageCount: 1234, lastUsedAt: '2026-09-20T10:00:00Z', metaStatus: 'NOT_AVAILABLE' }
     mockedApiGet.mockImplementation((path: string) => Promise.resolve(path === 'templates' ? { data: [t] } : list([])) as never)
     renderWithProviders(<MessagesPage />)
-    await userEvent.click(screen.getByRole('button', { name: 'Templates' }))
+    await userEvent.click(screen.getByRole('tab', { name: 'Templates' }))
     expect(await screen.findByText('Carrinho')).toBeInTheDocument()
     expect(screen.getByText('1.234')).toBeInTheDocument()
     expect(screen.getByText('Não disponível pela API')).toBeInTheDocument()

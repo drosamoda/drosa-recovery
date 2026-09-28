@@ -5,7 +5,6 @@ import { PageHeader } from '../../components/shell/PageHeader'
 import { LoadingState } from '../../components/feedback/LoadingState'
 import { ErrorState } from '../../components/feedback/ErrorState'
 import { EmptyState } from '../../components/feedback/EmptyState'
-import { StatCard } from '../../components/data/StatCard'
 import { OrderList, type OrderListRow } from '../../components/data/OrderList'
 import { ConsentStatus } from '../../components/data/ConsentStatus'
 import { Tabs } from '../../components/overlay/Tabs'
@@ -15,14 +14,18 @@ import type { CustomerDetail, JourneyDetail } from '../../lib/types'
 import { formatMoney } from '../../lib/labels'
 import { Notice } from '../../components/feedback/Notice'
 import { CustomerSummaryCard } from './CustomerSummaryCard'
+import { ArrowLeft, LayoutGrid, MessageCircle, RefreshCcw, Route, ShieldCheck, ShoppingBag, ShoppingCart, MessagesSquare } from 'lucide-react'
+import { KpiCard } from '../../components/data/KpiCard'
+import { ProfileSkeleton } from '../../components/feedback/Skeleton'
+import { MESSAGE_STATUS, lookup } from '../../lib/labels'
 
 const TABS = [
-  { key: 'overview', label: 'Visao Geral' },
-  { key: 'orders', label: 'Pedidos' },
-  { key: 'recovery', label: 'Recovery' },
-  { key: 'whatsapp', label: 'WhatsApp' },
-  { key: 'consent', label: 'Consentimentos & Privacidade' },
-  { key: 'journey', label: 'Jornada' },
+  { key: 'overview', label: 'Visão Geral', icon: LayoutGrid },
+  { key: 'journey', label: 'Jornada', icon: Route },
+  { key: 'orders', label: 'Pedidos', icon: ShoppingBag },
+  { key: 'recovery', label: 'Recovery', icon: RefreshCcw },
+  { key: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
+  { key: 'consent', label: 'Privacidade', icon: ShieldCheck },
 ]
 
 const JOURNEY_FILTER_DEFAULTS = { action: '', message: '', consent: '', responded: '', flow: '', period: 'all' }
@@ -56,7 +59,14 @@ export function CustomerDetailPage() {
     enabled: Boolean(id) && tab === 'journey',
   })
 
-  if (isPending) return <LoadingState />
+  if (isPending) {
+    return (
+      <div className="space-y-4">
+        <ProfileSkeleton />
+        <LoadingState variant="kpis" />
+      </div>
+    )
+  }
   if (isError) {
     return (
       <ErrorState
@@ -89,15 +99,16 @@ export function CustomerDetailPage() {
     id: m.id,
     title: m.templateName ?? 'Sem template',
     meta: m.entityType,
-    status: m.status,
+    status: lookup(MESSAGE_STATUS, m.status)?.label ?? m.status,
     date: m.createdAt,
     value: null,
   }))
 
   return (
     <div>
-      <PageHeader title="Cliente 360" subtitle="Identidade, pedidos e historico consolidado." actions={
-        <button type="button" onClick={() => navigate('/customers')} className="text-sm text-ink-muted hover:text-ink">
+      <PageHeader title="Cliente 360" subtitle="Identidade, jornada, pedidos, recovery, WhatsApp e privacidade em um só lugar." actions={
+        <button type="button" onClick={() => navigate('/customers')} className="btn">
+          <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
           Voltar para Clientes
         </button>
       } />
@@ -107,28 +118,37 @@ export function CustomerDetailPage() {
       <Tabs items={TABS} active={tab} onChange={setTab} />
 
       {tab === 'overview' && (
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          <StatCard label="Pedidos" value={customer.orders.length} />
-          <StatCard label="Carrinhos" value={customer.checkouts.length} />
-          <StatCard label="Mensagens WhatsApp" value={customer.messages.length} />
-          <StatCard label="Conversas" value={customer.conversations.length} />
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <KpiCard label="Pedidos" value={customer.orders.length} icon={ShoppingBag} tone="success" />
+            <KpiCard label="Carrinhos" value={customer.checkouts.length} icon={ShoppingCart} tone="accent" />
+            <KpiCard label="Mensagens WhatsApp" value={customer.messages.length} icon={MessageCircle} tone="data" />
+            <KpiCard label="Conversas" value={customer.conversations.length} icon={MessagesSquare} />
+          </div>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div>
+              <h3 className="t-section mb-2">Pedidos recentes</h3>
+              <OrderList rows={orderRows.slice(0, 4)} emptyLabel="Nenhum pedido encontrado." />
+            </div>
+            <div>
+              <h3 className="t-section mb-2">WhatsApp recente</h3>
+              <OrderList rows={messageRows.slice(0, 4)} emptyLabel="Nenhuma mensagem encontrada." />
+            </div>
+          </div>
           {/* /crm-api/customers/:id nao expoe historico de e-mail por cliente:
               gap declarado, sem dado ficticio nem UI vazia fingindo zero. */}
-          <div className="col-span-2 md:col-span-4">
-            <Notice>
-              Histórico de e-mail por cliente: não disponível na API atual <span className="text-ink-faint">(NOT_AVAILABLE_FROM_CURRENT_API)</span>.
-            </Notice>
-          </div>
+          <Notice>
+            Histórico de e-mail por cliente: não disponível na API atual <span className="text-ink-faint">(NOT_AVAILABLE_FROM_CURRENT_API)</span>.
+          </Notice>
         </div>
       )}
-
       {tab === 'orders' && <OrderList rows={orderRows} emptyLabel="Nenhum pedido encontrado." />}
       {tab === 'recovery' && <OrderList rows={checkoutRows} emptyLabel="Nenhum carrinho encontrado." />}
       {tab === 'whatsapp' && <OrderList rows={messageRows} emptyLabel="Nenhuma mensagem encontrada." />}
 
       {tab === 'consent' && (
         <div className="space-y-4">
-          <div className="rounded-card border border-ink-faint/15 bg-surface-raised p-4">
+          <div className="panel p-4">
             <h3 className="mb-2 text-sm font-semibold text-ink">Consentimentos por escopo</h3>
             {customer.consents.length === 0 ? (
               <p className="text-sm text-ink-muted">Nenhum consentimento registrado.</p>
@@ -146,7 +166,7 @@ export function CustomerDetailPage() {
               </ul>
             )}
           </div>
-          <div className="rounded-card border border-ink-faint/15 bg-surface-raised p-4">
+          <div className="panel p-4">
             <h3 className="mb-2 text-sm font-semibold text-ink">Suppression</h3>
             {customer.suppression ? (
               <p className="text-sm text-ink-muted">
@@ -168,7 +188,7 @@ export function CustomerDetailPage() {
                 key={key}
                 value={journeyFilters[key]}
                 onChange={(e) => setJourneyFilters((f) => ({ ...f, [key]: e.target.value }))}
-                className="rounded-md border border-ink-faint/30 px-2 py-1 text-sm"
+                className="input py-1.5"
               >
                 <option value="">{key}</option>
                 {key === 'consent' && ['GRANTED', 'REVOKED', 'UNKNOWN'].map((v) => <option key={v} value={v}>{v}</option>)}

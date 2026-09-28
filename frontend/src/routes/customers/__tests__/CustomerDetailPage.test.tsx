@@ -74,10 +74,10 @@ describe('CustomerDetailPage', () => {
     renderWithProviders(<CustomerDetailPage />, { route: '/customers/c1', path: '/customers/:id' })
     await screen.findByText('Ana Teste')
 
-    await user.click(screen.getByRole('button', { name: 'Pedidos' }))
+    await user.click(screen.getByRole('tab', { name: 'Pedidos' }))
     expect(await screen.findByText('Pedido 1001')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Jornada' }))
+    await user.click(screen.getByRole('tab', { name: 'Jornada' }))
     await waitFor(() => expect(mockedApiGet).toHaveBeenCalledWith(expect.stringContaining('journey/customer:c1'), expect.anything()))
     expect(await screen.findByText('Pedido criado')).toBeInTheDocument()
   })
@@ -87,8 +87,9 @@ describe('CustomerDetailPage', () => {
     const user = userEvent.setup()
     renderWithProviders(<CustomerDetailPage />, { route: '/customers/c1', path: '/customers/:id' })
     await screen.findByText('Ana Teste')
-    await user.click(screen.getByRole('button', { name: 'Consentimentos & Privacidade' }))
-    expect(await screen.findByText('marketing')).toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: 'Privacidade' }))
+    // escopo aparece no header (consentimentos ativos) e na aba de privacidade
+    expect((await screen.findAllByText('marketing')).length).toBeGreaterThan(1)
     expect(screen.getByText('Nenhuma suppression registrada para este contato.')).toBeInTheDocument()
   })
 })
