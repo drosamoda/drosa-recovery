@@ -191,6 +191,44 @@ const envSchema = z.object({
   AI_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().default(4096),
   AI_MAX_CONCURRENT_GENERATIONS: z.coerce.number().int().positive().default(2),
   AI_GENERATION_MAX_PER_MINUTE: z.coerce.number().int().positive().default(10),
+
+  // BI & Inteligência (Central React) — somente leitura. As views bi_* já
+  // existem no banco de produção; o backend as lê por BI_DATABASE_URL (role
+  // read-only drosa_bi_reader, preferido) ou, se vazia, pelo DATABASE_URL em
+  // transação SET TRANSACTION READ ONLY com SQL fixo. Nenhuma view é criada.
+  BI_DATABASE_URL: z.string().default(''),
+  // Metabase signed embed. SECRET_KEY nunca sai do servidor; o browser só
+  // escolhe um módulo da allowlist (ver services/metabaseEmbed.ts), nunca um
+  // dashboard ID. Vazio = 503 METABASE_NOT_CONFIGURED (aviso neutro na UI).
+  METABASE_SITE_URL: z.string().default(''),
+  METABASE_SECRET_KEY: z.string().default(''),
+
+  // Sessão única da Central (Fase G) — coexiste com x-crm-read-secret, que
+  // continua funcionando igual. Desligada por padrão: com a flag false nenhuma
+  // rota /central-auth existe e crmAuth se comporta exatamente como antes.
+  CENTRAL_SESSION_ENABLED: z.string().default('false').transform((v) => v === 'true'),
+  // Mesmo formato do BI atual (DASHBOARD_AUTH_USERS): "email:hashBcrypt,..."
+  // — permite migrar a lista de usuários sem recriar senhas.
+  CENTRAL_AUTH_USERS: z.string().default(''),
+  // E-mails com papel admin; os demais são read-only.
+  CENTRAL_ADMIN_EMAILS: z.string().default(''),
+  // Chave HMAC da sessão (mín. 32 chars). Vazia = login indisponível (503).
+  CENTRAL_SESSION_SECRET: z.string().default(''),
+  CENTRAL_SESSION_TTL_HOURS: z.coerce.number().int().min(1).max(168).default(12),
+  // Quantos proxies confiáveis ACRESCENTAM entradas ao X-Forwarded-For antes do
+  // app. 0 = usar o IP da conexão (dev/local). Cloud Run direto (sem LB) = 1:
+  // o front-end do Google acrescenta o IP real do cliente como ÚLTIMA entrada.
+  // Só afeta a chave do rate limit de login da Central — não é `trust proxy`
+  // global (o limiter de descadastro continua como está).
+  // Preview: módulos operacionais via proxy GET para a API oficial (sem DB
+  // operacional). Ambos vazios = modo normal (rotas locais, como hoje).
+  // Cutover: com true, /crm e /crm-v2 redirecionam para a Central React
+  // (/crm-next/) e as UIs antigas ficam congeladas em /crm-legacy e
+  // /crm-v2-legacy (rollback operacional sem deploy de imagem).
+  CENTRAL_REACT_CANONICAL: z.string().default('false').transform((v) => v === 'true'),
+  CRM_UPSTREAM_URL: z.string().default(''),
+  CRM_UPSTREAM_READ_SECRET: z.string().default(''),
+  CENTRAL_TRUSTED_PROXY_HOPS: z.coerce.number().int().min(0).max(3).default(0),
 })
 
 const parsed = envSchema.safeParse(process.env)

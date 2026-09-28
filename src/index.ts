@@ -27,11 +27,14 @@ import metaWebhookRoutes from './routes/webhooks.meta.routes'
 import emailUnsubscribeRoutes from './routes/emailUnsubscribe.routes'
 import emailProviderWebhookRoutes from './routes/emailProviderWebhook.routes'
 import emailPrivacyRoutes from './routes/emailPrivacy.routes'
+import biRoutes from './routes/bi.routes'
+import centralAuthRoutes from './routes/centralAuth.routes'
 
 import { adminAuth } from './middlewares/adminAuth'
 import { jobsAuth } from './middlewares/jobsAuth'
 import { inboxAuth } from './middlewares/inboxAuth'
 import { crmAuth } from './middlewares/crmAuth'
+import { crmUpstreamProxy, isUpstreamMode } from './middlewares/crmUpstreamProxy'
 
 // Inicializa Sentry antes de qualquer rota (opcional — sem DSN não faz nada)
 initSentry()
@@ -132,7 +135,11 @@ app.use('/crm-v2-assets', express.static(path.join(process.cwd(), 'public', 'crm
 if (env.CRM_PREVIEW_READONLY) {
   app.use((req, res, next) => {
     const isAiCampaignWrite = req.path.startsWith('/crm-api/ai/campaigns')
-    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && !isAiCampaignWrite) {
+    // Login/logout da sessão da Central só emitem/limpam cookie — não tocam banco.
+    const isCentralAuth = env.CENTRAL_SESSION_ENABLED && ['/central-auth/login', '/central-auth/logout'].includes(req.path)
+    // Em modo upstream o proxy responde 405 a toda escrita em /crm-api.
+    const isUpstreamCrm = isUpstreamMode() && req.path.startsWith('/crm-api/')
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && !isAiCampaignWrite && !isCentralAuth && !isUpstreamCrm) {
       res.status(404).json({ error: 'Rota não encontrada' })
       return
     }
@@ -158,15 +165,16 @@ if (!env.CRM_PREVIEW_READONLY) {
 app.get('/inbox', (_req, res) => {
   res.sendFile(path.join(process.cwd(), 'public', 'inbox', 'index.html'))
 })
-app.get('/crm', (_req, res) => {
-  res.sendFile(path.join(process.cwd(), 'public', 'crm', 'index.html'))
-})
+const sendLegacyCrm = (_req: Request, res: Response) => res.sendFile(path.join(process.cwd(), 'public', 'crm', 'index.html'))
+const sendLegacyCrmV2 = (_req: Request, res: Response) => res.sendFile(path.join(process.cwd(), 'public', 'crm-v2', 'index.html'))
+// Legados congelados sempre acessíveis por URL explícita (rollback operacional).
+app.get('/crm-legacy', sendLegacyCrm)
+app.get('/crm-v2-legacy', sendLegacyCrmV2)
+app.get('/crm', (req, res) => (env.CENTRAL_REACT_CANONICAL ? res.redirect(302, '/crm-next/') : sendLegacyCrm(req, res)))
 // Piloto visual isolado (redesign radical de interface) — reaproveita EXATAMENTE o mesmo /crm-api
 // e o mesmo crmAuth já usados por /crm; nenhuma lógica de negócio, dado ou regra nova. /crm
 // permanece intocado e servido em paralelo até aprovação humana visual do /crm-v2.
-app.get('/crm-v2', (_req, res) => {
-  res.sendFile(path.join(process.cwd(), 'public', 'crm-v2', 'index.html'))
-})
+app.get('/crm-v2', (req, res) => (env.CENTRAL_REACT_CANONICAL ? res.redirect(302, '/crm-next/') : sendLegacyCrmV2(req, res)))
 // Piloto React+Vite (Central Operacional nova) — NÃO linkado em nenhum menu,
 // NÃO anunciado, coexiste com /crm e /crm-v2 sem substituir nenhum dos dois.
 // Só assume a rota /crm-v2 num cutover explícito e futuro (ver
@@ -185,10 +193,23 @@ if (!env.CRM_PREVIEW_READONLY) {
   app.use('/customers', customersRoutes)
   app.use('/inbox', inboxAuth, inboxRoutes)
 }
+// Preview (CRM_UPSTREAM_URL): BI local primeiro; o resto de /crm-api vai por
+// proxy GET para a API oficial e nunca chega às rotas locais (sem DB operacional).
+if (isUpstreamMode()) {
+  app.use('/crm-api', crmAuth, crmUpstreamProxy)
+  app.use('/crm-api/bi', crmAuth, biRoutes)
+  app.use('/crm-api', (_req, res) => {
+    res.status(404).json({ error: 'Rota não encontrada' })
+  })
+}
 app.use('/crm-api', crmAuth, crmRoutes)
 app.use('/crm-api/ai', crmAuth, aiCampaignsRoutes)
 // Inteligência de e-mail: somente leitura (GET). Nenhum envio de e-mail existe.
 app.use('/crm-api/email', crmAuth, emailIntelligenceRoutes)
+// BI & Inteligência: somente GET sobre views bi_* existentes + embed Metabase assinado.
+app.use('/crm-api/bi', crmAuth, biRoutes)
+// Sessão única da Central (Fase G) — desligada por padrão; x-crm-read-secret segue valendo.
+if (env.CENTRAL_SESSION_ENABLED) app.use('/central-auth', centralAuthRoutes)
 
 // ── 404 ────────────────────────────────────────────────────────────────
 app.use((_req, res) => {
