@@ -219,7 +219,7 @@ function RecentMessages() {
   const navigate = useNavigate()
   const query = useQuery({ queryKey: ['messages', '', '', 1, 'recent'], queryFn: ({ signal }) => apiGet<ListResponse<MessageListItem>>('messages?page=1&pageSize=8', signal) })
   const columns: DataTableColumn<MessageListItem>[] = [
-    { key: 'createdAt', label: 'Criada em', render: (r) => <span className="tabular-nums text-ink-muted">{formatDateTime(r.createdAt)}</span> },
+    { key: 'createdAt', label: 'Criada em', render: (r) => <span className="whitespace-nowrap tabular-nums text-ink-muted">{formatDateTime(r.createdAt)}</span> },
     { key: 'customer', label: 'Cliente', render: (r) => r.customer ?? r.phone ?? '—' },
     { key: 'template', label: 'Template', render: (r) => <span className="text-ink-muted">{r.template ?? '—'}</span>, hideOnMobile: true },
     { key: 'status', label: 'Status', render: (r) => <CodeBadge code={r.status} map={MESSAGE_STATUS} /> },

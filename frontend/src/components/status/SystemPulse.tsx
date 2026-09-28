@@ -61,7 +61,7 @@ export function SystemPulse({ apiOk }: { apiOk: boolean | null }) {
       label: 'E-mail',
       icon: Mail,
       level: email.data ? (email.data.sendGate.allowed ? 'ok' : 'warning') : 'unknown',
-      value: email.data ? (email.data.sendGate.allowed ? 'Gate liberado' : 'Envio bloqueado') : email.isError ? 'Sem leitura' : '—',
+      value: email.data ? (email.data.sendGate.allowed ? 'Liberado' : 'Bloqueado') : email.isError ? 'Sem leitura' : '—',
       detail: email.data ? (email.data.sendGate.allowed ? 'Gate de envio aberto' : `Gate: ${email.data.sendGate.missing.length} pendências`) : 'Biblioteca de campanhas',
       to: '/campaigns',
     },

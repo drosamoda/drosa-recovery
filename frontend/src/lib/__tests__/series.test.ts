@@ -20,12 +20,13 @@ describe('series (determinísticas, sem dado inventado)', () => {
         { day: '2026-09-27', status: 'pending', count: 1 },
         { day: '2026-09-27', status: 'processing', count: 1 },
         { day: '2026-09-27', status: 'failed', count: 5 },
-        { day: '2026-01-01', status: 'read', count: 999 }, // fora da janela: ignorado
+        { day: '2026-09-26', status: 'read', count: 7 }, // dia extra devolvido pela view: entra (totais batem com o KPI)
       ],
       2,
       NOW,
     )
     expect(points).toEqual([
+      { day: '2026-09-26', read: 7, delivered: 0, awaiting: 0, failed: 0, blocked: 0, queued: 0 },
       { day: '2026-09-27', read: 2, delivered: 3, awaiting: 4, failed: 5, blocked: 9, queued: 2 },
       { day: '2026-09-28', read: 0, delivered: 0, awaiting: 0, failed: 0, blocked: 0, queued: 0 },
     ])

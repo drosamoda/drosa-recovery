@@ -30,7 +30,7 @@ export interface MessageDayPoint {
 /** Partição por dia em estados mutuamente exclusivos. `delivered` aqui = entregue e ainda não lida. */
 export function messageSeries(rows: MessageDailyRow[], days: number, now?: Date): MessageDayPoint[] {
   const map = new Map<string, MessageDayPoint>()
-  for (const day of lastDays(days, now)) map.set(day, { day, read: 0, delivered: 0, awaiting: 0, failed: 0, blocked: 0, queued: 0 })
+  for (const day of windowDays(rows, days, now)) map.set(day, { day, read: 0, delivered: 0, awaiting: 0, failed: 0, blocked: 0, queued: 0 })
   for (const r of rows) {
     const p = map.get(r.day)
     if (!p) continue
@@ -53,7 +53,7 @@ export interface CartDayPoint {
 
 export function cartSeries(rows: CartDailyRow[], days: number, now?: Date): CartDayPoint[] {
   const map = new Map<string, CartDayPoint>()
-  for (const day of lastDays(days, now)) map.set(day, { day, abandoned: 0, eligible: 0, dispatched: 0 })
+  for (const day of windowDays(rows, days, now)) map.set(day, { day, abandoned: 0, eligible: 0, dispatched: 0 })
   for (const r of rows) {
     const p = map.get(r.day)
     if (!p) continue
@@ -74,7 +74,7 @@ export interface OrdersDayPoint {
 /** Pedidos por dia separados por status de pagamento — quantidade, não faturamento. */
 export function ordersSeries(rows: OrdersDailyRow[], days: number, now?: Date): OrdersDayPoint[] {
   const map = new Map<string, OrdersDayPoint>()
-  for (const day of lastDays(days, now)) map.set(day, { day, paid: 0, pending: 0, other: 0 })
+  for (const day of windowDays(rows, days, now)) map.set(day, { day, paid: 0, pending: 0, other: 0 })
   for (const r of rows) {
     const p = map.get(r.day)
     if (!p) continue
@@ -83,6 +83,11 @@ export function ordersSeries(rows: OrdersDailyRow[], days: number, now?: Date): 
     else p.other += r.count
   }
   return [...map.values()]
+}
+
+/** Janela = últimos N dias + qualquer dia que a view devolveu (mesma base dos totais dos KPIs). */
+function windowDays(rows: { day: string }[], days: number, now?: Date): string[] {
+  return [...new Set([...lastDays(days, now), ...rows.map((r) => r.day)])].sort()
 }
 
 export function hasAny<T extends object>(points: T[], keys: (keyof T)[]): boolean {
