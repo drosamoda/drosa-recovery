@@ -152,5 +152,5 @@
 - [ ] **Step 3: Confirm untouched checkouts do not create granted marketing consent**.
 - [ ] **Step 4: Run remarketing preview for every segment** and reconcile `found = eligible + blocked`.
 - [ ] **Step 5: Confirm a marketing-unknown phone is blocked with `consent_unproven`**.
-- [ ] **Step 6: Record `CONSENT_TRUTH_API=PASS`, `CHECKOUT_CAPTURE=PASS`, `MARKETING_CONSENT_NOT_INFERRED=PASS`, `REMARKETING_BLOCKERS_VISIBLE=PASS`, `REMARKETING_ELIGIBILITY_EXPLAINABLE=PASS`.
+- [ ] **Step 6: Record `CONSENT_TRUTH_API=PASS`, `CHECKOUT_CAPTURE=PASS`, `MARKETING_CONSENT_NOT_INFERRED=PASS`, `REMARKETING_BLOCKERS_VISIBLE=PASS`, `REMARKETING_ELIGIBILITY_EXPLAINABLE=PASS`**.
 
