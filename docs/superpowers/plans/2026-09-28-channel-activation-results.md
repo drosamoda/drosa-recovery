@@ -54,27 +54,31 @@
 - [ ] **Step 6: Run frontend tests/typecheck/lint**; expect PASS.
 - [ ] **Step 7: Commit** `feat(campaigns): add human approval and scheduling controls`.
 
-### Task 2: Select and publish an approved email creative asset
+### Task 2: Publish an approved email creative through a stable public asset route
 
 **Files:**
 - Modify: `src/services/creative/creativeAssetService.ts`
 - Create: `src/services/creative/creativeAssetPublicationService.ts`
-- Modify: `src/config/env.ts`
-- Modify: `.env.example`
+- Create: `src/routes/campaignAssets.routes.ts`
+- Modify: `src/index.ts`
 - Create: `src/__tests__/unit/creativeAssetPublicationService.test.ts`
+- Create: `src/__tests__/integration/campaignAssetsPublicRoute.test.ts`
 
 **Interfaces:**
-- Env: `CREATIVE_PUBLIC_BASE_URL` default empty.
 - Produces `publishSelectedCreativeAsset(draftId: string): Promise<string | null>`.
 - Only selected asset with `fidelityStatus=PASS` may publish.
-- Published object path: `published/<assetId>.<ext>`.
-- Draft asset remains private; published URL contains no secret.
+- Publication sets `publishedAt` and stable `publicUrl = APP_BASE_URL + '/campaign-assets/' + assetId`; it does not make the GCS bucket public.
+- `GET /campaign-assets/:assetId` is intentionally public because email clients need it, but it streams bytes only when the asset has `publishedAt != null` and `fidelityStatus=PASS`.
+- Public route returns only image bytes + safe cache headers; no campaign metadata, storage key, PII or credentials.
+- Unpublished/rejected/unknown asset => 404.
 
-- [ ] **Step 1: Write failing tests** for no selected asset, non-PASS selected asset, publish success and idempotent republish.
-- [ ] **Step 2: Run focused test**; expect FAIL.
-- [ ] **Step 3: Implement copy-to-published storage operation and persist `publicUrl`**.
-- [ ] **Step 4: Run test/typecheck**; expect PASS.
-- [ ] **Step 5: Commit** `feat(email): publish approved campaign creative`.
+- [ ] **Step 1: Write failing unit tests** for no selected asset, non-PASS selected asset, publish success and idempotent republish.
+- [ ] **Step 2: Write failing route tests** proving approved+published returns image bytes and unpublished/rejected/unknown assets return 404 without metadata leakage.
+- [ ] **Step 3: Run focused tests**; expect FAIL.
+- [ ] **Step 4: Implement publication metadata and the public streaming route over the existing private GCS object**.
+- [ ] **Step 5: Set immutable cache headers only after publication; keep draft asset access private through the CRM API**.
+- [ ] **Step 6: Run tests/typecheck/security-header tests**; expect PASS.
+- [ ] **Step 7: Commit** `feat(email): publish approved campaign creative`.
 
 ### Task 3: Render selected creative in outbound email
 
