@@ -14,6 +14,7 @@ import {
   trustedClientIp,
 } from '../services/centralSession'
 import { env } from '../config/env'
+import { logger } from '../config/logger'
 
 // /central-auth — só montado com CENTRAL_SESSION_ENABLED=true (index.ts).
 // Login/logout não tocam banco. JSON obrigatório no POST: formulário
@@ -41,6 +42,9 @@ router.post('/login', async (req: Request, res: Response) => {
   const role = await verifyCredentials(email, password)
   if (!role) {
     registerLoginFailure(ip, email)
+    // Diagnóstico da cadeia de proxy sem PII: só o NÚMERO de entradas.
+    const xff = req.headers['x-forwarded-for']
+    logger.info('[central-auth] login falhou', { xffEntries: String(Array.isArray(xff) ? xff.join(',') : xff ?? '').split(',').filter((s) => s.trim()).length, hops: env.CENTRAL_TRUSTED_PROXY_HOPS })
     return res.status(401).json({ error: 'Credenciais inválidas.' })
   }
   registerLoginSuccess(ip, email)

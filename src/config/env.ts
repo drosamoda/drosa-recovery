@@ -220,6 +220,10 @@ const envSchema = z.object({
   // o front-end do Google acrescenta o IP real do cliente como ÚLTIMA entrada.
   // Só afeta a chave do rate limit de login da Central — não é `trust proxy`
   // global (o limiter de descadastro continua como está).
+  // Preview: módulos operacionais via proxy GET para a API oficial (sem DB
+  // operacional). Ambos vazios = modo normal (rotas locais, como hoje).
+  CRM_UPSTREAM_URL: z.string().default(''),
+  CRM_UPSTREAM_READ_SECRET: z.string().default(''),
   CENTRAL_TRUSTED_PROXY_HOPS: z.coerce.number().int().min(0).max(3).default(0),
 })
 

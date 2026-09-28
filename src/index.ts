@@ -34,6 +34,7 @@ import { adminAuth } from './middlewares/adminAuth'
 import { jobsAuth } from './middlewares/jobsAuth'
 import { inboxAuth } from './middlewares/inboxAuth'
 import { crmAuth } from './middlewares/crmAuth'
+import { crmUpstreamProxy, isUpstreamMode } from './middlewares/crmUpstreamProxy'
 
 // Inicializa Sentry antes de qualquer rota (opcional — sem DSN não faz nada)
 initSentry()
@@ -136,7 +137,9 @@ if (env.CRM_PREVIEW_READONLY) {
     const isAiCampaignWrite = req.path.startsWith('/crm-api/ai/campaigns')
     // Login/logout da sessão da Central só emitem/limpam cookie — não tocam banco.
     const isCentralAuth = env.CENTRAL_SESSION_ENABLED && ['/central-auth/login', '/central-auth/logout'].includes(req.path)
-    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && !isAiCampaignWrite && !isCentralAuth) {
+    // Em modo upstream o proxy responde 405 a toda escrita em /crm-api.
+    const isUpstreamCrm = isUpstreamMode() && req.path.startsWith('/crm-api/')
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && !isAiCampaignWrite && !isCentralAuth && !isUpstreamCrm) {
       res.status(404).json({ error: 'Rota não encontrada' })
       return
     }
@@ -188,6 +191,15 @@ if (!env.CRM_PREVIEW_READONLY) {
   app.use('/jobs', jobsAuth, jobsRoutes)
   app.use('/customers', customersRoutes)
   app.use('/inbox', inboxAuth, inboxRoutes)
+}
+// Preview (CRM_UPSTREAM_URL): BI local primeiro; o resto de /crm-api vai por
+// proxy GET para a API oficial e nunca chega às rotas locais (sem DB operacional).
+if (isUpstreamMode()) {
+  app.use('/crm-api', crmAuth, crmUpstreamProxy)
+  app.use('/crm-api/bi', crmAuth, biRoutes)
+  app.use('/crm-api', (_req, res) => {
+    res.status(404).json({ error: 'Rota não encontrada' })
+  })
 }
 app.use('/crm-api', crmAuth, crmRoutes)
 app.use('/crm-api/ai', crmAuth, aiCampaignsRoutes)
