@@ -29,26 +29,28 @@
 
 ---
 
-### Task 1: Add Central admin middleware for campaign writes
+### Task 1: Add Campaign Studio approval and scheduling controls
 
 **Files:**
-- Create: `src/middlewares/centralAdminAuth.ts`
-- Modify: `src/services/centralSession.ts`
-- Modify: `src/routes/aiCampaigns.routes.ts`
-- Modify: `src/__tests__/integration/centralAuth.test.ts`
-- Modify: `src/__tests__/integration/aiCampaignsAdminAuth.test.ts`
+- Modify: `frontend/src/routes/campaigns/CampaignStudio.tsx`
+- Modify: `frontend/src/routes/campaigns/__tests__/CampaignsPage.test.tsx`
+- Modify: `frontend/src/lib/types.ts`
+- Consume: `frontend/src/lib/api.ts` `apiPost` from the Creative Core plan
 
 **Interfaces:**
-- Produces `centralAdminAuth(req,res,next)`.
-- Session verification recalculates role from current `CENTRAL_ADMIN_EMAILS`; token role alone is not authoritative.
-- Campaign write routes require Central admin session. Legacy `adminAuth` may remain for legacy `/admin` routes.
+- Select strategy -> existing `POST /crm-api/ai/campaigns/:id/select`.
+- Approve -> existing `POST /crm-api/ai/campaigns/:id/approve`, with `approvedBy` taken from the authenticated Central session identity, not free text typed by the user.
+- Schedule -> existing `POST /crm-api/ai/campaigns/:id/schedule`.
+- Cancel -> existing `POST /crm-api/ai/campaigns/:id/cancel`.
+- All writes already require `centralAdminAuth` from the Creative Core plan.
 
-- [ ] **Step 1: Write failing tests** for admin session allowed, read session rejected, removed-admin session rejected.
-- [ ] **Step 2: Run focused tests**; expect FAIL.
-- [ ] **Step 3: Recalculate role during session verification** and implement middleware.
-- [ ] **Step 4: Apply middleware to campaign create/select/asset review/approve/schedule/cancel routes**.
-- [ ] **Step 5: Run auth/campaign integration tests**; expect PASS.
-- [ ] **Step 6: Commit** `feat(auth): require Central admin for campaign writes`.
+- [ ] **Step 1: Write failing UI tests** for state-dependent buttons: DRAFT cannot schedule, AWAITING_HUMAN_APPROVAL can select/approve, APPROVED can schedule, SCHEDULED can cancel.
+- [ ] **Step 2: Write a failing test** proving `approvedBy` comes from the current session and is not an editable input.
+- [ ] **Step 3: Run focused frontend tests**; expect FAIL.
+- [ ] **Step 4: Implement mutations with React Query invalidation of campaign detail/list keys after success**.
+- [ ] **Step 5: Render backend business-state errors without converting them into success or retry loops**.
+- [ ] **Step 6: Run frontend tests/typecheck/lint**; expect PASS.
+- [ ] **Step 7: Commit** `feat(campaigns): add human approval and scheduling controls`.
 
 ### Task 2: Select and publish an approved email creative asset
 
@@ -133,9 +135,10 @@
 - [ ] **Step 1: Write failing tests** for global gate closed, email delegation, WhatsApp delegation, retry idempotency and channel isolation.
 - [ ] **Step 2: Run focused test**; expect FAIL.
 - [ ] **Step 3: Implement job and `POST /jobs/process-campaign-drafts`**.
-- [ ] **Step 4: Keep executor gate false by default**.
-- [ ] **Step 5: Run focused tests/integration/typecheck**; expect PASS.
-- [ ] **Step 6: Commit** `feat(campaigns): add channel campaign executor`.
+- [ ] **Step 4: Keep executor gate false by default and add the job key to the automation-job telemetry introduced by the Operational Reliability plan**.
+- [ ] **Step 5: Extend the safe Scheduler reconciliation script with `drosa-process-campaign-drafts` at `*/5 * * * *`, but keep that Scheduler paused until the channel rollout task explicitly enables it**.
+- [ ] **Step 6: Run focused tests/integration/typecheck**; expect PASS.
+- [ ] **Step 7: Commit** `feat(campaigns): add channel campaign executor`.
 
 ### Task 6: Make WhatsApp template truth explicit in the Studio UI
 
