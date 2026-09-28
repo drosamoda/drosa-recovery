@@ -247,5 +247,5 @@
 - [ ] **Step 3: Observe email delivery/webhook behavior before any wider scope**.
 - [ ] **Step 4: Enable WhatsApp campaign executor separately; run one approved segment with proven marketing consent**.
 - [ ] **Step 5: Verify the message body sent by Meta corresponds to the approved template contract, not free-form proposal copy**.
-- [ ] **Step 6: Record `CENTRAL_ADMIN_WRITE_AUTH=PASS`, `EMAIL_SELECTED_CREATIVE=PASS`, `WHATSAPP_APPROVED_TEMPLATE_ONLY=PASS`, `CAMPAIGN_EXECUTOR_IDEMPOTENT=PASS`, `HUMAN_APPROVAL_REQUIRED=PASS`, `RESULT_ATTRIBUTION=PASS`.
+- [ ] **Step 6: Record `CENTRAL_ADMIN_WRITE_AUTH=PASS`, `EMAIL_SELECTED_CREATIVE=PASS`, `WHATSAPP_APPROVED_TEMPLATE_ONLY=PASS`, `CAMPAIGN_EXECUTOR_IDEMPOTENT=PASS`, `HUMAN_APPROVAL_REQUIRED=PASS`, `RESULT_ATTRIBUTION=PASS`**.
 
