@@ -182,7 +182,56 @@
 - [ ] **Step 5: Run focused backend/frontend tests**; expect PASS.
 - [ ] **Step 6: Commit** `feat(campaigns): show factual campaign results`.
 
-### Task 8: Roll out channels separately
+### Task 8: Add campaign audit trail
+
+**Files:**
+- Modify: `prisma/schema.prisma`
+- Create: `prisma/migrations/<timestamp>_add_campaign_audit_events/migration.sql`
+- Create: `src/services/campaignAuditService.ts`
+- Modify: `src/services/ai/campaignService.ts`
+- Modify: `src/services/creative/creativeAssetService.ts`
+- Create: `src/__tests__/unit/campaignAuditService.test.ts`
+
+**Interfaces:**
+- Add model `CampaignAuditEvent` with `id`, `campaignDraftId`, `actor`, `action`, `fromStatus?`, `toStatus?`, `metadata Json?`, `createdAt`.
+- Allowed actions are a closed union: `CREATED | STRATEGY_SELECTED | ASSET_GENERATED | ASSET_REVIEWED | ASSET_SELECTED | APPROVED | SCHEDULED | CANCELLED | EXECUTION_STARTED | EXECUTION_COMPLETED | EXECUTION_FAILED | META_APPROVAL_REQUESTED`.
+- Metadata may contain internal ids/provider/model/prompt version but never email, phone, cookies, tokens, raw prompts, raw provider responses or secret values.
+
+- [ ] **Step 1: Write failing tests** proving closed action names, PII/secret rejection, actor capture and from/to status capture.
+- [ ] **Step 2: Run focused test**; expect FAIL.
+- [ ] **Step 3: Add schema/migration and implement `recordCampaignAuditEvent(input)`**.
+- [ ] **Step 4: Call it from campaign state transitions and creative-asset generation/review/selection paths**.
+- [ ] **Step 5: Run campaign/creative tests and typecheck**; expect PASS.
+- [ ] **Step 6: Commit** `feat(campaigns): add campaign audit trail`.
+
+### Task 9: Represent new WhatsApp copy as a Meta-approval proposal, never as sendable copy
+
+**Files:**
+- Modify: `prisma/schema.prisma`
+- Create: `prisma/migrations/<timestamp>_add_waiting_meta_approval_status/migration.sql`
+- Modify: `src/services/ai/campaignService.ts`
+- Modify: `src/routes/aiCampaigns.routes.ts`
+- Modify: `src/__tests__/unit/campaignService.test.ts`
+- Modify: `src/__tests__/integration/aiCampaignsRoutes.test.ts`
+- Modify: `frontend/src/routes/campaigns/CampaignStudio.tsx`
+
+**Interfaces:**
+- Add `WAITING_META_APPROVAL` to `CampaignStatus`.
+- Add admin route `POST /crm-api/ai/campaigns/:id/request-meta-approval`.
+- Route is WHATSAPP-only, requires a selected strategy, records audit action `META_APPROVAL_REQUESTED`, and transitions to `WAITING_META_APPROVAL`.
+- This route does **not** submit anything to Meta and does **not** schedule/send.
+- A campaign in `WAITING_META_APPROVAL` cannot enter `SCHEDULED`.
+- Existing segment campaigns that use the canonical approved template may continue the normal APPROVED -> SCHEDULED path without this state.
+
+- [ ] **Step 1: Write failing state-machine tests** for WHATSAPP-only transition, missing selected strategy, schedule rejection from WAITING_META_APPROVAL and no effect on email.
+- [ ] **Step 2: Run focused tests**; expect FAIL.
+- [ ] **Step 3: Add enum migration, service transition and route**.
+- [ ] **Step 4: Update Studio UI with “Solicitar aprovação Meta” for proposal-only copy and an explicit “aguardando aprovação externa” state**.
+- [ ] **Step 5: Add documentation that a future Meta-template registry/submission project is required before arbitrary generated WhatsApp copy can become sendable; this plan deliberately keeps it fail-closed**.
+- [ ] **Step 6: Run backend/frontend tests**; expect PASS.
+- [ ] **Step 7: Commit** `feat(whatsapp): add Meta approval waiting state`.
+
+### Task 10: Roll out channels separately
 
 **Files:**
 - Evidence notes only.
