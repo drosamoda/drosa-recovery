@@ -1,18 +1,25 @@
-import type { ReactNode } from 'react'
+import { lazy, Suspense, type ComponentType, type ReactNode } from 'react'
 import { createBrowserRouter } from 'react-router-dom'
 import { AppShell } from './components/shell/AppShell'
-import { DashboardPage } from './routes/dashboard/DashboardPage'
-import { CustomersPage } from './routes/customers/CustomersPage'
-import { CustomerDetailPage } from './routes/customers/CustomerDetailPage'
-import { MessagesPage } from './routes/messages/MessagesPage'
-import { ConversationsPage } from './routes/conversations/ConversationsPage'
-import { RecoveryPage } from './routes/recovery/RecoveryPage'
-import { CampaignsPage } from './routes/campaigns/CampaignsPage'
-import { HealthPage } from './routes/health/HealthPage'
-import { BiPage } from './routes/bi/BiPage'
+import { LoadingState } from './components/feedback/LoadingState'
 
-// Base '/crm-next' enquanto o piloto nao substitui '/crm-v2' (ver
-// REACT_MIGRATION_BLUEPRINT secao 4). Toda rota e somente leitura.
+// Code splitting por rota (medido: bundle único passava de 800 kB com os
+// gráficos). Cada página baixa só quando visitada.
+function page<K extends string>(loader: () => Promise<Record<K, ComponentType>>, name: K) {
+  return lazy(() => loader().then((m) => ({ default: m[name] })))
+}
+
+const DashboardPage = page(() => import('./routes/dashboard/DashboardPage'), 'DashboardPage')
+const CustomersPage = page(() => import('./routes/customers/CustomersPage'), 'CustomersPage')
+const CustomerDetailPage = page(() => import('./routes/customers/CustomerDetailPage'), 'CustomerDetailPage')
+const MessagesPage = page(() => import('./routes/messages/MessagesPage'), 'MessagesPage')
+const ConversationsPage = page(() => import('./routes/conversations/ConversationsPage'), 'ConversationsPage')
+const RecoveryPage = page(() => import('./routes/recovery/RecoveryPage'), 'RecoveryPage')
+const CampaignsPage = page(() => import('./routes/campaigns/CampaignsPage'), 'CampaignsPage')
+const HealthPage = page(() => import('./routes/health/HealthPage'), 'HealthPage')
+const BiPage = page(() => import('./routes/bi/BiPage'), 'BiPage')
+
+// Toda rota é somente leitura.
 const pages: { path: string; element: ReactNode }[] = [
   { path: '/', element: <DashboardPage /> },
   { path: '/customers', element: <CustomersPage /> },
@@ -26,6 +33,13 @@ const pages: { path: string; element: ReactNode }[] = [
 ]
 
 export const router = createBrowserRouter(
-  pages.map(({ path, element }) => ({ path, element: <AppShell>{element}</AppShell> })),
+  pages.map(({ path, element }) => ({
+    path,
+    element: (
+      <AppShell>
+        <Suspense fallback={<LoadingState variant="kpis" />}>{element}</Suspense>
+      </AppShell>
+    ),
+  })),
   { basename: '/crm-next' },
 )

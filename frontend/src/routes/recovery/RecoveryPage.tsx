@@ -1,4 +1,8 @@
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { Barcode, Megaphone, QrCode, ShoppingCart } from 'lucide-react'
+import { PeriodFilter } from '../../components/navigation/PeriodFilter'
+import { CartAnalytics, PaymentsAnalytics, RemarketingChart } from './RecoveryAnalytics'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { PageHeader } from '../../components/shell/PageHeader'
 import { Tabs } from '../../components/overlay/Tabs'
@@ -21,21 +25,43 @@ const DISPATCHED = new Set(['sent', 'delivered', 'read'])
 const DELIVERED = new Set(['delivered', 'read'])
 
 const TABS = [
-  { key: 'checkouts', label: 'Carrinho abandonado' },
-  { key: 'pix', label: 'PIX' },
-  { key: 'boleto', label: 'Boleto' },
-  { key: 'remarketing', label: 'Remarketing' },
+  { key: 'checkouts', label: 'Carrinho abandonado', icon: ShoppingCart },
+  { key: 'pix', label: 'PIX', icon: QrCode },
+  { key: 'boleto', label: 'Boleto', icon: Barcode },
+  { key: 'remarketing', label: 'Remarketing', icon: Megaphone },
 ]
 
 export function RecoveryPage() {
-  const [tab, setTab] = useState('checkouts')
+  // ?tab= permite deep-link do Command Center (ex.: PIX pendentes)
+  const [params, setParams] = useSearchParams()
+  const initial = params.get('tab') ?? 'checkouts'
+  const [tab, setTabState] = useState(TABS.some((t) => t.key === initial) ? initial : 'checkouts')
+  const setTab = (key: string) => {
+    setTabState(key)
+    setParams({ tab: key }, { replace: true })
+  }
   return (
     <div>
-      <PageHeader title="Recovery" subtitle="Elegibilidade, bloqueios e histórico de contato. Somente leitura — regras vêm do backend." />
+      <PageHeader title="Recovery" subtitle="Carrinho, PIX, boleto e remarketing: volume, elegibilidade, bloqueios e contato. Somente leitura — regras vêm do backend." actions={tab === 'remarketing' ? undefined : <PeriodFilter />} />
       <Tabs items={TABS} active={tab} onChange={setTab} />
-      {tab === 'checkouts' && <CheckoutsTab />}
-      {tab === 'pix' && <PaymentsTab method="pix" />}
-      {tab === 'boleto' && <PaymentsTab method="boleto" />}
+      {tab === 'checkouts' && (
+        <>
+          <CartAnalytics />
+          <CheckoutsTab />
+        </>
+      )}
+      {tab === 'pix' && (
+        <>
+          <PaymentsAnalytics method="pix" />
+          <PaymentsTab method="pix" />
+        </>
+      )}
+      {tab === 'boleto' && (
+        <>
+          <PaymentsAnalytics method="boleto" />
+          <PaymentsTab method="boleto" />
+        </>
+      )}
       {tab === 'remarketing' && <RemarketingTab />}
     </div>
   )
@@ -76,7 +102,7 @@ function CheckoutsTab() {
   const columns: DataTableColumn<CheckoutItem>[] = [
     { key: 'date', label: 'Data', render: (r) => formatDateTime(r.date), hideOnMobile: true },
     { key: 'customer', label: 'Cliente', render: (r) => r.customer ?? r.phone ?? '—' },
-    { key: 'total', label: 'Valor', render: (r) => formatMoney(r.total), hideOnMobile: true },
+    { key: 'total', label: 'Valor', render: (r) => formatMoney(r.total), hideOnMobile: true, align: 'right' },
     { key: 'eligible', label: 'Elegível', render: (r) => (r.eligible === true ? 'Sim' : r.eligible === false ? 'Não' : 'Não avaliado') },
     { key: 'blockers', label: 'Motivos', render: (r) => <ReasonList codes={r.eligible ? [] : r.blockers} /> },
     { key: 'message', label: 'Mensagem', render: (r) => (r.message ? <CodeBadge code={r.message.status} map={MESSAGE_STATUS} /> : <span className="text-ink-faint">Sem contato</span>), hideOnMobile: true },
@@ -119,8 +145,8 @@ function CheckoutsTab() {
               <div className="my-4 grid gap-4 md:grid-cols-[minmax(0,14rem)_minmax(0,1fr)]">
                 {/* Evento observado, NAO etapa do funil nem atribuicao de conversao. */}
                 <StatCard label="Pedidos com contato registrado" value={observedOrders} hint="Carrinho com mensagem registrada e pedido vinculado. A API não traz horário do contato vs. pedido: não indica ordem nem atribuição." />
-                <div className="rounded-card border border-ink-faint/15 bg-surface-raised p-4">
-                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-faint">Motivos de bloqueio — amostra da página atual</p>
+                <div className="panel p-4">
+                  <p className="t-section mb-2">Motivos de bloqueio — amostra da página atual</p>
                   {reasons.length === 0 ? (
                     <p className="text-sm text-ink-muted">Nenhum bloqueio nesta página.</p>
                   ) : (
@@ -155,7 +181,7 @@ function PaymentsTab({ method }: { method: 'pix' | 'boleto' }) {
   const columns: DataTableColumn<PaymentItem>[] = [
     { key: 'order', label: 'Pedido', render: (r) => r.order },
     { key: 'customer', label: 'Cliente', render: (r) => r.customer ?? r.phone ?? '—', hideOnMobile: true },
-    { key: 'total', label: 'Valor', render: (r) => formatMoney(r.total), hideOnMobile: true },
+    { key: 'total', label: 'Valor', render: (r) => formatMoney(r.total), hideOnMobile: true, align: 'right' },
     { key: 'payment', label: 'Pagamento', render: (r) => <span title={r.orderStatus}>{r.paymentStatus}</span> },
     { key: 'message', label: 'Mensagem', render: (r) => (r.messageStatus ? <CodeBadge code={r.messageStatus} map={MESSAGE_STATUS} /> : <span className="text-ink-faint">Sem contato</span>) },
     { key: 'reason', label: 'Motivo', render: (r) => <CodeBadge code={r.error?.category} map={FAILURE_CATEGORY} />, hideOnMobile: true },
@@ -204,6 +230,7 @@ function RemarketingTab() {
             <Notice>Nenhuma execução de remarketing registrada.</Notice>
           ) : (
             <>
+              <RemarketingChart runs={d.data} />
               <DataTable columns={columns} rows={d.data} rowKey={(r) => r.id} onRowClick={setSelected} />
               <Pagination pagination={d.pagination} onPage={setPage} noun="execuções" />
             </>
@@ -214,7 +241,7 @@ function RemarketingTab() {
                 <p className="mb-3 text-xs text-ink-muted">Últimos {selected.recipients.length} destinatários retornados pela API.</p>
                 <ul className="space-y-3">
                   {selected.recipients.map((r) => (
-                    <li key={r.id} className="border-b border-ink-faint/10 pb-2 text-sm">
+                    <li key={r.id} className="border-b border-white/5 pb-2 text-sm">
                       <div className="flex justify-between gap-2">
                         <span className="text-ink">{r.templateName}</span>
                         <CodeBadge code={r.status} map={RECIPIENT_STATUS} />

@@ -10,12 +10,15 @@ export interface HealthCardProps {
   action: string
 }
 
-// Cartao generico de saude de uma integracao. O tom do estado e decidido pelo
-// chamador a partir de EVIDENCIA (erro registrado, HMAC invalido...), nunca
-// por um boolean de configuracao isolado.
+const BAR: Record<StatusTone, string> = { success: 'bg-status-success', warning: 'bg-status-warning', danger: 'bg-status-danger', neutral: 'bg-status-neutral', info: 'bg-data' }
+
+// Cartão genérico de saúde de uma integração. O tom do estado é decidido pelo
+// chamador a partir de EVIDÊNCIA (erro registrado, HMAC inválido...), nunca
+// por um boolean de configuração isolado.
 export function HealthCard({ title, state, evidence, problem, impact, action }: HealthCardProps) {
   return (
-    <article className="rounded-card border border-ink-faint/15 bg-surface-raised p-4">
+    <article className="panel enter relative overflow-hidden p-4">
+      <span className={`absolute inset-x-0 top-0 h-0.5 ${BAR[state.tone]}`} aria-hidden="true" />
       <div className="mb-2 flex items-center justify-between gap-2">
         <h3 className="text-sm font-semibold text-ink">{title}</h3>
         <StatusBadge label={state.label} tone={state.tone} />

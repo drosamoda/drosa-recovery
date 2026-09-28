@@ -45,7 +45,7 @@ export function MetabaseEmbed({ module, title }: { module: string; title: string
     )
   }
   return (
-    <div className="rounded-card border border-ink-faint/15 bg-surface-raised">
+    <div className="panel enter">
       {!loaded && slow && <Notice>O Metabase pode estar iniciando (cold start). O painel aparece assim que responder.</Notice>}
       <iframe title={`Metabase — ${title}`} src={query.data.url} onLoad={() => setLoaded(true)} className="h-[70vh] w-full rounded-card" />
     </div>

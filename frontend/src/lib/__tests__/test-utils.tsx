@@ -2,6 +2,7 @@ import type { ReactElement } from 'react'
 import { render } from '@testing-library/react'
 import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
+import { PeriodProvider } from '../../components/navigation/PeriodProvider'
 
 // retry:false em todo teste — sem isso, um teste de erro (401/500) ficaria
 // preso tentando de novo antes do assert rodar.
@@ -18,11 +19,13 @@ export function renderWithProviders(ui: ReactElement, { route = '/', path = '/' 
   })
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[route]}>
-        <Routes>
-          <Route path={path} element={ui} />
-        </Routes>
-      </MemoryRouter>
+      <PeriodProvider>
+        <MemoryRouter initialEntries={[route]}>
+          <Routes>
+            <Route path={path} element={ui} />
+          </Routes>
+        </MemoryRouter>
+      </PeriodProvider>
     </QueryClientProvider>,
   )
 }

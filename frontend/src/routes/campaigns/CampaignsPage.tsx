@@ -75,7 +75,7 @@ function OpportunityCard({ opportunity: o }: { opportunity: Opportunity }) {
   const contradictory = titleContradictsCounters(o.title, o.eligibleCount)
   const headline = contradictory ? (OPPORTUNITY_TYPE[o.type] ?? humanize(o.type)) : o.title
   return (
-    <article className="rounded-card border border-ink-faint/15 bg-surface-raised p-4">
+    <article className="panel enter p-4">
       <p className="text-xs uppercase tracking-wide text-ink-faint" title={o.type}>
         {o.channel} · {humanize(o.type)}
       </p>

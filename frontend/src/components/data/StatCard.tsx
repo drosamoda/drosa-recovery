@@ -1,9 +1,10 @@
+// Métrica compacta (grades densas). Para KPIs principais usar KpiCard.
 export function StatCard({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
   return (
-    <div className="rounded-card border border-ink-faint/15 bg-surface-raised p-5">
-      <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">{label}</p>
-      <p className="mt-2 text-2xl font-semibold tabular-nums text-ink">{value}</p>
-      {hint && <p className="mt-1 text-xs text-ink-muted">{hint}</p>}
+    <div className="panel enter min-w-0 p-4">
+      <p className="t-label truncate">{label}</p>
+      <p className="t-metric mt-2 text-xl md:text-2xl">{value}</p>
+      {hint && <p className="mt-1 text-xs text-ink-faint">{hint}</p>}
     </div>
   )
 }

@@ -3,16 +3,24 @@ import userEvent from '@testing-library/user-event'
 import { ConnectGate } from '../ConnectGate'
 import { Topbar } from '../Topbar'
 import { setStoredSecret, clearStoredSecret } from '../../../lib/auth'
+import { MemoryRouter } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 function jsonResponse(status: number, body: unknown = {}): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 }
 
+// Topbar (Visual 2.0) lê /crm-api/health para o status do sistema: precisa de
+// Router + QueryClient. As asserções sobre /central-auth continuam as mesmas.
 const App = () => (
-  <ConnectGate>
-    <Topbar onMenuClick={() => undefined} />
-    <p>conteudo protegido</p>
-  </ConnectGate>
+  <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <MemoryRouter>
+      <ConnectGate>
+        <Topbar onMenuClick={() => undefined} />
+        <p>conteudo protegido</p>
+      </ConnectGate>
+    </MemoryRouter>
+  </QueryClientProvider>
 )
 
 describe('ConnectGate — sessão única + legado', () => {
@@ -29,7 +37,7 @@ describe('ConnectGate — sessão única + legado', () => {
     render(<App />)
     expect(screen.getByText('conteudo protegido')).toBeInTheDocument()
     expect(screen.getByText('Segredo de leitura (legado)')).toBeInTheDocument()
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(fetchMock.mock.calls.some((call) => String(call[0]).startsWith('/central-auth'))).toBe(false)
   })
 
   it('cookie de sessão válido entra e mostra e-mail/papel', async () => {

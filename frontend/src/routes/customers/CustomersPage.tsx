@@ -51,12 +51,12 @@ export function CustomersPage() {
           onChange={(e) => setSearchInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && applySearch()}
           placeholder="Buscar por nome, telefone ou e-mail"
-          className="w-full max-w-sm rounded-md border border-ink-faint/30 px-3 py-2 text-sm outline-none focus:border-bordo"
+          className="w-full max-w-sm rounded-md border border-white/15 px-3 py-2 text-sm outline-none focus:border-bordo"
         />
         <button
           type="button"
           onClick={applySearch}
-          className="rounded-md border border-ink-faint/30 px-4 py-2 text-sm font-medium text-ink hover:bg-surface-sunken"
+          className="rounded-md border border-white/15 px-4 py-2 text-sm font-medium text-ink hover:bg-surface-sunken"
         >
           Buscar
         </button>
@@ -80,7 +80,7 @@ export function CustomersPage() {
                 type="button"
                 disabled={page <= 1}
                 onClick={() => setPage((p) => p - 1)}
-                className="rounded-md border border-ink-faint/30 px-3 py-1 disabled:opacity-40"
+                className="rounded-md border border-white/15 px-3 py-1 disabled:opacity-40"
               >
                 Anterior
               </button>
@@ -88,7 +88,7 @@ export function CustomersPage() {
                 type="button"
                 disabled={page * PAGE_SIZE >= data.pagination.total}
                 onClick={() => setPage((p) => p + 1)}
-                className="rounded-md border border-ink-faint/30 px-3 py-1 disabled:opacity-40"
+                className="rounded-md border border-white/15 px-3 py-1 disabled:opacity-40"
               >
                 Proxima
               </button>
