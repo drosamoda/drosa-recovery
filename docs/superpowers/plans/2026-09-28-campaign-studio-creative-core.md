@@ -91,7 +91,7 @@
 
 **Interfaces:**
 - Add enum `CreativeFidelityStatus = PENDING | PASS | REJECTED_PRODUCT_MISMATCH | REJECTED_UNSUPPORTED_CLAIM | REJECTED_OTHER`.
-- Add model `CampaignCreativeAsset` with `id`, `campaignDraftId`, `strategyIndex`, `assetType`, `provider`, `model`, `storageObject`, `publicUrl?`, `productId?`, `productEvidence Json?`, `promptVersion`, `generationMetadata Json?`, `idempotencyKey @unique`, `fidelityStatus`, `approvedBy?`, `approvedAt?`, timestamps.
+- Add model `CampaignCreativeAsset` with `id`, `campaignDraftId`, `strategyIndex`, `assetType`, `provider`, `model`, `storageObject`, `publicUrl?`, `publishedAt?`, `productId?`, `productEvidence Json?`, `promptVersion`, `generationMetadata Json?`, `idempotencyKey @unique`, `fidelityStatus`, `approvedBy?`, `approvedAt?`, timestamps.
 - Add nullable scalar `selectedCreativeAssetId` to `CampaignDraft`; service validates same-draft ownership.
 
 - [ ] **Step 1: Write failing unit tests** for create-once idempotency, cross-draft selection rejection, and PASS-only selection.
@@ -137,6 +137,7 @@
 **Interfaces:**
 - Env: `CREATIVE_IMAGE_PROVIDER=none|openai`, default `none`.
 - Env: `CREATIVE_IMAGE_MODEL`, default `gpt-image-2`.
+- OpenAI image generation reuses the existing `OPENAI_API_KEY`; no second OpenAI secret is introduced.
 - `CreativeImageProvider.generate(input: CreativeImageInput): Promise<{ bytes; contentType; model; metadata }>`.
 - Input modes: `PRODUCT_REFERENCE` and `BRAND_EDITORIAL`.
 - `PRODUCT_REFERENCE` requires verified `ProductTruth.image`.
