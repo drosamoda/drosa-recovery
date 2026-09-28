@@ -65,7 +65,7 @@
 - [ ] **Step 3: Attempt a non-destructive direct-main update from a test branch path and verify GitHub rejects it before changing main**.
 - [ ] **Step 4: Open/merge a documentation-only test PR through the protected flow, then remove the temporary doc change if necessary**.
 - [ ] **Step 5: Document the rule and recovery procedure for administrators**.
-- [ ] **Step 6: Record `MAIN_PROTECTION=PASS`.
+- [ ] **Step 6: Record `MAIN_PROTECTION=PASS`**.
 
 ### Task 3: Remove deterministic test flakiness
 
