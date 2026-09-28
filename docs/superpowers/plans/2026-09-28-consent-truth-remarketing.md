@@ -117,7 +117,29 @@
 - [ ] **Step 4: Run focused backend/frontend tests**; expect PASS.
 - [ ] **Step 5: Commit** `feat(consent): expose consent source diagnostics`.
 
-### Task 6: Validate real capture and remarketing eligibility
+### Task 6: Start a forward-only WhatsApp consent event ledger
+
+**Files:**
+- Modify: `prisma/schema.prisma`
+- Create: `prisma/migrations/<timestamp>_add_whatsapp_consent_events/migration.sql`
+- Modify: `src/services/whatsappConsentService.ts`
+- Modify: `src/__tests__/unit/whatsappConsentService.test.ts`
+
+**Interfaces:**
+- Add `WhatsappConsentEvent` with `id`, `normalizedPhoneHash`, `scope`, `choice`, `source`, `evidenceRef`, `occurredAt`, `createdAt`.
+- Unique key: `normalizedPhoneHash + scope + source + evidenceRef + choice`.
+- `evidenceRef` for checkout writes is the Nuvemshop order id; no plaintext phone is stored in the ledger.
+- Existing `WhatsappConsent` remains the current-state projection and source for eligibility.
+- No retrospective event backfill is fabricated. Historical analytics before ledger inception remain explicitly unavailable.
+
+- [ ] **Step 1: Write failing tests** proving one event per explicit checkout choice, idempotency on repeated webhook delivery, hash-only storage, and no event for absent marker.
+- [ ] **Step 2: Run focused test**; expect FAIL.
+- [ ] **Step 3: Add the ledger migration and write the event in the same logical consent update path as the current-state upsert**.
+- [ ] **Step 4: Preserve current eligibility behavior exactly**; `hasActiveWhatsappConsent` still reads the current-state table.
+- [ ] **Step 5: Run consent tests, Prisma validate and typecheck**; expect PASS.
+- [ ] **Step 6: Commit** `feat(consent): add forward-only WhatsApp consent ledger`.
+
+### Task 7: Validate real capture and remarketing eligibility
 
 **Files:**
 - Add evidence note under `docs/handoff/`.
