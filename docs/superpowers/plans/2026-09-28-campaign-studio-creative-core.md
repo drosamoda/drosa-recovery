@@ -38,19 +38,23 @@
 - Modify: `src/routes/aiCampaigns.routes.ts`
 - Modify: `src/__tests__/integration/centralAuth.test.ts`
 - Modify: `src/__tests__/integration/aiCampaignsAdminAuth.test.ts`
+- Modify: `frontend/src/lib/api.ts`
+- Modify: `frontend/src/lib/__tests__/api.test.ts`
 
 **Interfaces:**
 - Produces: `centralAdminAuth(req, res, next): void`.
 - `verifySessionToken` must derive the current role from `CENTRAL_ADMIN_EMAILS` on every request; the role embedded in an old token is not authoritative after configuration changes.
 - All Campaign Studio POST routes use Central admin session auth. Legacy `adminAuth` remains for legacy `/admin` routes.
+- Produces frontend `apiPost<TResponse>(path: string, body: unknown, signal?: AbortSignal): Promise<TResponse>` using JSON + same-origin cookie; it must not send the legacy `x-crm-read-secret` as write authorization.
 - Preview read-only mode may continue allowing `/crm-api/ai/campaigns/*` writes, but those writes still require the admin session middleware.
 
 - [ ] **Step 1: Write failing integration tests** for admin session allowed, read session rejected, removed-admin session rejected, and missing session rejected.
 - [ ] **Step 2: Run central auth and AI campaign auth tests**; expect FAIL.
 - [ ] **Step 3: Recompute the current role in session verification and implement `centralAdminAuth`**.
 - [ ] **Step 4: Apply it to existing campaign create/select/approve/schedule/cancel routes before adding new creative routes**.
-- [ ] **Step 5: Run focused integration tests and typecheck**; expect PASS.
-- [ ] **Step 6: Commit** `feat(auth): require Central admin for campaign writes`.
+- [ ] **Step 5: Add failing frontend API tests, then implement `apiPost` with `Content-Type: application/json`, `credentials: same-origin`, shared error parsing, and the same 401 session-loss behavior as `apiGet`**.
+- [ ] **Step 6: Run focused backend/frontend tests and typechecks**; expect PASS.
+- [ ] **Step 7: Commit** `feat(auth): require Central admin for campaign writes`.
 
 ### Task 2: Expand email copy contract without breaking current primary fields
 
