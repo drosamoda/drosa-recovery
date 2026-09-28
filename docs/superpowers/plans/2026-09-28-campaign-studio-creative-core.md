@@ -227,5 +227,5 @@
 - [ ] **Step 4: Confirm generated assets remain PENDING until human review**.
 - [ ] **Step 5: Confirm no email/WhatsApp send occurs from any Creative Studio action**.
 - [ ] **Step 6: QA at 375/768/1024/1440, console/network, private asset access and cross-draft denial**.
-- [ ] **Step 7: Record `COPY_VARIANTS=PASS`, `IMAGE_PROVIDER=PASS`, `ASSET_STORAGE=PASS`, `PRODUCT_FIDELITY_GATE=PASS`, `CAMPAIGN_STUDIO_UI=PASS`, `NO_SEND_PATH=PASS`.
+- [ ] **Step 7: Record `COPY_VARIANTS=PASS`, `IMAGE_PROVIDER=PASS`, `ASSET_STORAGE=PASS`, `PRODUCT_FIDELITY_GATE=PASS`, `CAMPAIGN_STUDIO_UI=PASS`, `NO_SEND_PATH=PASS`**.
 
