@@ -63,7 +63,7 @@ export function ConversationsPage() {
           setPage(1)
         }}
       />
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] xl:grid-cols-[minmax(0,24rem)_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] xl:grid-cols-[minmax(0,24rem)_minmax(0,1fr)]">
         <div className={selected ? 'hidden lg:block' : ''}>
           <QueryView query={query} isEmpty={(d) => d.data.length === 0} emptyTitle="Nenhuma conversa encontrada." fallbackError="Falha de rede ao consultar /crm-api/conversations.">
             {(d) => (
@@ -128,7 +128,7 @@ function ConversationThread({ id }: { id: string }) {
         const st = statusOf(c.status)
         const inbound = c.messages.filter((m) => m.direction === 'inbound').length
         return (
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_16rem]">
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_16rem]">
             <section className="panel enter flex min-w-0 flex-col overflow-hidden" aria-label="Histórico da conversa">
               <header className="flex items-center gap-3 border-b px-4 py-3" style={{ borderColor: 'var(--border-subtle)' }}>
                 <span className="flex h-9 w-9 items-center justify-center rounded-full bg-accent/15 text-accent">

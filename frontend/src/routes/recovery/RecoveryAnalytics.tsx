@@ -87,7 +87,7 @@ export function PaymentsAnalytics({ method }: { method: 'pix' | 'boleto' }) {
   const donut = [...byStatus.entries()].map(([k, v]) => ({ label: k === 'none' ? 'Sem contato' : (MESSAGE_STATUS[k]?.label ?? k), value: v, color: COLORS[k] ?? 'var(--chart-6)' }))
   const name = method === 'pix' ? 'PIX' : 'Boleto'
   return (
-    <div className="mb-6 grid gap-4 lg:grid-cols-3">
+    <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
       <KpiCard label={`${name} pendentes · ${opt.label.toLowerCase()}`} value={pending === null ? '—' : nf(pending)} tone={pending ? 'warning' : 'default'} context="pedidos sem pagamento confirmado" tooltip="Fonte: /crm-api/dashboard" size="lg" />
       <ChartCard className="lg:col-span-2" title="Contato por pedido" question={`Situação da mensagem nos ${rows.length} pedidos mais recentes carregados (amostra da página, não o período).`}>
         {rows.length ? (

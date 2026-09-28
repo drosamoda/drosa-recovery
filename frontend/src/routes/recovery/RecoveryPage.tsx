@@ -142,7 +142,7 @@ function CheckoutsTab() {
                 ]}
                 caption={`Amostra da página atual — ${rows.length} registros (de ${d.pagination.total.toLocaleString('pt-BR')} no total). Percentuais valem só para esta amostra, não para o período.`}
               />
-              <div className="my-4 grid gap-4 md:grid-cols-[minmax(0,14rem)_minmax(0,1fr)]">
+              <div className="my-4 grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,14rem)_minmax(0,1fr)]">
                 {/* Evento observado, NAO etapa do funil nem atribuicao de conversao. */}
                 <StatCard label="Pedidos com contato registrado" value={observedOrders} hint="Carrinho com mensagem registrada e pedido vinculado. A API não traz horário do contato vs. pedido: não indica ordem nem atribuição." />
                 <div className="panel p-4">
