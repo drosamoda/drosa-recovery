@@ -188,8 +188,10 @@ app.use('/crm-next/assets', express.static(path.join(frontendDist, 'assets'), { 
 app.use('/crm-next/assets', (_req, res) => res.status(404).type('text/plain').send('Not found'))
 app.use('/crm-next', express.static(frontendDist, { index: false }))
 app.get(['/crm-next', '/crm-next/*'], (_req, res) => {
-  res.setHeader('Cache-Control', 'no-cache')
-  res.sendFile(path.join(frontendDist, 'index.html'))
+  // Sem ETag/Last-Modified: o buildpack fixa o mtime e index.html de builds
+  // diferentes tem o mesmo tamanho -> ETag igual -> 304 servia o index antigo.
+  res.setHeader('Cache-Control', 'no-store')
+  res.sendFile(path.join(frontendDist, 'index.html'), { etag: false, lastModified: false })
 })
 
 // ── Rotas protegidas ───────────────────────────────────────────────────
