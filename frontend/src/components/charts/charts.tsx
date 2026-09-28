@@ -18,6 +18,8 @@ import {
 import { shortDay } from '../../lib/series'
 
 // Biblioteca de gráficos da Central (Recharts). Cores sempre via tokens CSS.
+// Animação JS do Recharts desligada: depende de requestAnimationFrame e congela
+// no meio em abas em segundo plano; a entrada fica por conta do CSS (.enter).
 export interface Series<K extends string = string> {
   key: K
   label: string
@@ -78,7 +80,7 @@ export function TrendAreaChart<T extends object>({ data, series, xKey = 'day' as
             <YAxis allowDecimals={false} width={48} {...AXIS} />
             <Tooltip content={<ChartTooltip labelFormatter={shortDay} />} cursor={{ stroke: 'var(--border-strong)' }} />
             {series.map((s) => (
-              <Area key={s.key} type="monotone" dataKey={s.key} name={s.label} stroke={s.color} strokeWidth={2} fill={`url(#grad-${s.key})`} stackId={stacked ? 'a' : undefined} animationDuration={600} />
+              <Area key={s.key} type="monotone" dataKey={s.key} name={s.label} stroke={s.color} strokeWidth={2} fill={`url(#grad-${s.key})`} stackId={stacked ? 'a' : undefined} isAnimationActive={false} />
             ))}
           </AreaChart>
         </ResponsiveContainer>
@@ -99,7 +101,7 @@ export function MultiLineChart<T extends object>({ data, series, xKey = 'day' as
             <YAxis allowDecimals={false} width={48} {...AXIS} />
             <Tooltip content={<ChartTooltip labelFormatter={shortDay} />} cursor={{ stroke: 'var(--border-strong)' }} />
             {series.map((s) => (
-              <Line key={s.key} type="monotone" dataKey={s.key} name={s.label} stroke={s.color} strokeWidth={2} dot={false} activeDot={{ r: 3 }} animationDuration={600} />
+              <Line key={s.key} type="monotone" dataKey={s.key} name={s.label} stroke={s.color} strokeWidth={2} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} />
             ))}
           </LineChart>
         </ResponsiveContainer>
@@ -127,7 +129,7 @@ export function StackedBarChart<T extends object>({ data, series, xKey = 'day' a
                 stackId="a"
                 fill={s.color}
                 radius={i === series.length - 1 ? [3, 3, 0, 0] : 0}
-                animationDuration={600}
+                isAnimationActive={false}
                 cursor={onBarClick ? 'pointer' : undefined}
                 onClick={onBarClick ? () => onBarClick(s.key) : undefined}
               />
@@ -186,7 +188,7 @@ export function DonutChart({ data, ariaLabel, centerLabel, centerValue, size = 1
     <figure aria-label={ariaLabel} className="relative m-0 mx-auto" style={{ width: size, height: size }}>
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
-          <Pie data={total > 0 ? data : [{ label: 'vazio', value: 1 }]} dataKey="value" nameKey="label" innerRadius="70%" outerRadius="100%" paddingAngle={total > 0 ? 2 : 0} stroke="none" animationDuration={600}>
+          <Pie data={total > 0 ? data : [{ label: 'vazio', value: 1 }]} dataKey="value" nameKey="label" innerRadius="70%" outerRadius="100%" paddingAngle={total > 0 ? 2 : 0} stroke="none" isAnimationActive={false}>
             {(total > 0 ? data : [{ label: 'vazio', value: 1 }]).map((d) => (
               <Cell key={d.label} fill={total > 0 ? (d as BarDatum).color ?? 'var(--chart-1)' : 'rgb(255 255 255 / 0.06)'} />
             ))}

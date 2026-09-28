@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { GraduationCap, Lightbulb, Mail, Megaphone, Workflow } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { PageHeader } from '../../components/shell/PageHeader'
 import { Tabs } from '../../components/overlay/Tabs'
@@ -15,11 +16,11 @@ import { ELIGIBILITY_REASON, EMAIL_STATUS, OPPORTUNITY_TYPE, humanize, lookup, t
 import type { AutomationRule, EmailAudiences, EmailLibrary, EmailRecommendation, EmailRecommendations, EmailSegment, Opportunity } from '../../lib/types'
 
 const TABS = [
-  { key: 'opportunities', label: 'Oportunidades' },
-  { key: 'email', label: 'E-mail' },
-  { key: 'campaigns', label: 'Campanhas' },
-  { key: 'automations', label: 'Automações' },
-  { key: 'learning', label: 'Aprendizados' },
+  { key: 'opportunities', label: 'Oportunidades', icon: Lightbulb },
+  { key: 'email', label: 'E-mail', icon: Mail },
+  { key: 'campaigns', label: 'Campanhas', icon: Megaphone },
+  { key: 'automations', label: 'Automações', icon: Workflow },
+  { key: 'learning', label: 'Aprendizados', icon: GraduationCap },
 ]
 
 const count = (n: number | null | undefined) => (n === null || n === undefined ? 'Não calculado' : n.toLocaleString('pt-BR'))

@@ -161,8 +161,9 @@
   to { background-position: -200% 0; }
 }
 @keyframes enter {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: none; }
+  /* só movimento, sem opacidade 0: conteúdo nunca fica invisível se a animação pausar */
+  from { transform: translateY(6px); }
+  to { transform: none; }
 }
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; }
