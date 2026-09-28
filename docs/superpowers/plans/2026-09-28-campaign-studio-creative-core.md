@@ -42,7 +42,7 @@
 - Modify: `frontend/src/lib/__tests__/api.test.ts`
 
 **Interfaces:**
-- Produces: `centralAdminAuth(req, res, next): void`.
+- Produces: `centralAdminAuth(req, res, next): void` and sets `res.locals.centralSession = { email, role: 'admin', exp }` for downstream audit/approval attribution.
 - `verifySessionToken` must derive the current role from `CENTRAL_ADMIN_EMAILS` on every request; the role embedded in an old token is not authoritative after configuration changes.
 - All Campaign Studio POST routes use Central admin session auth. Legacy `adminAuth` remains for legacy `/admin` routes.
 - Produces frontend `apiPost<TResponse>(path: string, body: unknown, signal?: AbortSignal): Promise<TResponse>` using JSON + same-origin cookie; it must not send the legacy `x-crm-read-secret` as write authorization.
