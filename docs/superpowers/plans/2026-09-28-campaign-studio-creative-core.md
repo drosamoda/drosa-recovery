@@ -30,7 +30,29 @@
 
 ---
 
-### Task 1: Expand email copy contract without breaking current primary fields
+### Task 1: Require Central admin session for Campaign Studio writes
+
+**Files:**
+- Create: `src/middlewares/centralAdminAuth.ts`
+- Modify: `src/services/centralSession.ts`
+- Modify: `src/routes/aiCampaigns.routes.ts`
+- Modify: `src/__tests__/integration/centralAuth.test.ts`
+- Modify: `src/__tests__/integration/aiCampaignsAdminAuth.test.ts`
+
+**Interfaces:**
+- Produces: `centralAdminAuth(req, res, next): void`.
+- `verifySessionToken` must derive the current role from `CENTRAL_ADMIN_EMAILS` on every request; the role embedded in an old token is not authoritative after configuration changes.
+- All Campaign Studio POST routes use Central admin session auth. Legacy `adminAuth` remains for legacy `/admin` routes.
+- Preview read-only mode may continue allowing `/crm-api/ai/campaigns/*` writes, but those writes still require the admin session middleware.
+
+- [ ] **Step 1: Write failing integration tests** for admin session allowed, read session rejected, removed-admin session rejected, and missing session rejected.
+- [ ] **Step 2: Run central auth and AI campaign auth tests**; expect FAIL.
+- [ ] **Step 3: Recompute the current role in session verification and implement `centralAdminAuth`**.
+- [ ] **Step 4: Apply it to existing campaign create/select/approve/schedule/cancel routes before adding new creative routes**.
+- [ ] **Step 5: Run focused integration tests and typecheck**; expect PASS.
+- [ ] **Step 6: Commit** `feat(auth): require Central admin for campaign writes`.
+
+### Task 2: Expand email copy contract without breaking current primary fields
 
 **Files:**
 - Modify: `src/services/ai/aiProvider.ts`
@@ -54,13 +76,14 @@
 - [ ] **Step 6: Run `emailAiContract`, provider parity, compliance and quality tests**; expect PASS.
 - [ ] **Step 7: Commit** `feat(campaigns): expand email creative copy bundle`.
 
-### Task 2: Add CampaignCreativeAsset persistence
+### Task 3: Add CampaignCreativeAsset persistence
 
 **Files:**
 - Modify: `prisma/schema.prisma`
 - Create: `prisma/migrations/<timestamp>_add_campaign_creative_assets/migration.sql`
 - Create: `src/services/creative/creativeAssetService.ts`
 - Create: `src/__tests__/unit/creativeAssetService.test.ts`
+- Modify: `docs/sql/pending-activation/01-ai-database-least-privilege.sql`
 
 **Interfaces:**
 - Add enum `CreativeFidelityStatus = PENDING | PASS | REJECTED_PRODUCT_MISMATCH | REJECTED_UNSUPPORTED_CLAIM | REJECTED_OTHER`.
@@ -69,12 +92,12 @@
 
 - [ ] **Step 1: Write failing unit tests** for create-once idempotency, cross-draft selection rejection, and PASS-only selection.
 - [ ] **Step 2: Run test**; expect FAIL.
-- [ ] **Step 3: Add schema/migration and regenerate Prisma**.
+- [ ] **Step 3: Add schema/migration, update the AI least-privilege SQL so the AI writer can access only the new creative-asset table/columns it needs, and regenerate Prisma**.
 - [ ] **Step 4: Implement** `createAssetRecord`, `listAssetsForDraft`, `reviewAssetFidelity`, `selectCreativeAsset`.
 - [ ] **Step 5: Run focused tests and Prisma validate/typecheck**; expect PASS.
 - [ ] **Step 6: Commit** `feat(campaigns): persist creative assets`.
 
-### Task 3: Add private Google Cloud Storage adapter
+### Task 4: Add private Google Cloud Storage adapter
 
 **Files:**
 - Modify: `package.json`
@@ -97,7 +120,7 @@
 - [ ] **Step 5: Run focused tests, typecheck and secret scan**; expect PASS.
 - [ ] **Step 6: Commit** `feat(campaigns): add private creative asset storage`.
 
-### Task 4: Add image provider abstraction and OpenAI implementation
+### Task 5: Add image provider abstraction and OpenAI implementation
 
 **Files:**
 - Modify: `.env.example`
@@ -113,6 +136,7 @@
 - `CreativeImageProvider.generate(input: CreativeImageInput): Promise<{ bytes; contentType; model; metadata }>`.
 - Input modes: `PRODUCT_REFERENCE` and `BRAND_EDITORIAL`.
 - `PRODUCT_REFERENCE` requires verified `ProductTruth.image`.
+- Reference-image download must use only the exact HTTPS URL returned by Product Truth, reject non-image content, enforce a 10 MB maximum, and never accept a user-supplied arbitrary URL.
 - Provider errors become closed categories `IMAGE_CONFIG_ERROR | IMAGE_TIMEOUT | IMAGE_PROVIDER_ERROR | IMAGE_INVALID_OUTPUT`.
 
 - [ ] **Step 1: Write failing tests** for provider disabled, product-reference without image, successful binary result, timeout and malformed output.
@@ -123,7 +147,7 @@
 - [ ] **Step 6: Run tests/typecheck/lint**; expect PASS.
 - [ ] **Step 7: Commit** `feat(campaigns): add image generation provider`.
 
-### Task 5: Build creative generation service
+### Task 6: Build creative generation service
 
 **Files:**
 - Create: `src/services/creative/campaignCreativeService.ts`
@@ -143,7 +167,7 @@
 - [ ] **Step 5: Run focused tests/typecheck**; expect PASS.
 - [ ] **Step 6: Commit** `feat(campaigns): generate campaign creative assets`.
 
-### Task 6: Add Creative Asset API with admin-only writes
+### Task 7: Add Creative Asset API with admin-only writes
 
 **Files:**
 - Modify: `src/routes/aiCampaigns.routes.ts`
@@ -159,11 +183,11 @@
 
 - [ ] **Step 1: Write failing integration tests** for auth, cross-draft access, idempotency and PASS-only select.
 - [ ] **Step 2: Run tests**; expect FAIL.
-- [ ] **Step 3: Add routes** using Task 5/Task 2 services; never return storage credentials.
+- [ ] **Step 3: Add routes** using Task 6/Task 3 services; never return storage credentials.
 - [ ] **Step 4: Run integration tests**; expect PASS.
 - [ ] **Step 5: Commit** `feat(campaigns): expose creative asset API`.
 
-### Task 7: Build Campaign Studio UI
+### Task 8: Build Campaign Studio UI
 
 **Files:**
 - Create: `frontend/src/routes/campaigns/CampaignStudio.tsx`
@@ -187,7 +211,7 @@
 - [ ] **Step 5: Run frontend tests/lint/typecheck/build**; expect PASS.
 - [ ] **Step 6: Commit** `feat(campaigns): add Campaign Studio creative UI`.
 
-### Task 8: Preview validation
+### Task 9: Preview validation
 
 **Files:**
 - Add evidence report under `docs/handoff/`.
