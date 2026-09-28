@@ -32,6 +32,8 @@
 ### Task 1: Add Campaign Studio approval and scheduling controls
 
 **Files:**
+- Modify: `src/routes/aiCampaigns.routes.ts`
+- Modify: `src/__tests__/integration/aiCampaignsAdminAuth.test.ts`
 - Modify: `frontend/src/routes/campaigns/CampaignStudio.tsx`
 - Modify: `frontend/src/routes/campaigns/__tests__/CampaignsPage.test.tsx`
 - Modify: `frontend/src/lib/types.ts`
@@ -39,15 +41,15 @@
 
 **Interfaces:**
 - Select strategy -> existing `POST /crm-api/ai/campaigns/:id/select`.
-- Approve -> existing `POST /crm-api/ai/campaigns/:id/approve`, with `approvedBy` taken from the authenticated Central session identity, not free text typed by the user.
+- Approve -> existing `POST /crm-api/ai/campaigns/:id/approve`, with `approvedBy` derived server-side from `res.locals.centralSession.email`; the route no longer accepts a caller-supplied approver identity.
 - Schedule -> existing `POST /crm-api/ai/campaigns/:id/schedule`.
 - Cancel -> existing `POST /crm-api/ai/campaigns/:id/cancel`.
 - All writes already require `centralAdminAuth` from the Creative Core plan.
 
 - [ ] **Step 1: Write failing UI tests** for state-dependent buttons: DRAFT cannot schedule, AWAITING_HUMAN_APPROVAL can select/approve, APPROVED can schedule, SCHEDULED can cancel.
-- [ ] **Step 2: Write a failing test** proving `approvedBy` comes from the current session and is not an editable input.
+- [ ] **Step 2: Write failing backend and frontend tests** proving `approvedBy` comes from the current Central session, a forged body value is ignored, and no editable approver input exists.
 - [ ] **Step 3: Run focused frontend tests**; expect FAIL.
-- [ ] **Step 4: Implement mutations with React Query invalidation of campaign detail/list keys after success**.
+- [ ] **Step 4: Modify the approve route to take the actor from `res.locals.centralSession.email`, then implement frontend mutations with React Query invalidation of campaign detail/list keys after success**.
 - [ ] **Step 5: Render backend business-state errors without converting them into success or retry loops**.
 - [ ] **Step 6: Run frontend tests/typecheck/lint**; expect PASS.
 - [ ] **Step 7: Commit** `feat(campaigns): add human approval and scheduling controls`.
