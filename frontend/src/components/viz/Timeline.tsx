@@ -7,5 +7,5 @@ import { EmptyState } from '../feedback/EmptyState'
 export function Timeline({ events }: { events: JourneyEvent[] }) {
   if (events.length === 0) return <EmptyState title="Nenhum evento com fonte disponivel." />
 
-  return <ul className="space-y-4 border-l border-ink-faint/20 pl-2">{events.map((event, i) => <TimelineEvent key={`${event.type}-${event.reference}-${i}`} event={event} />)}</ul>
+  return <ul className="panel enter p-5">{events.map((event, i) => <TimelineEvent key={`${event.type}-${event.reference}-${i}`} event={event} />)}</ul>
 }

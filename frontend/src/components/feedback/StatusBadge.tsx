@@ -1,19 +1,20 @@
-export type StatusTone = 'success' | 'warning' | 'danger' | 'neutral'
+export type StatusTone = 'success' | 'warning' | 'danger' | 'neutral' | 'info'
 
 const TONE_CLASSES: Record<StatusTone, string> = {
-  success: 'bg-status-success/10 text-status-success',
-  warning: 'bg-status-warning/10 text-status-warning',
-  danger: 'bg-status-danger/10 text-status-danger',
-  neutral: 'bg-status-neutral/10 text-status-neutral',
+  success: 'bg-status-success/10 text-status-success ring-status-success/25',
+  warning: 'bg-status-warning/10 text-status-warning ring-status-warning/25',
+  danger: 'bg-status-danger/10 text-status-danger ring-status-danger/25',
+  neutral: 'bg-status-neutral/10 text-ink-muted ring-status-neutral/20',
+  info: 'bg-data/10 text-data ring-data/25',
 }
 
-// tone e sempre explicito no chamador — nunca derivar cor so de um boolean
-// (ex.: cronEnabled=false NAO e automaticamente "danger": pode ser um estado
-// esperado. Quem chama decide a semantica, ver REACT_MIGRATION_BLUEPRINT
-// secao "NAO PORTAR BUGS").
+// tone é sempre explícito no chamador — nunca derivar cor só de um boolean
+// (ex.: cronEnabled=false NÃO é automaticamente "danger": pode ser um estado
+// esperado). O ponto + texto garantem que a cor não é o único significado.
 export function StatusBadge({ label, tone }: { label: string; tone: StatusTone }) {
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${TONE_CLASSES[tone]}`}>
+    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${TONE_CLASSES[tone]}`}>
+      <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
       {label}
     </span>
   )

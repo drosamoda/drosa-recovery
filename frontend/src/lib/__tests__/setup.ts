@@ -9,6 +9,16 @@ afterEach(() => {
   cleanup()
 })
 
+// jsdom não tem ResizeObserver; o ResponsiveContainer do Recharts precisa dele.
+// Stub inerte: os gráficos renderizam com tamanho 0 (testes checam texto/semântica).
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  globalThis.ResizeObserver = class {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  } as unknown as typeof ResizeObserver
+}
+
 // ESTRATEGIA DE MOCKS (obrigatoria para todo teste novo):
 // - clearMocks: true (vite.config.ts) limpa apenas chamadas/resultados entre
 //   testes; NAO use beforeEach(mockReset) nem mockReset global — combinado com

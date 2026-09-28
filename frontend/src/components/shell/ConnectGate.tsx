@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode, type FormEvent } from 'react'
 import { AuthContext, type Access } from './authContext'
+import { BrandMark } from './BrandMark'
 import { clearStoredSecret, getStoredSecret, setStoredSecret } from '../../lib/auth'
 import { AUTH_LOST_EVENT, fetchSessionState, login, logout, type SessionInfo } from '../../lib/session'
 
@@ -42,7 +43,7 @@ export function ConnectGate({ children }: { children: ReactNode }) {
     return <AuthContext.Provider value={{ access, signOut }}>{children}</AuthContext.Provider>
   }
   if (access.kind === 'checking') {
-    return <div className="flex h-screen items-center justify-center text-sm text-ink-muted">Verificando acesso…</div>
+    return <div role="status" className="flex h-screen flex-col items-center justify-center gap-4 text-sm text-ink-muted"><BrandMark />Verificando acesso…</div>
   }
   if (access.kind === 'login') {
     return <LoginForm onSuccess={(me) => setAccess({ kind: 'session', me })} onUseLegacy={() => setAccess({ kind: 'legacy-form' })} />
@@ -52,8 +53,9 @@ export function ConnectGate({ children }: { children: ReactNode }) {
 
 function Card({ eyebrow, title, description, children, onSubmit }: { eyebrow: string; title: string; description: string; children: ReactNode; onSubmit: (e: FormEvent) => void }) {
   return (
-    <div className="flex h-screen items-center justify-center bg-surface px-4">
-      <form onSubmit={onSubmit} className="w-full max-w-sm rounded-card border border-ink-faint/15 bg-surface-raised p-8 shadow-sm">
+    <div className="flex min-h-screen flex-col items-center justify-center gap-8 px-4">
+      <BrandMark />
+      <form onSubmit={onSubmit} className="panel enter w-full max-w-sm p-8 shadow-pop">
         <p className="text-xs font-semibold uppercase tracking-wide text-bordo">{eyebrow}</p>
         <h1 className="mt-2 text-xl font-semibold text-ink">{title}</h1>
         <p className="mt-2 text-sm text-ink-muted">{description}</p>
@@ -63,8 +65,8 @@ function Card({ eyebrow, title, description, children, onSubmit }: { eyebrow: st
   )
 }
 
-const inputClass = 'mt-3 w-full rounded-md border border-ink-faint/30 px-3 py-2 text-sm outline-none focus:border-bordo'
-const buttonClass = 'mt-4 w-full rounded-md bg-bordo px-4 py-2 text-sm font-medium text-white hover:bg-bordo-hover disabled:opacity-60'
+const inputClass = 'input mt-3 w-full'
+const buttonClass = 'btn-primary mt-5 w-full'
 
 function LoginForm({ onSuccess, onUseLegacy }: { onSuccess: (me: SessionInfo) => void; onUseLegacy: () => void }) {
   const [email, setEmail] = useState('')

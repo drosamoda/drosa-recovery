@@ -29,6 +29,15 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
+    rollupOptions: {
+      output: {
+        // vendors estáveis em chunks próprios: cache do navegador sobrevive a deploys de UI
+        manualChunks: {
+          react: ['react', 'react-dom', 'react-router-dom', '@tanstack/react-query'],
+          charts: ['recharts'],
+        },
+      },
+    },
   },
   test: {
     environment: 'jsdom',
