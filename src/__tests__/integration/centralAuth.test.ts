@@ -139,6 +139,8 @@ describe('Sessão da Central — flag LIGADA', () => {
 
   it('CRM_PREVIEW_READONLY: login/logout permitidos, demais escritas continuam 404', async () => {
     process.env.CRM_PREVIEW_READONLY = 'true'
+    // preview read-only exige DIRECT_URL; o CI não tem .env — definir aqui
+    process.env.DIRECT_URL = process.env.DIRECT_URL || 'postgresql://test:test@localhost:5432/drosa_test'
     vi.resetModules()
     try {
       const app = await loadApp()
