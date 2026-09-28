@@ -531,54 +531,80 @@ export const inboxService = {
         { updatedAt: 'desc' },
       ],
       take: 100,
-      include: {
-        contact: true,
-        messages: {
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-        },
-      },
+      include: { contact: true },
     })
+    if (conversations.length === 0) return []
 
-    return Promise.all(conversations.map(async (conversation) => {
-      const lastOutbound = await prisma.chatMessage.findFirst({
-        where: {
-          conversationId: conversation.id,
-          direction: MessageDirection.outbound,
-        },
-        orderBy: { createdAt: 'desc' },
-        select: { createdAt: true },
-      })
+    // P0 (pool=1): batched instead of 3 queries per conversation (N+1 = ~300
+    // sequential queries holding the single connection for ~10s).
+    const ids = conversations.map((c) => c.id)
+    const stats = await prisma.$queryRaw<Array<{
+      conversationId: string
+      lastMessageId: string | null
+      unansweredCount: bigint | number
+    }>>`
+      SELECT c.id AS "conversationId",
+             lm.id AS "lastMessageId",
+             (SELECT COUNT(*) FROM chat_messages i
+               WHERE i."conversationId" = c.id AND i.direction = 'inbound'
+                 AND (lo."createdAt" IS NULL OR i."createdAt" > lo."createdAt")) AS "unansweredCount"
+        FROM conversations c
+        LEFT JOIN LATERAL (SELECT m.id FROM chat_messages m WHERE m."conversationId" = c.id
+                            ORDER BY m."createdAt" DESC LIMIT 1) lm ON true
+        LEFT JOIN LATERAL (SELECT o."createdAt" FROM chat_messages o WHERE o."conversationId" = c.id
+                            AND o.direction = 'outbound' ORDER BY o."createdAt" DESC LIMIT 1) lo ON true
+       WHERE c.id = ANY(${ids})`
+    const statsById = new Map(stats.map((s) => [s.conversationId, s]))
+    const lastMessageIds = stats.map((s) => s.lastMessageId).filter((id): id is string => Boolean(id))
+    const lastMessages = lastMessageIds.length
+      ? await prisma.chatMessage.findMany({ where: { id: { in: lastMessageIds } } })
+      : []
+    const messageById = new Map(lastMessages.map((m) => [m.id, m]))
 
-      const unansweredCount = await prisma.chatMessage.count({
-        where: {
-          conversationId: conversation.id,
-          direction: MessageDirection.inbound,
-          ...(lastOutbound ? { createdAt: { gt: lastOutbound.createdAt } } : {}),
-        },
-      })
+    const phones = [...new Set(conversations.map((c) => c.contact.phone).filter(Boolean))]
+    const orders = phones.length
+      ? await prisma.order.findMany({
+          where: { OR: [{ normalizedPhone: { in: phones } }, { customerPhone: { in: phones } }] },
+          orderBy: [{ createdAt: 'desc' }],
+          select: {
+            id: true,
+            nuvemshopOrderId: true,
+            orderNumber: true,
+            status: true,
+            paymentStatus: true,
+            total: true,
+            orderUrl: true,
+            createdAt: true,
+            normalizedPhone: true,
+            customerPhone: true,
+          },
+        })
+      : []
+    // orders are desc by createdAt: first match per phone is the latest one
+    const lastOrderByPhone = new Map<string, (typeof orders)[number]>()
+    for (const order of orders) {
+      for (const phone of [order.normalizedPhone, order.customerPhone]) {
+        if (phone && !lastOrderByPhone.has(phone)) lastOrderByPhone.set(phone, order)
+      }
+    }
 
-      const lastOrder = await prisma.order.findFirst({
-        where: {
-          OR: [
-            { normalizedPhone: conversation.contact.phone },
-            ...(conversation.contact.phone ? [{ customerPhone: conversation.contact.phone }] : []),
-          ],
-        },
-        orderBy: [{ createdAt: 'desc' }],
-        select: {
-          id: true,
-          nuvemshopOrderId: true,
-          orderNumber: true,
-          status: true,
-          paymentStatus: true,
-          total: true,
-          orderUrl: true,
-          createdAt: true,
-        },
-      })
-
-      const lastMessage = conversation.messages[0]
+    return conversations.map((conversation) => {
+      const stat = statsById.get(conversation.id)
+      const unansweredCount = Number(stat?.unansweredCount ?? 0)
+      const orderRow = lastOrderByPhone.get(conversation.contact.phone)
+      const lastOrder = orderRow
+        ? {
+            id: orderRow.id,
+            nuvemshopOrderId: orderRow.nuvemshopOrderId,
+            orderNumber: orderRow.orderNumber,
+            status: orderRow.status,
+            paymentStatus: orderRow.paymentStatus,
+            total: orderRow.total,
+            orderUrl: orderRow.orderUrl,
+            createdAt: orderRow.createdAt,
+          }
+        : null
+      const lastMessage = stat?.lastMessageId ? messageById.get(stat.lastMessageId) : undefined
 
       return {
         id: conversation.id,
@@ -601,7 +627,7 @@ export const inboxService = {
         lastInboundAt: conversation.lastInboundAt,
         unansweredCount,
       }
-    }))
+    })
   },
 
   async listMessages(conversationId: string) {
