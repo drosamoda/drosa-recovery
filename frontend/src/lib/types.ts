@@ -356,11 +356,27 @@ export interface WebhookEvidence {
   error: string | null
 }
 
+export type JobFreshnessStatus = 'fresh' | 'stale' | 'never_run'
+
+// Shape extraido de src/services/automationJobRunService.ts (computeJobFreshness)
+// no backend. Só os 3 jobs transacionais (process-messages, sync-abandoned-
+// checkouts, sync-boleto-expiring) têm limiar — remarketing/email_campaigns
+// não aparecem aqui.
+export interface JobFreshnessEntry {
+  jobKey: string
+  status: JobFreshnessStatus
+  lastRunStatus: string | null
+  lastStartedAt: string | null
+  ageMinutes: number | null
+  thresholdMinutes: number
+}
+
 export interface HealthResponse {
   meta: { configured: boolean; latestEvidence: WebhookEvidence | null }
   nuvemshop: { configured: boolean; latestEvidence: WebhookEvidence | null }
   recoveryEngine: { pending: number; processing: number; failed: number; unknown: number; oldestPending: string | null }
   inboxMirror: { failed: number; latestSuccess: string | null }
+  jobFreshness: JobFreshnessEntry[]
   runtime: Record<string, boolean | null | undefined>
 }
 

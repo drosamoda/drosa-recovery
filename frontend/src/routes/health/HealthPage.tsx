@@ -17,7 +17,7 @@ import { HealthCard, type HealthCardProps } from '../../components/data/HealthCa
 import { Notice } from '../../components/feedback/Notice'
 import { apiGet } from '../../lib/api'
 import { formatDateTime } from '../../lib/labels'
-import type { AuditEvent, AuditResponse, HealthResponse, WebhookEvidence } from '../../lib/types'
+import type { AuditEvent, AuditResponse, HealthResponse, JobFreshnessEntry, WebhookEvidence } from '../../lib/types'
 
 const TABS = [
   { key: 'overview', label: 'Visão geral', icon: LayoutGrid },
@@ -46,6 +46,35 @@ export function HealthPage() {
       {tab === 'audit' && <AuditTab />}
     </div>
   )
+}
+
+// Rótulo em português por chave de job. Uma chave sem rótulo cadastrado usa
+// o próprio jobKey — nunca falha silenciosamente.
+const JOB_LABELS: Record<string, string> = {
+  process_messages: 'Envio de mensagens',
+  sync_abandoned_checkouts: 'Carrinho abandonado',
+  sync_boleto_expiring: 'Boleto vencendo',
+}
+
+// Cartão dos jobs transacionais (Cloud Scheduler). Deliberadamente
+// independente de runtime.cron: ENABLE_INTERNAL_CRON=false sozinho nunca
+// deve acender este alerta — só a idade real da última execução do job.
+function jobsCard(jobFreshness: JobFreshnessEntry[]): HealthCardProps {
+  const label = (j: JobFreshnessEntry) => JOB_LABELS[j.jobKey] ?? j.jobKey
+  const attention = jobFreshness.filter((j) => j.status !== 'fresh')
+  const evidence = jobFreshness
+    .map((j) => `${label(j)}: ${j.status === 'never_run' ? 'nunca rodou' : `há ${j.ageMinutes} min`}`)
+    .join(' · ') || 'Nenhum job monitorado'
+  return {
+    title: 'Jobs automáticos',
+    state: attention.length > 0 ? { label: 'Com pendência', tone: 'warning' } : { label: 'Em dia', tone: 'success' },
+    evidence,
+    problem: attention.length > 0
+      ? attention.map((j) => `${label(j)} ${j.status === 'never_run' ? 'nunca rodou' : 'atrasado'}`).join(', ')
+      : null,
+    impact: 'Sem o job rodando em dia, pedidos, carrinhos ou boletos podem não avisar o cliente a tempo.',
+    action: attention.length > 0 ? 'Conferir o Cloud Scheduler e os logs do job.' : 'Nenhuma.',
+  }
 }
 
 function webhookCard(title: string, configured: boolean, ev: WebhookEvidence | null, impact: string): HealthCardProps {
@@ -161,6 +190,7 @@ function OverviewTab() {
             impact: 'Conversas podem não mostrar mensagens disparadas pelo Recovery.',
             action: h.inboxMirror.failed ? 'Conferir mensagens com espelhamento falho.' : 'Nenhuma.',
           },
+          jobsCard(h.jobFreshness),
         ]
         const e = h.recoveryEngine
         return (

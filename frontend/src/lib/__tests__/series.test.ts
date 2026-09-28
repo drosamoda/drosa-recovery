@@ -63,6 +63,7 @@ describe('systemStatus', () => {
     nuvemshop: { configured: true, latestEvidence: null },
     recoveryEngine: { pending: 3, processing: 0, failed: 0, unknown: 0, oldestPending: null },
     inboxMirror: { failed: 0, latestSuccess: null },
+    jobFreshness: [],
     runtime: {},
   }
   it('fila sozinha não é alerta; falha é crítica; sem dado é desconhecido', () => {

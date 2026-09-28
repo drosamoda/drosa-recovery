@@ -129,6 +129,52 @@ export function classifyJobError(error: unknown): JobErrorCategory {
   return 'unexpected_error'
 }
 
+// Scheduler frequencies (1/15/60 min) with a grace multiplier — a job is
+// only "stale" once it's meaningfully overdue, not merely a few seconds
+// past its own interval. Only the 3 transactional jobs are scored here;
+// remarketing/email_campaigns still appear in jobRuns without a threshold.
+export const JOB_FRESHNESS_THRESHOLD_MINUTES: Partial<Record<AutomationJobKey, number>> = {
+  process_messages: 3,
+  sync_abandoned_checkouts: 45,
+  sync_boleto_expiring: 120,
+}
+
+export type JobFreshnessStatus = 'fresh' | 'stale' | 'never_run'
+
+export type JobFreshnessEntry = {
+  jobKey: AutomationJobKey
+  status: JobFreshnessStatus
+  lastRunStatus: AutomationJobStatus | null
+  lastStartedAt: string | null
+  ageMinutes: number | null
+  thresholdMinutes: number
+}
+
+// Shared by /jobs/automation-health and /crm-api/health so both surfaces
+// agree on what "stale" means for a transactional job.
+export function computeJobFreshness(
+  jobRuns: Record<AutomationJobKey, SafeJobRun | null>,
+  now: Date = new Date(),
+): JobFreshnessEntry[] {
+  return (Object.entries(JOB_FRESHNESS_THRESHOLD_MINUTES) as [AutomationJobKey, number][]).map(
+    ([jobKey, thresholdMinutes]) => {
+      const run = jobRuns[jobKey]
+      if (!run) {
+        return { jobKey, status: 'never_run', lastRunStatus: null, lastStartedAt: null, ageMinutes: null, thresholdMinutes }
+      }
+      const ageMinutes = (now.getTime() - run.startedAt.getTime()) / 60_000
+      return {
+        jobKey,
+        status: ageMinutes <= thresholdMinutes ? 'fresh' : 'stale',
+        lastRunStatus: run.status,
+        lastStartedAt: run.startedAt.toISOString(),
+        ageMinutes: Math.round(ageMinutes * 10) / 10,
+        thresholdMinutes,
+      }
+    },
+  )
+}
+
 export async function latestAutomationJobRuns(): Promise<Record<AutomationJobKey, SafeJobRun | null>> {
   const rows = await prisma.automationJobRun.findMany({
     distinct: ['jobKey'],

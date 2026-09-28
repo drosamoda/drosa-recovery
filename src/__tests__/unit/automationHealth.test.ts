@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   consentCount: vi.fn(),
   suppressionCount: vi.fn(),
   verifyMetaTemplateContract: vi.fn(),
+  jobRunFindMany: vi.fn(),
 }))
 
 vi.mock('../../config/prisma', () => ({
@@ -17,6 +18,7 @@ vi.mock('../../config/prisma', () => ({
     whatsappTemplate: { findMany: mocks.templateFindMany },
     whatsappConsent: { count: mocks.consentCount },
     suppression: { count: mocks.suppressionCount },
+    automationJobRun: { findMany: mocks.jobRunFindMany },
   },
 }))
 
@@ -53,6 +55,7 @@ beforeEach(() => {
   mocks.consentCount.mockResolvedValue(0)
   mocks.suppressionCount.mockResolvedValue(0)
   mocks.verifyMetaTemplateContract.mockResolvedValue(null)
+  mocks.jobRunFindMany.mockResolvedValue([])
 })
 
 afterEach(() => {
@@ -285,5 +288,86 @@ describe('automationHealth send safety', () => {
       expect.objectContaining({ code: 'active_rule_without_active_template' }),
       expect.objectContaining({ code: 'expired_processing_claims' }),
     ]))
+  })
+})
+
+describe('automationHealth job freshness', () => {
+  it('marks a transactional job never_run when no AutomationJobRun exists', async () => {
+    mocks.jobRunFindMany.mockResolvedValue([])
+
+    const health = await automationHealth()
+
+    expect(health.jobFreshness).toEqual(expect.arrayContaining([
+      expect.objectContaining({ jobKey: 'process_messages', status: 'never_run', lastStartedAt: null, ageMinutes: null }),
+      expect.objectContaining({ jobKey: 'sync_abandoned_checkouts', status: 'never_run' }),
+      expect.objectContaining({ jobKey: 'sync_boleto_expiring', status: 'never_run' }),
+    ]))
+  })
+
+  it('marks process_messages fresh when its last run started within the 3-minute threshold', async () => {
+    const now = new Date('2026-09-28T12:00:00Z')
+    vi.useFakeTimers()
+    vi.setSystemTime(now)
+    mocks.jobRunFindMany.mockResolvedValue([
+      {
+        jobKey: 'process_messages',
+        status: 'completed',
+        startedAt: new Date('2026-09-28T11:58:30Z'),
+        finishedAt: new Date('2026-09-28T11:58:31Z'),
+        durationMs: 1000,
+        summary: { sent: 1 },
+        errorCategory: null,
+      },
+    ])
+
+    const health = await automationHealth()
+
+    expect(health.jobFreshness).toEqual(expect.arrayContaining([
+      expect.objectContaining({ jobKey: 'process_messages', status: 'fresh', lastRunStatus: 'completed' }),
+    ]))
+    vi.useRealTimers()
+  })
+
+  it('marks a job stale once its last run is older than its threshold', async () => {
+    const now = new Date('2026-09-28T12:00:00Z')
+    vi.useFakeTimers()
+    vi.setSystemTime(now)
+    mocks.jobRunFindMany.mockResolvedValue([
+      {
+        jobKey: 'sync_boleto_expiring',
+        status: 'completed',
+        startedAt: new Date('2026-09-28T09:00:00Z'), // 180 min ago, threshold is 120
+        finishedAt: new Date('2026-09-28T09:00:01Z'),
+        durationMs: 1000,
+        summary: { found: 0 },
+        errorCategory: null,
+      },
+    ])
+
+    const health = await automationHealth()
+
+    expect(health.jobFreshness).toEqual(expect.arrayContaining([
+      expect.objectContaining({ jobKey: 'sync_boleto_expiring', status: 'stale', lastRunStatus: 'completed' }),
+    ]))
+    vi.useRealTimers()
+  })
+
+  it('does not treat ENABLE_INTERNAL_CRON=false as an incident by itself when external jobs are fresh', async () => {
+    env.ENABLE_INTERNAL_CRON = false
+    const now = new Date('2026-09-28T12:00:00Z')
+    vi.useFakeTimers()
+    vi.setSystemTime(now)
+    mocks.jobRunFindMany.mockResolvedValue([
+      { jobKey: 'process_messages', status: 'completed', startedAt: new Date('2026-09-28T11:59:00Z'), finishedAt: new Date(), durationMs: 100, summary: {}, errorCategory: null },
+      { jobKey: 'sync_abandoned_checkouts', status: 'completed', startedAt: new Date('2026-09-28T11:30:00Z'), finishedAt: new Date(), durationMs: 100, summary: {}, errorCategory: null },
+      { jobKey: 'sync_boleto_expiring', status: 'completed', startedAt: new Date('2026-09-28T11:00:00Z'), finishedAt: new Date(), durationMs: 100, summary: {}, errorCategory: null },
+    ])
+
+    const health = await automationHealth()
+
+    expect(health.cronEnabled).toBe(false)
+    expect(health.jobFreshness.every((entry) => entry.status === 'fresh')).toBe(true)
+    expect(health.readinessIssues.some((issue) => issue.code.includes('cron'))).toBe(false)
+    vi.useRealTimers()
   })
 })

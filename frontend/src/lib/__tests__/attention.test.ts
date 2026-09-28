@@ -7,6 +7,7 @@ function health(over: Partial<HealthResponse> = {}): HealthResponse {
     nuvemshop: { configured: true, latestEvidence: { createdAt: '2026-09-28T10:00:00Z', processed: true, hmacValid: true, error: null } },
     recoveryEngine: { pending: 0, processing: 0, failed: 0, unknown: 0, oldestPending: null },
     inboxMirror: { failed: 0, latestSuccess: null },
+    jobFreshness: [],
     runtime: { cron: false },
     ...over,
   }

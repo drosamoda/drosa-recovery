@@ -2,6 +2,7 @@ import { env } from '../config/env'
 import { prisma } from '../config/prisma'
 import { templateContracts, verifyMetaTemplateContract } from '../services/templateContracts'
 import { canonicalWhatsappTemplates, legacyBlockedTemplateNames } from '../config/recoveryCanonicalConfig'
+import { latestAutomationJobRuns, computeJobFreshness, JobFreshnessEntry } from '../services/automationJobRunService'
 
 type ReadinessIssue = {
   code: string
@@ -62,6 +63,7 @@ export async function automationHealth() {
       expiredClaims,
       legacyPendingMessages,
       stalePendingMessages,
+      jobRuns,
     ] = await Promise.all([
       prisma.messageLog.count({ where: { status: 'pending' } }),
       prisma.messageLog.count({ where: { status: 'processing' } }),
@@ -106,7 +108,10 @@ export async function automationHealth() {
           },
         },
       }),
+      latestAutomationJobRuns(),
     ])
+
+    const jobFreshness = computeJobFreshness(jobRuns, now)
 
     const issues: ReadinessIssue[] = []
     const templatesByName = new Map(activeTemplateRows.map((template) => [template.metaTemplateName, template]))
@@ -301,6 +306,8 @@ export async function automationHealth() {
       canonicalTemplateNames,
       canonicalTemplatesReady,
       canonicalMetaTemplateChecks,
+      jobRuns,
+      jobFreshness,
     }
   } catch {
     return {
@@ -320,6 +327,8 @@ export async function automationHealth() {
         activeByDefault: template.active,
         error: 'database_unreachable',
       })),
+      jobRuns: null,
+      jobFreshness: [] as JobFreshnessEntry[],
     }
   }
 }
