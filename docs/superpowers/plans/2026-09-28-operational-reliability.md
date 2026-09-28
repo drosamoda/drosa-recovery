@@ -69,24 +69,26 @@
 - [ ] **Step 5: Run** Prisma generate, focused test and typecheck; expect PASS.
 - [ ] **Step 6: Commit** `feat(ops): persist automation job runs`.
 
-### Task 3: Instrument the three transactional job routes
+### Task 3: Expose the missing boleto job route and instrument all three transactional jobs
 
 **Files:**
 - Modify: `src/routes/jobs.routes.ts`
 - Modify: `src/__tests__/integration/processMessages.test.ts`
 - Modify: `src/__tests__/integration/scheduleAbandonedCheckout.test.ts`
-- Create or extend: integration coverage for boleto job
+- Create: `src/__tests__/integration/syncBoletoExpiringRoute.test.ts`
 
 **Interfaces:**
 - Consumes Task 2 job-run functions.
-- Produces no new HTTP contract; existing response bodies remain compatible.
+- Existing `/process-messages` and `/sync-abandoned-checkouts` response bodies remain compatible.
+- Adds the currently missing HTTP contract `POST /jobs/sync-boleto-expiring`, returning the result of `runSyncBoletoExpiring()`.
 
-- [ ] **Step 1: Add failing integration tests** proving success creates a completed run and thrown errors create a failed run with closed category.
-- [ ] **Step 2: Run affected integration tests**; expect FAIL.
-- [ ] **Step 3: Wrap** `/process-messages`, `/sync-abandoned-checkouts`, and `/sync-boleto-expiring` with Task 2 telemetry.
-- [ ] **Step 4: Preserve original status codes and response bodies**.
-- [ ] **Step 5: Run affected integration tests, typecheck and lint**; expect PASS.
-- [ ] **Step 6: Commit** `feat(ops): instrument transactional jobs`.
+- [ ] **Step 1: Write a failing integration test** proving `POST /jobs/sync-boleto-expiring` exists, requires jobs auth, and invokes `runSyncBoletoExpiring()`; current main should fail because the route is absent.
+- [ ] **Step 2: Add failing telemetry tests** proving all three jobs create completed runs on success and failed runs with closed categories on exceptions.
+- [ ] **Step 3: Run affected integration tests**; expect FAIL.
+- [ ] **Step 4: Import `runSyncBoletoExpiring`, add the missing route, and wrap all three transactional routes with Task 2 telemetry**.
+- [ ] **Step 5: Preserve the existing response contracts for the two existing routes and use the job result unchanged for boleto**.
+- [ ] **Step 6: Run affected integration tests, typecheck and lint**; expect PASS.
+- [ ] **Step 7: Commit** `feat(ops): expose and instrument transactional jobs`.
 
 ### Task 4: Surface Scheduler/job freshness in health
 
@@ -143,7 +145,7 @@
 - [ ] **Step 2: Generate a new `JOBS_SECRET` value without displaying it**, add a new Secret Manager version and deploy a 0% revision referencing it.
 - [ ] **Step 3: Update Scheduler jobs to the new secret using the safe reconciliation script**; do not enable recurring schedules until Step 5.
 - [ ] **Step 4: Invoke each job once against the 0% tagged revision** and verify 2xx plus persisted job-run evidence.
-- [ ] **Step 5: Run the queue audit and execute one controlled `process-messages` batch; verify stale/invalid messages are skipped/deferred by existing rules rather than sent blindly.
+- [ ] **Step 5: Run the queue audit and execute one controlled `process-messages` batch**; verify stale/invalid messages are skipped/deferred by existing rules rather than sent blindly.
 - [ ] **Step 6: Enable the recurring schedules** at 1/15/60 minutes.
 - [ ] **Step 7: Observe at least 15 minutes**: no new 5xx class, no pool timeout, job freshness green, real webhooks 2xx, pending queue no longer grows solely because processor is absent.
 - [ ] **Step 8: Disable the compromised secret version** only after all jobs and the live revision use the new version.
