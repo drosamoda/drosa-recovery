@@ -11,6 +11,9 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().default(3000),
   APP_BASE_URL: z.string().default(''),
+  // OIDC dos jobs (Cloud Scheduler). Vazios = OIDC desligado (fail closed, só x-jobs-secret).
+  JOBS_OIDC_AUDIENCE: z.string().default(''),
+  JOBS_OIDC_ALLOWED_SERVICE_ACCOUNTS: z.string().default('').transform((v) => v.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)),
 
   CRM_PREVIEW_READONLY: z.string().default('false').transform((v) => v === 'true'),
 
