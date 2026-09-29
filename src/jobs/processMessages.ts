@@ -11,6 +11,7 @@ import { isValidBrazilianPhone } from '../helpers/phoneService'
 import { messageService } from '../services/messageService'
 import { verifyDispatchContract, renderContract, isMarketingTemplate } from '../services/templateContracts'
 import { hasActiveWhatsappConsent } from '../services/whatsappConsentService'
+import { transactionalPaymentReason } from '../services/transactionalMessageValidity'
 import { randomUUID } from 'crypto'
 
 export type ProcessResult = {
@@ -397,6 +398,11 @@ async function revalidate(msg: MessageLog): Promise<ValidationResult> {
 
     const first = customerName.trim().split(' ')[0]
     const bodyParams: string[] = [first]
+
+    if (!remarketingMessage) {
+      const paymentReason = transactionalPaymentReason(msg.templateName, order)
+      if (paymentReason) return { ok: false, reason: paymentReason }
+    }
 
     if (remarketingMessage) {
       const segment = msg.source?.startsWith('remarketing:') ? msg.source.slice('remarketing:'.length) : ''

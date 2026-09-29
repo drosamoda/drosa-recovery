@@ -14,7 +14,8 @@ import { apiGet } from '../../lib/api'
 import { MessageAnalytics } from './MessageAnalytics'
 import { PeriodFilter } from '../../components/navigation/PeriodFilter'
 import { MessageSquareText, FileText } from 'lucide-react'
-import { MESSAGE_STATUS, FAILURE_CATEGORY, formatDateTime } from '../../lib/labels'
+import { MESSAGE_STATUS, FAILURE_CATEGORY, formatDateTime, messageStatusLabel } from '../../lib/labels'
+import { StatusBadge } from '../../components/feedback/StatusBadge'
 import type { ListResponse, MessageListItem, MessageDetail, TemplateItem } from '../../lib/types'
 
 const PAGE_SIZE = 25
@@ -72,7 +73,14 @@ function MessageList() {
     { key: 'createdAt', label: 'Criada em', render: (r) => formatDateTime(r.createdAt), hideOnMobile: true },
     { key: 'customer', label: 'Cliente', render: (r) => r.customer ?? r.phone ?? '—' },
     { key: 'template', label: 'Template', render: (r) => r.template ?? '—', hideOnMobile: true },
-    { key: 'status', label: 'Status', render: (r) => <CodeBadge code={r.status} map={MESSAGE_STATUS} /> },
+    {
+      key: 'status',
+      label: 'Status',
+      render: (r) => {
+        const l = messageStatusLabel(r.status, r.failureCategory)
+        return l ? <span title={r.status}><StatusBadge label={l.label} tone={l.tone} /></span> : '—'
+      },
+    },
     { key: 'reason', label: 'Motivo', render: (r) => <CodeBadge code={r.failureCategory} map={FAILURE_CATEGORY} />, hideOnMobile: true },
     { key: 'attempts', label: 'Tentativas', render: (r) => r.attempts, hideOnMobile: true, align: 'right' },
   ]
