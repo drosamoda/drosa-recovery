@@ -24,7 +24,7 @@ Nada depende de operação manual frágil: toda execução recorrente é Cloud S
 - 282 `failed` são históricas (mais recente maio/2026) — fora do escopo desta entrega; não reprocessar.
 - `processMessages` já revalida antes de enviar (ex.: `payment_already_completed`, `order_cancelled`) e marca `skipped` com `reason`.
 - `JOBS_SECRET` (`drosa-recovery-jobs-secret:1`, versão fixa na revisão) foi exposto em transcript anterior.
-- E-mail: Resend + ledger de consentimento + supressão + descadastro + `emailSendGate` + `emailCampaignExecutor` (lote, limites, estados `SCHEDULED→RUNNING→…`) + webhook `/webhooks/.../resend` + atribuição `LAST_CLICK_7D` já em `main`; ~2.122 e-mails OPT_IN. Flags de envio todas `false`.
+- E-mail: Resend + ledger de consentimento + supressão + descadastro + `emailSendGate` + `emailCampaignExecutor` (lote, limites, estados `SCHEDULED→RUNNING→…`) + webhook `POST /webhooks/email/resend` + atribuição `LAST_CLICK_7D` já em `main`; ~2.122 e-mails OPT_IN. Flags de envio todas `false`.
 - API de campanhas (`/crm-api/ai/campaigns` create/select/approve/schedule/cancel) existe; responde 503 `AI_DATABASE_NOT_CONFIGURED` porque `AI_DATABASE_URL` não está configurada (tabelas `campaign_drafts`/`ai_runs` já existem no banco principal; o client restrito só enxerga essas duas).
 - WhatsApp: consentimento via marcador no pedido (`recordConsentFromNuvemshopOrderExtra`); 0 consentimentos GRANTED reais → remarketing roda com 0 elegíveis (correto).
 - Gates LGPD do e-mail: A (mecanismo de transferência internacional Resend), B (evidência do Resend), C (aprovação jurídica humana), D (publicação do adendo — bloqueada na Nuvemshop por falta de `write_content`; página própria `/privacy/email-marketing` existe).
