@@ -3,7 +3,7 @@ import {
   runSyncAbandonedCheckoutById,
   runSyncAbandonedCheckouts,
 } from '../jobs/syncAbandonedCheckouts'
-import { runProcessMessages } from '../jobs/processMessages'
+import { runProcessMessages, MAX_CANARY_MESSAGE_IDS } from '../jobs/processMessages'
 import { runBackfillInboxContacts } from '../jobs/backfillInboxContacts'
 import { runBackfillInboxTemplatePreviews } from '../jobs/backfillInboxTemplatePreviews'
 import { runBackfillInboxSentMessages } from '../jobs/backfillInboxSentMessages'
@@ -152,9 +152,12 @@ router.post('/sync-abandoned-checkouts/:checkoutId', async (req: Request, res: R
 })
 
 // POST /jobs/process-messages
-router.post('/process-messages', async (_req: Request, res: Response) => {
-  const result = await runProcessMessages()
-  res.json(result)
+router.post('/process-messages', async (req: Request, res: Response) => {
+  const raw = req.body?.messageIds
+  if (raw === undefined) return res.json(await runProcessMessages())
+  const valid = Array.isArray(raw) && raw.length >= 1 && raw.length <= MAX_CANARY_MESSAGE_IDS && raw.every((id: unknown) => typeof id === 'string' && id.length > 0 && id.length <= 64)
+  if (!valid) return res.status(400).json({ error: `messageIds deve ser uma lista de 1 a ${MAX_CANARY_MESSAGE_IDS} ids`, code: 'MESSAGE_IDS_INVALID' })
+  res.json(await runProcessMessages({ messageIds: raw as string[] }))
 })
 
 // POST /jobs/process-email-campaigns
