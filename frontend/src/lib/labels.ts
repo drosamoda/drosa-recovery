@@ -44,6 +44,7 @@ export const FAILURE_CATEGORY: Record<string, Label> = {
   DELIVERY_UNKNOWN: { label: 'Entrega não confirmada', tone: 'neutral' },
   INTERNAL_ERROR: { label: 'Erro interno', tone: 'danger' },
   UNKNOWN_REASON: { label: 'Motivo não identificado', tone: 'neutral' },
+  EXPIRED: { label: 'Expirada (fora da validade)', tone: 'neutral' },
 }
 
 // Motivos de inelegibilidade de Recovery (evaluateAbandonedCheckoutEligibility
@@ -128,4 +129,10 @@ export function formatDateTime(value: string | null | undefined): string {
   const date = new Date(value)
   if (!Number.isFinite(date.getTime())) return '—'
   return date.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+// Status exibido: expirada (skipped + EXPIRED) tem rótulo próprio, distinto de bloqueada.
+export function messageStatusLabel(status: string, failureCategory: string | null): Label | null {
+  if (status === 'skipped' && failureCategory === 'EXPIRED') return { label: 'Não disparada · expirada', tone: 'neutral' }
+  return lookup(MESSAGE_STATUS, status)
 }

@@ -35,6 +35,14 @@ describe('MessagesPage', () => {
     expect(screen.queryByText(/Enviada/)).not.toBeInTheDocument()
   })
 
+  it('expirada tem rótulo próprio e não é falha', async () => {
+    mockedApiGet.mockResolvedValue(list([msg({ status: 'skipped', failureCategory: 'EXPIRED' })]))
+    renderWithProviders(<MessagesPage />)
+    const table = await screen.findByRole('table')
+    expect(within(table).getByText('Não disparada · expirada')).toBeInTheDocument()
+    expect(within(table).queryByText('Falhou')).not.toBeInTheDocument()
+  })
+
   it('motivo desconhecido cai no valor humanizado, sem inventar rótulo', async () => {
     mockedApiGet.mockResolvedValue(list([msg({ status: 'failed', failureCategory: 'NEW_BACKEND_CODE' })]))
     renderWithProviders(<MessagesPage />)

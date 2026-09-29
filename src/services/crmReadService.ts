@@ -99,11 +99,13 @@ export function maskEmail(value: string | null | undefined): string | null {
   return `${local.slice(0, 1)}***@${domain}`
 }
 
-export type FailureCategory = 'TEMPLATE_CONFIGURATION' | 'PROVIDER_REJECTION' | 'RETRY_EXHAUSTED' | 'CONSENT_BLOCK' | 'SUPPRESSION_BLOCK' | 'DATA_QUALITY' | 'NETWORK_TRANSIENT' | 'DELIVERY_UNKNOWN' | 'INTERNAL_ERROR' | 'UNKNOWN_REASON'
+export type FailureCategory = 'TEMPLATE_CONFIGURATION' | 'PROVIDER_REJECTION' | 'RETRY_EXHAUSTED' | 'CONSENT_BLOCK' | 'SUPPRESSION_BLOCK' | 'DATA_QUALITY' | 'NETWORK_TRANSIENT' | 'DELIVERY_UNKNOWN' | 'INTERNAL_ERROR' | 'UNKNOWN_REASON' | 'EXPIRED'
 
 export function normalizeFailure(reason?: string | null, errorCode?: string | null, status?: string | null): FailureCategory | null {
   const value = `${reason ?? ''} ${errorCode ?? ''}`.toLowerCase()
   if (!value.trim() && status !== 'unknown' && status !== 'failed') return null
+  // Expirada = não disparada por perder a validade; nunca é falha de envio.
+  if (value.includes('message_expired')) return 'EXPIRED'
   if (status === 'unknown' || value.includes('delivery_unknown')) return 'DELIVERY_UNKNOWN'
   if (value.includes('template') || value.includes('132001')) return 'TEMPLATE_CONFIGURATION'
   if (value.includes('max_retries') || value.includes('retry_exhaust')) return 'RETRY_EXHAUSTED'

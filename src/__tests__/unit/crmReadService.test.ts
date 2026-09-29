@@ -24,6 +24,7 @@ describe('crmReadService read-only helpers', () => {
     ['opt_out', null, 'failed', 'SUPPRESSION_BLOCK'],
     ['network timeout', null, 'failed', 'NETWORK_TRANSIENT'],
     ['provider rejected', '131000', 'failed', 'PROVIDER_REJECTION'],
+    ['message_expired', null, 'skipped', 'EXPIRED'],
   ])('normalizes operational failures without exposing provider payloads', (reason, code, status, expected) => {
     expect(normalizeFailure(reason, code, status)).toBe(expected)
   })
