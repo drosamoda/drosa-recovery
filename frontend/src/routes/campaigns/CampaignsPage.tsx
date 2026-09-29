@@ -123,6 +123,7 @@ function EmailTab() {
     { key: 'name', label: 'Segmento', render: (s) => <span title={s.segmentKey}>{s.name}</span> },
     { key: 'audience', label: 'População', render: (s) => count(s.audienceCount) },
     { key: 'valid', label: 'Com e-mail válido', render: (s) => count(s.withValidEmailCount), hideOnMobile: true },
+    { key: 'optin', label: 'Com opt-in (ledger)', render: (s) => count(s.consentOptInCount ?? null), align: 'right' },
     { key: 'eligible', label: 'Elegíveis p/ envio', render: (s) => count(s.sendEligibleCount) },
     { key: 'blocked', label: 'Bloqueados', render: (s) => count(s.blockedCount), hideOnMobile: true },
     { key: 'status', label: 'Status', render: (s) => <span title={s.eligibilityStatus}>{lookup(EMAIL_STATUS, s.eligibilityStatus)?.label}</span>, hideOnMobile: true },
