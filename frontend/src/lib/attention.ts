@@ -27,8 +27,16 @@ function webhookItem(key: string, provider: string, configured: boolean, ev: Web
   return { key, severity: 'danger', title: `${provider}: último webhook com ${problem}`, context: `Recebido em ${formatDateTime(ev.createdAt)}.`, action: 'Ver Saúde › Auditoria', to: '/health' }
 }
 
-export function buildAttentionItems(h: HealthResponse, max = 5): AttentionItem[] {
+// Fila parada: há pendente cujo agendamento passou há mais de 15 min (o job roda a cada 2 min).
+const STALL_MS = 15 * 60_000
+
+export function buildAttentionItems(h: HealthResponse, max = 5, now: Date = new Date()): AttentionItem[] {
+  const oldest = h.recoveryEngine.oldestPending ? new Date(h.recoveryEngine.oldestPending).getTime() : null
+  const stalled = h.recoveryEngine.pending > 0 && oldest !== null && now.getTime() - oldest > STALL_MS
   const items: (AttentionItem | null)[] = [
+    stalled
+      ? { key: 'queue-stalled', severity: 'danger', title: 'Fila de WhatsApp parada', context: `${n(h.recoveryEngine.pending)} mensagens pendentes; a mais antiga estava agendada para ${formatDateTime(h.recoveryEngine.oldestPending)}.`, action: 'Ver fila', to: '/messages?status=pending' }
+      : null,
     h.recoveryEngine.failed > 0
       ? { key: 'failed', severity: 'danger', title: `${n(h.recoveryEngine.failed)} mensagens com falha`, context: 'Mensagens em status "failed" aguardando revisão.', action: 'Ver mensagens com falha', to: '/messages?status=failed' }
       : null,
@@ -40,7 +48,7 @@ export function buildAttentionItems(h: HealthResponse, max = 5): AttentionItem[]
     h.inboxMirror.failed > 0
       ? { key: 'mirror', severity: 'warning', title: `${n(h.inboxMirror.failed)} mensagens não espelhadas no inbox`, context: 'Conversas podem não mostrar disparos do Recovery.', action: 'Ver Saúde', to: '/health' }
       : null,
-    h.recoveryEngine.pending > 0
+    h.recoveryEngine.pending > 0 && !stalled
       ? { key: 'queue', severity: 'neutral', title: `${n(h.recoveryEngine.pending)} mensagens na fila`, context: h.recoveryEngine.oldestPending ? `Mais antiga agendada para ${formatDateTime(h.recoveryEngine.oldestPending)}.` : 'Sem data de agendamento.', action: 'Ver fila', to: '/messages?status=pending' }
       : null,
   ]
