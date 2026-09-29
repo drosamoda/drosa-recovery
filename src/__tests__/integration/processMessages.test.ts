@@ -211,6 +211,35 @@ describe('POST /jobs/process-messages', () => {
     expect(whatsappService.sendTemplateMessage).toHaveBeenCalledTimes(1)
   })
 
+  it('sem messageIds o filtro de candidatos é exatamente o de antes', async () => {
+    const { runProcessMessages } = await import('../../jobs/processMessages')
+    await runProcessMessages()
+    const where = vi.mocked(prisma.messageLog.findMany).mock.calls[0][0]?.where as Record<string, unknown>
+    expect(where).not.toHaveProperty('id')
+  })
+
+  it('com messageIds só as mensagens selecionadas entram no filtro e só elas sofrem claim', async () => {
+    const { runProcessMessages } = await import('../../jobs/processMessages')
+    await runProcessMessages({ messageIds: ['msg-001'] })
+    const where = vi.mocked(prisma.messageLog.findMany).mock.calls[0][0]?.where as Record<string, unknown>
+    expect(where).toMatchObject({ id: { in: ['msg-001'] }, status: 'pending' })
+    expect(where.scheduledAt).toEqual({ lte: expect.any(Date) })
+    const claimedIds = vi.mocked(prisma.messageLog.updateMany).mock.calls
+      .filter(([args]) => (args as { data?: { status?: string } })?.data?.status === 'processing')
+      .map(([args]) => (args as { where: { id: string } }).where.id)
+    expect(claimedIds).toEqual(['msg-001'])
+  })
+
+  it('POST /jobs/process-messages valida messageIds (máx. 5, strings não vazias)', async () => {
+    const post = (body?: unknown) => request(app).post('/jobs/process-messages').set('x-jobs-secret', JOBS_SECRET).send(body as object)
+    expect((await post({ messageIds: [] })).status).toBe(400)
+    expect((await post({ messageIds: ['a', 'b', 'c', 'd', 'e', 'f'] })).status).toBe(400)
+    expect((await post({ messageIds: [1] })).status).toBe(400)
+    expect((await post({ messageIds: 'x' })).status).toBe(400)
+    expect((await post({ messageIds: ['msg-001'] })).status).toBe(200)
+    expect((await post()).status).toBe(200)
+  })
+
   it('envio real com allowlist vazia falha fechado antes de tocar a fila', async () => {
     const { whatsappService } = await import('../../services/whatsappService')
     const { runProcessMessages } = await import('../../jobs/processMessages')

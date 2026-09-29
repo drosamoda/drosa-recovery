@@ -716,7 +716,12 @@ async function trySendWithNinthDigitFallback(
 // Job principal
 // -----------------------------------------------------------------------
 
-export async function runProcessMessages(): Promise<ProcessResult> {
+// messageIds (opcional, máx. 5): canário isolado — só essas mensagens entram na seleção.
+// Continuam valendo pending, scheduledAt <= agora e TODOS os gates. Sem messageIds o
+// comportamento é o de sempre (Scheduler nunca envia messageIds).
+export const MAX_CANARY_MESSAGE_IDS = 5
+
+export async function runProcessMessages(options: { messageIds?: string[] } = {}): Promise<ProcessResult> {
   const result: ProcessResult = {
     found: 0,
     eligible: 0,
@@ -747,9 +752,11 @@ export async function runProcessMessages(): Promise<ProcessResult> {
   const templateFilter = env.AUTOMATION_ALLOWED_TEMPLATES.length > 0
     ? { templateName: { in: env.AUTOMATION_ALLOWED_TEMPLATES } }
     : {}
+  const idFilter = options.messageIds && options.messageIds.length > 0 ? { id: { in: options.messageIds } } : {}
   const candidates = await prisma.messageLog.findMany({
     where: {
       ...templateFilter,
+      ...idFilter,
       status: MessageStatus.pending,
       scheduledAt: { lte: now },
       OR: [{ nextRetryAt: null }, { nextRetryAt: { lte: now } }],
