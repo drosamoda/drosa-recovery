@@ -4,6 +4,7 @@ import {
   runSyncAbandonedCheckouts,
 } from '../jobs/syncAbandonedCheckouts'
 import { runProcessMessages, MAX_CANARY_MESSAGE_IDS } from '../jobs/processMessages'
+import { runProcessCustomerInitiatedRecovery } from '../jobs/processCustomerInitiatedRecovery'
 import { runBackfillInboxContacts } from '../jobs/backfillInboxContacts'
 import { runBackfillInboxTemplatePreviews } from '../jobs/backfillInboxTemplatePreviews'
 import { runBackfillInboxSentMessages } from '../jobs/backfillInboxSentMessages'
@@ -158,6 +159,12 @@ router.post('/process-messages', async (req: Request, res: Response) => {
   const valid = Array.isArray(raw) && raw.length >= 1 && raw.length <= MAX_CANARY_MESSAGE_IDS && raw.every((id: unknown) => typeof id === 'string' && id.length > 0 && id.length <= 64)
   if (!valid) return res.status(400).json({ error: `messageIds deve ser uma lista de 1 a ${MAX_CANARY_MESSAGE_IDS} ids`, code: 'MESSAGE_IDS_INVALID' })
   res.json(await runProcessMessages({ messageIds: raw as string[] }))
+})
+
+// POST /jobs/process-customer-recovery
+// Responde (na janela de 24h) a quem tocou em "Continuar minha compra pelo WhatsApp". Fail-closed por flag.
+router.post('/process-customer-recovery', async (_req: Request, res: Response) => {
+  res.json(await runProcessCustomerInitiatedRecovery())
 })
 
 // POST /jobs/process-email-campaigns

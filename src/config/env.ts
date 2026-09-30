@@ -76,6 +76,9 @@ const envSchema = z.object({
     v.split(',').map((item) => item.trim()).filter(Boolean),
   ),
   ABANDONED_CART_ENABLED: z.string().default('false').transform((v) => v === 'true'),
+  // Recuperação iniciada pela cliente (CTA "Continuar pelo WhatsApp"). Desligada por padrão:
+  // com false o webhook não registra intenção e o job não faz nada.
+  CUSTOMER_INITIATED_RECOVERY_ENABLED: z.string().default('false').transform((v) => v === 'true'),
   REMARKETING_ENABLED: z.string().default('false').transform((v) => v === 'true'),
   ABANDONED_CART_MAX_SENDS_PER_RUN: z.coerce.number().int().min(0).default(1),
   ABANDONED_CART_DELAY_MINUTES: z.coerce.number().int().min(0).default(30),
