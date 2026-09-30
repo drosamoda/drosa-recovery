@@ -15,7 +15,7 @@ const JOBS_SECRET = process.env.JOBS_SECRET!
 describe('POST /jobs/process-messages-dry-run', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.run.mockResolvedValue({ dryRun: true, wouldSend: 0 })
+    mocks.run.mockResolvedValue({ dryRun: true, wouldReachSendStage: 0 })
   })
 
   it('exige jobsAuth (401 sem segredo e nada é simulado)', async () => {
@@ -27,7 +27,7 @@ describe('POST /jobs/process-messages-dry-run', () => {
   it('sem messageIds simula a fila inteira', async () => {
     const res = await request(app).post('/jobs/process-messages-dry-run').set('x-jobs-secret', JOBS_SECRET)
     expect(res.status).toBe(200)
-    expect(res.body).toEqual({ dryRun: true, wouldSend: 0 })
+    expect(res.body).toEqual({ dryRun: true, wouldReachSendStage: 0 })
     expect(mocks.run).toHaveBeenCalledWith()
   })
 

@@ -150,8 +150,8 @@ describe('runProcessMessagesDryRun (somente leitura)', () => {
     expect(r.totalPending).toBe(4)
     expect(r.totalCandidates).toBe(3)
     expect(r.wouldExpire).toBe(1)
-    expect(r.wouldSend).toBe(1)
-    expect(r.wouldSendByTemplate).toEqual({ confirmacao_pedido_drosa: 1 })
+    expect(r.wouldReachSendStage).toBe(1)
+    expect(r.reachSendStageByTemplate).toEqual({ confirmacao_pedido_drosa: 1 })
     expect(r.wouldSkipTransactionalConsent).toBe(1)
     expect(r.wouldRetryLater).toBe(1)
     expect(r.other).toBe(0)
@@ -167,7 +167,7 @@ describe('runProcessMessagesDryRun (somente leitura)', () => {
     const r = await runProcessMessagesDryRun()
 
     expect(r.wouldSkipPaymentCompleted).toBe(1)
-    expect(r.wouldSend).toBe(0)
+    expect(r.wouldReachSendStage).toBe(0)
   })
 
   it('template de marketing sem consentimento de marketing → wouldSkipMarketingConsent', async () => {
@@ -180,7 +180,7 @@ describe('runProcessMessagesDryRun (somente leitura)', () => {
 
     expect(r.wouldSkipMarketingConsent).toBe(1)
     expect(r.wouldSkipTransactionalConsent).toBe(0)
-    expect(r.wouldSend).toBe(0)
+    expect(r.wouldReachSendStage).toBe(0)
   })
 
   it('template fora da allowlist e verificação da Meta cacheada por template', async () => {
@@ -189,7 +189,7 @@ describe('runProcessMessagesDryRun (somente leitura)', () => {
     const r = await runProcessMessagesDryRun()
 
     expect(r.otherReasons).toEqual({ not_in_allowlist: 1 })
-    expect(r.wouldSend).toBe(2)
+    expect(r.wouldReachSendStage).toBe(2)
     expect(mocks.metaVerify).toHaveBeenCalledTimes(1) // 1 template/idioma, não 1 por mensagem
   })
 
@@ -200,8 +200,8 @@ describe('runProcessMessagesDryRun (somente leitura)', () => {
     const r = await runProcessMessagesDryRun()
 
     expect(r.runtime).toMatchObject({ automationSendEnabled: false, realSendBlockedBy: 'automation_send_disabled' })
-    expect(r.notEvaluated).toEqual(['cooldown_lock', 'per_run_send_caps'])
-    expect(r.wouldSend).toBe(1) // hipotético: "se o envio estivesse ligado"
+    expect(r.notEvaluated).toEqual(['runtime_cooldown_lock', 'runtime_batch_limit', 'runtime_per_flow_send_caps'])
+    expect(r.wouldReachSendStage).toBe(1) // hipotético: "se o envio estivesse ligado"
   })
 
   it('saída sem PII: nenhum telefone, nome, id de pedido ou id de mensagem', async () => {

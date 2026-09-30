@@ -38,16 +38,19 @@ export type ProcessMessagesDryRunResult = {
   wouldSkipMarketingConsent: number
   wouldSkipPaymentCompleted: number
   wouldRetryLater: number
-  wouldSend: number
+  wouldReachSendStage: number
   other: number
   otherReasons: Record<string, number>
-  wouldSendByTemplate: Record<string, number>
+  reachSendStageByTemplate: Record<string, number>
   runtime: {
     automationSendEnabled: boolean
     whatsappDryRun: boolean
     allowlistSize: number
     realSendBlockedBy: string | null
   }
+  // Nomes dos gates de tempo de execução que a simulação NÃO avalia. wouldReachSendStage = passaria
+  // por todos os gates AVALIADOS; NÃO é a contagem exata do que será enviado. Não interprete 0 ou N
+  // como garantia absoluta enquanto notEvaluated não estiver vazio.
   notEvaluated: string[]
 }
 
@@ -87,17 +90,17 @@ export async function runProcessMessagesDryRun(options: { messageIds?: string[] 
     wouldSkipMarketingConsent: 0,
     wouldSkipPaymentCompleted: 0,
     wouldRetryLater: 0,
-    wouldSend: 0,
+    wouldReachSendStage: 0,
     other: 0,
     otherReasons: {},
-    wouldSendByTemplate: {},
+    reachSendStageByTemplate: {},
     runtime: {
       automationSendEnabled: env.AUTOMATION_SEND_ENABLED,
       whatsappDryRun: env.WHATSAPP_DRY_RUN,
       allowlistSize: allowlist.length,
       realSendBlockedBy,
     },
-    notEvaluated: ['cooldown_lock', 'per_run_send_caps'],
+    notEvaluated: ['runtime_cooldown_lock', 'runtime_batch_limit', 'runtime_per_flow_send_caps'],
   }
 
   // A verificação do template na Meta é somente leitura (GET); uma vez por template/idioma.
@@ -187,8 +190,8 @@ export async function runProcessMessagesDryRun(options: { messageIds?: string[] 
       continue
     }
 
-    out.wouldSend++
-    bump(out.wouldSendByTemplate, params.templateName)
+    out.wouldReachSendStage++
+    bump(out.reachSendStageByTemplate, params.templateName)
   }
 
   return out
