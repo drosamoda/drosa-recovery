@@ -89,3 +89,28 @@ configuração NubeSDK antes de publicar.
 A documentação atual da Nuvemshop exige NubeSDK para apps que atuam no
 checkout. O identificador do app é fornecido pelo host em runtime; não deve
 ser hardcoded no código-fonte.
+
+## Checklist de publicação (PR #85 em `main`)
+
+Bundle esperado: `dist/main.min.js` gerado do `main` (`npm ci && npm run build`), **7716 bytes**,
+SHA-256 `c7e04e17d07c7c026078bf0e47fdbef5afde334d031e5264d133968c595ee404`.
+
+1. No Partner Portal, abrir o app NubeSDK **da extensão de checkout** (não assuma o app OAuth `38911`
+   "D'Rosa Customer OS — Staging": ele aparece como app OAuth no handoff; confirme no portal).
+2. Conferir o script atualmente publicado (versão/hash) e anotar para rollback.
+3. Gerar o bundle do `main` e conferir tamanho e SHA-256 acima.
+4. Enviar SOMENTE esse arquivo ao script do checkout (slot `after_contact_form`, execução no checkout).
+5. Não alterar nenhum outro script, slot ou configuração do app.
+6. Salvar/publicar e aguardar a propagação (limpar cache do navegador ou janela anônima).
+7. Executar a validação abaixo SEM concluir pedido.
+8. Rollback: republicar o script anotado no passo 2.
+
+## Validação pós-publicação (sem criar pedido)
+
+- Bundle carregado: a checkbox aparece no `after_contact_form` (versão nova).
+- As duas checkboxes começam **desmarcadas**.
+- Marcar só a transacional: `order:add:extra` é despachado ANTES do sucesso (observar pelo console/SDK:
+  marcador `drosa_whatsapp_transactional_choice=granted` preparado; não registrar telefone/e-mail).
+- Marketing não tocado: nenhum marcador `drosa_whatsapp_marketing_*` é gerado.
+- Desmarcar/marcar de novo gera novo despacho; recarregar o checkout restaura a escolha.
+- Nenhum dado pessoal em logs do console.
