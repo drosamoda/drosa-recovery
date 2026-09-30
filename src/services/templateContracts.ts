@@ -102,16 +102,29 @@ export async function verifyMetaTemplateContract(name: string, language: string)
   }
 }
 
+// Parte LOCAL (sem rede) do contrato de envio: dados do template, risco e consentimento.
+// Compartilhada pelo envio real e pelo dry-run da fila, para as regras nunca divergirem.
+export function localDispatchContractError(
+  name: string,
+  language: string,
+  values: string[],
+  options: { marketingConsentProven?: boolean; transactionalConsentProven?: boolean } = {}
+): string | null {
+  const contract = templateContracts[name]
+  if (!contract || contract.language !== language || !renderContract(name, values)) return 'template_data_missing'
+  if (contract.risk) return contract.risk
+  if (contract.category === 'MARKETING' && !options.marketingConsentProven) return 'consent_unproven'
+  if (contract.category === 'UTILITY' && !options.transactionalConsentProven) return 'transactional_consent_unproven'
+  return null
+}
+
 export async function verifyDispatchContract(
   name: string,
   language: string,
   values: string[],
   options: { marketingConsentProven?: boolean; transactionalConsentProven?: boolean } = {}
 ) {
-  const contract = templateContracts[name]
-  if (!contract || contract.language !== language || !renderContract(name, values)) return 'template_data_missing'
-  if (contract.risk) return contract.risk
-  if (contract.category === 'MARKETING' && !options.marketingConsentProven) return 'consent_unproven'
-  if (contract.category === 'UTILITY' && !options.transactionalConsentProven) return 'transactional_consent_unproven'
+  const local = localDispatchContractError(name, language, values, options)
+  if (local) return local
   return verifyMetaTemplateContract(name, language)
 }
