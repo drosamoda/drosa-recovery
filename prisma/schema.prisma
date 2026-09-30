@@ -266,6 +266,45 @@ enum MirrorStatus {
 }
 
 // =====================================================================
+// AUTOMATION JOB TELEMETRY
+// =====================================================================
+// Execution summaries for the transactional/marketing jobs Cloud Scheduler
+// invokes. `summary` and `errorCategory` are closed, sanitized shapes —
+// never phone, email, raw payload, headers or secrets (see
+// src/services/automationJobRunService.ts).
+
+enum AutomationJobKey {
+  process_messages
+  sync_abandoned_checkouts
+  sync_boleto_expiring
+  remarketing
+  email_campaigns
+}
+
+enum AutomationJobStatus {
+  running
+  completed
+  failed
+}
+
+model AutomationJobRun {
+  id            String               @id @default(cuid())
+  jobKey        AutomationJobKey
+  status        AutomationJobStatus  @default(running)
+  startedAt     DateTime             @default(now())
+  finishedAt    DateTime?
+  durationMs    Int?
+  summary       Json?
+  errorCategory String?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  @@index([jobKey, startedAt])
+  @@index([status])
+  @@map("automation_job_runs")
+}
+
+// =====================================================================
 // MANUAL INBOX
 // =====================================================================
 
