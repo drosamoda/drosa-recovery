@@ -6,6 +6,7 @@ import { messageService } from './messageService'
 import { webhookEventService } from './webhookEventService'
 import { nuvemshopService } from './nuvemshopService'
 import { recordConsentFromNuvemshopOrderExtra } from './whatsappConsentService'
+import { ingestObservedConsentInTx } from './emailConsentService'
 import { AbandonedCheckoutStatus, EntityType, EventType, MessageStatus, Prisma } from '@prisma/client'
 import { logger } from '../config/logger'
 
@@ -214,6 +215,17 @@ export const orderService = {
             },
           })
         }
+
+        // Evidência accepts_marketing (Nuvemshop) no livro-razão de e-mail, na MESMA transação do
+        // pedido (durável, sem fila em memória). Desligada por flag; nunca lança por conteúdo.
+        await ingestObservedConsentInTx(tx, {
+          kind: 'order',
+          externalId: nuvemshopOrderId,
+          email: customerEmail,
+          customerId: customer.id,
+          rawPayload: rawPayloadForOrder,
+          capturedAt: sourceUpdatedAt ?? sourceCreatedAt ?? new Date(),
+        })
 
         // Marcar carrinhos abandonados como convertidos
         const matchConditions = []
