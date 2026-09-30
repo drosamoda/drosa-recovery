@@ -189,3 +189,53 @@ describe('runBackfillEmailConsent — escrita', () => {
     expect(tx.emailMarketingConsent.upsert).not.toHaveBeenCalled()
   })
 })
+
+describe('runBackfillEmailConsent — incremental (since)', () => {
+  const SINCE = new Date('2026-09-24T00:00:00Z')
+
+  it('dry-run incremental: agrega opt-in/opt-out/sem sinal/conflitos, não escreve e não vaza PII', async () => {
+    prismaMock.$queryRaw
+      .mockResolvedValueOnce([
+        orderRow('1', 'a@x.com', true),
+        orderRow('2', 'b@x.com', false),
+        orderRow('3', 'c@x.com', true),
+        { ...orderRow('4', 'd@x.com', true), rawPayload: { customer: {} } }, // sem sinal
+      ])
+      .mockResolvedValueOnce([checkoutRow('c1', 'c@x.com', false)]) // c: opt-in (pedido) x opt-out (checkout) = conflito
+      .mockResolvedValueOnce([])
+
+    const result = await runBackfillEmailConsent({ since: SINCE })
+
+    expect(result.mode).toBe('DRY_RUN')
+    expect(result.incremental).toEqual({
+      since: SINCE.toISOString(),
+      ordersSeen: 4,
+      checkoutsSeen: 1,
+      wouldCreateOptIn: 2,
+      wouldCreateOptOut: 2,
+      wouldCreateUnknown: 0,
+      rowsWithoutSignal: 1,
+      duplicates: 0,
+      conflicts: 1,
+    })
+    expect(tx.emailConsentEvent.createMany).not.toHaveBeenCalled()
+    expect(store.events).toHaveLength(0)
+    const serialized = JSON.stringify(result.incremental)
+    expect(serialized).not.toMatch(/@/)
+    expect(serialized).not.toMatch(/[0-9a-f]{64}/)
+  })
+
+  it('o filtro since vai como parâmetro nas duas consultas (pedidos e checkouts)', async () => {
+    prismaMock.$queryRaw.mockResolvedValue([])
+    await runBackfillEmailConsent({ since: SINCE })
+    const ordersCall = prismaMock.$queryRaw.mock.calls[0][0]
+    const checkoutsCall = prismaMock.$queryRaw.mock.calls[1][0]
+    expect(ordersCall.values).toContain(SINCE)
+    expect(checkoutsCall.values).toContain(SINCE)
+  })
+
+  it('sem since o relatório incremental é null (comportamento histórico preservado)', async () => {
+    prismaMock.$queryRaw.mockResolvedValue([])
+    expect((await runBackfillEmailConsent()).incremental).toBeNull()
+  })
+})

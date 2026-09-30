@@ -179,6 +179,10 @@ const envSchema = z.object({
   // ao browser. Vazio não derruba o boot: só impede gravar/consultar consentimento
   // (EmailHashPepperNotConfiguredError). Trocar o pepper invalida todos os hashes.
   EMAIL_HASH_PEPPER: z.string().default(''),
+  // Ingestão CONTÍNUA do livro-razão: ao persistir pedido/checkout, grava a evidência
+  // accepts_marketing observada da Nuvemshop (na mesma transação). Desligada por padrão:
+  // com false não há nenhuma escrita nova e o comportamento é idêntico ao anterior.
+  EMAIL_CONSENT_CONTINUOUS_INGESTION_ENABLED: z.string().default('false').transform((v) => v === 'true'),
   // Email Unsubscribe — chave HMAC que assina o token do link de descadastro
   // (List-Unsubscribe / One-Click). Segredo de servidor DISTINTO do pepper
   // (nunca reutilizar uma chave para dois fins), mínimo de 32 caracteres, nunca

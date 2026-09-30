@@ -3,7 +3,9 @@ import { normalizePhoneBrazil } from '../helpers/phoneService'
 import { addMinutes } from '../helpers/dateService'
 import { customerService } from './customerService'
 import { messageService } from './messageService'
-import { AbandonedCheckout, AbandonedCheckoutStatus } from '@prisma/client'
+import { AbandonedCheckout, AbandonedCheckoutStatus, Prisma } from '@prisma/client'
+import { env } from '../config/env'
+import { ingestObservedConsentInTx } from './emailConsentService'
 import { evaluateAbandonedCheckoutEligibility } from './abandonedCheckoutEligibilityService'
 
 // Formato esperado do payload da Nuvemshop
@@ -91,8 +93,10 @@ export const abandonedCheckoutService = {
       }
     }
 
+    type Db = Pick<Prisma.TransactionClient, 'abandonedCheckout'>
+    const persist = (db: Db): Promise<AbandonedCheckout> => {
     if (existing) {
-      return prisma.abandonedCheckout.update({
+      return db.abandonedCheckout.update({
         where: { id: existing.id },
         data: {
           customerName: customerName ?? undefined,
@@ -113,7 +117,7 @@ export const abandonedCheckoutService = {
       })
     }
 
-    return prisma.abandonedCheckout.create({
+    return db.abandonedCheckout.create({
       data: {
         nuvemshopCheckoutId,
         token: payload.token ?? null,
@@ -135,6 +139,24 @@ export const abandonedCheckoutService = {
         collectedAt: now,
         source: 'nuvemshop_api',
       },
+    })
+    }
+
+    // Sem a flag: caminho idêntico ao anterior (sem transação, sem escrita nova).
+    if (!env.EMAIL_CONSENT_CONTINUOUS_INGESTION_ENABLED) return persist(prisma)
+
+    // Com a flag: evidência accepts_marketing no livro-razão na MESMA transação do checkout.
+    return prisma.$transaction(async (tx) => {
+      const row = await persist(tx)
+      await ingestObservedConsentInTx(tx, {
+        kind: 'checkout',
+        externalId: nuvemshopCheckoutId,
+        email: customerEmail,
+        customerId: row.customerId,
+        rawPayload: payload,
+        capturedAt: sourceUpdatedAt ?? sourceCreatedAt ?? now,
+      })
+      return row
     })
   },
 

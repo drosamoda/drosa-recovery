@@ -29,6 +29,9 @@ export interface BackfillEmailConsentOptions {
   // Padrão true. Só `false` (explícito) grava.
   dryRun?: boolean
   batchSize?: number
+  // Backfill INCREMENTAL: só pedidos/checkouts com data de captura >= since (ex.: 2026-09-24).
+  // Sem since = comportamento histórico (tudo).
+  since?: Date
   // Pepper para a escrita. Sem ele, usa env.EMAIL_HASH_PEPPER. No dry-run,
   // se nenhum estiver configurado, usa um pepper EFÊMERO (os hashes só
   // servem para agrupar em memória e nunca são persistidos).
@@ -42,6 +45,21 @@ export type UniverseStateCounts = {
   NOT_COLLECTED: number
 }
 
+// Relatório agregado do backfill incremental. Sem e-mail, hash individual, nome ou telefone.
+export interface IncrementalBackfillReport {
+  since: string
+  ordersSeen: number
+  checkoutsSeen: number
+  wouldCreateOptIn: number
+  wouldCreateOptOut: number
+  // Ausência de sinal NÃO gera evento (estado continua sem evidência): sempre 0 eventos UNKNOWN.
+  wouldCreateUnknown: 0
+  rowsWithoutSignal: number
+  duplicates: number
+  // e-mails com OPT_IN e OPT_OUT na mesma janela (a resolução decide por data do sinal)
+  conflicts: number
+}
+
 export interface BackfillEmailConsentResult {
   mode: 'DRY_RUN' | 'WRITE'
   ordersRead: number
@@ -51,6 +69,7 @@ export interface BackfillEmailConsentResult {
   // pedidos pagos. Permite conferir o dry-run contra os números já medidos.
   universe: { size: number; byState: UniverseStateCounts }
   write: BackfillWriteResult | null
+  incremental: IncrementalBackfillReport | null
 }
 
 export class EmailConsentBackfillRefusedError extends Error {}
@@ -85,7 +104,7 @@ async function inReadOnlyTx<T>(run: (tx: Prisma.TransactionClient) => Promise<T>
 
 // Mesmas expressões de e-mail/data já usadas (e validadas no banco real) na
 // auditoria de consentimento. O objeto `customer` é reduzido às 2 chaves.
-async function readOrderRows(): Promise<BackfillOrderRow[]> {
+async function readOrderRows(since: Date | null): Promise<BackfillOrderRow[]> {
   const rows = await inReadOnlyTx((tx) => tx.$queryRaw<RawOrderRow[]>(Prisma.sql`
     WITH oc AS (
       SELECT o."nuvemshopOrderId" AS "nuvemshopOrderId",
@@ -106,7 +125,8 @@ async function readOrderRows(): Promise<BackfillOrderRow[]> {
                     'accepts_marketing', c_fetched->'accepts_marketing',
                     'accepts_marketing_updated_at', c_fetched->'accepts_marketing_updated_at')))
            END AS "rawPayload"
-    FROM oc`))
+    FROM oc
+    WHERE ${since}::timestamp IS NULL OR "capturedAt" >= ${since}`))
   return rows.map((row) => ({
     nuvemshopOrderId: row.nuvemshopOrderId,
     email: row.email,
@@ -116,7 +136,7 @@ async function readOrderRows(): Promise<BackfillOrderRow[]> {
   }))
 }
 
-async function readCheckoutRows(): Promise<BackfillCheckoutRow[]> {
+async function readCheckoutRows(since: Date | null): Promise<BackfillCheckoutRow[]> {
   const rows = await inReadOnlyTx((tx) => tx.$queryRaw<RawCheckoutRow[]>(Prisma.sql`
     SELECT a."nuvemshopCheckoutId" AS "nuvemshopCheckoutId",
            NULLIF(lower(btrim(a."customerEmail")),'') AS email,
@@ -126,7 +146,8 @@ async function readCheckoutRows(): Promise<BackfillCheckoutRow[]> {
              'contact_accepts_marketing', a."rawPayload"->'contact_accepts_marketing',
              'contact_accepts_marketing_updated_at', a."rawPayload"->'contact_accepts_marketing_updated_at') AS "rawPayload"
     FROM abandoned_checkouts a
-    WHERE a."rawPayload" ? 'contact_accepts_marketing'`))
+    WHERE a."rawPayload" ? 'contact_accepts_marketing'
+      AND (${since}::timestamp IS NULL OR COALESCE(a."sourceUpdatedAt", a."sourceCreatedAt", a."lastSeenAt") >= ${since})`))
   return rows.map((row) => ({
     nuvemshopCheckoutId: row.nuvemshopCheckoutId,
     email: row.email,
@@ -171,8 +192,9 @@ export async function runBackfillEmailConsent(
 
   // Sequencial de propósito: as roles do banco têm poucas conexões (mesmo
   // motivo do emailAudienceEngine, que também consulta uma de cada vez).
-  const orders = await readOrderRows()
-  const checkouts = await readCheckoutRows()
+  const since = options.since ?? null
+  const orders = await readOrderRows(since)
+  const checkouts = await readCheckoutRows(since)
   const universeEmails = await readUniverseEmails()
   const plan = buildBackfillEvents({ orders, checkouts }, pepper)
   const preview = previewBackfill(plan)
@@ -199,6 +221,39 @@ export async function runBackfillEmailConsent(
   const universeCounts = emptyStateCounts()
   for (const hash of universeHashes) universeCounts[stateByHash.get(hash) ?? 'NOT_COLLECTED']++
 
+  // Duplicatas: eventos da janela que JÁ existem no livro-razão (mesma chave hash+fonte+evidência).
+  // Com pepper efêmero (dry-run sem pepper real) os hashes não casam: reporta 0 de forma honesta.
+  let duplicates = 0
+  if (since !== null && env.EMAIL_HASH_PEPPER.length > 0 && pepper === env.EMAIL_HASH_PEPPER && plan.events.length > 0) {
+    const refs = plan.events.map((event) => event.evidenceRef)
+    const known = new Set<string>()
+    for (let i = 0; i < refs.length; i += 1000) {
+      const existing = await prisma.emailConsentEvent.findMany({
+        where: { evidenceRef: { in: refs.slice(i, i + 1000) } },
+        select: { emailHash: true, source: true, evidenceRef: true },
+      })
+      for (const row of existing) known.add(`${row.emailHash}|${row.source}|${row.evidenceRef}`)
+    }
+    duplicates = plan.events.filter((event) => known.has(`${event.emailHash}|${event.source}|${event.evidenceRef}`)).length
+  }
+  const statusByHash = new Map<string, Set<string>>()
+  for (const event of plan.events) {
+    const set = statusByHash.get(event.emailHash) ?? new Set<string>()
+    set.add(event.status)
+    statusByHash.set(event.emailHash, set)
+  }
+  const incremental: IncrementalBackfillReport | null = since === null ? null : {
+    since: since.toISOString(),
+    ordersSeen: orders.length,
+    checkoutsSeen: checkouts.length,
+    wouldCreateOptIn: plan.events.filter((event) => event.status === 'OPT_IN').length,
+    wouldCreateOptOut: plan.events.filter((event) => event.status === 'OPT_OUT').length,
+    wouldCreateUnknown: 0,
+    rowsWithoutSignal: plan.skipped.noSignal,
+    duplicates,
+    conflicts: [...statusByHash.values()].filter((set) => set.has('OPT_IN') && set.has('OPT_OUT')).length,
+  }
+
   const write = dryRun ? null : await writeBackfill(plan, options.batchSize)
 
   const result: BackfillEmailConsentResult = {
@@ -208,6 +263,7 @@ export async function runBackfillEmailConsent(
     preview,
     universe: { size: universeHashes.size, byState: universeCounts },
     write,
+    incremental,
   }
   logger.info('[backfillEmailConsent] concluido', {
     mode: result.mode,

@@ -175,6 +175,60 @@ export async function recordEmailConsentEventByHashInTx(
   return writeConsentEvent(tx, emailHash, input)
 }
 
+// ---------------------------------------------------------------------------
+// Ingestão CONTÍNUA (pedido/checkout persistidos). A evidência `accepts_marketing` é
+// OBSERVAÇÃO da Nuvemshop, não consentimento jurídico definitivo. Roda DENTRO da
+// transação que grava o pedido/checkout: pedido persistido <=> evidência no livro-razão,
+// sem fila em memória. `createMany skipDuplicates` (ON CONFLICT DO NOTHING) não aborta a
+// transação; falhas de cálculo/configuração nunca derrubam o pedido.
+// ---------------------------------------------------------------------------
+
+export type ContinuousIngestionOutcome =
+  | { recorded: true; status: EmailConsentStatus }
+  | { recorded: false; skipped: 'disabled' | 'pepper_not_configured' | 'no_email' | 'invalid_email' | 'no_signal' | 'error' }
+
+export interface ObservedConsentInput {
+  kind: 'order' | 'checkout'
+  externalId: string
+  email: string | null | undefined
+  customerId: string | null
+  rawPayload: unknown
+  capturedAt: Date
+}
+
+export async function ingestObservedConsentInTx(
+  tx: Tx,
+  input: ObservedConsentInput,
+  options: { enabled?: boolean; pepper?: string } = {},
+): Promise<ContinuousIngestionOutcome> {
+  if (!(options.enabled ?? env.EMAIL_CONSENT_CONTINUOUS_INGESTION_ENABLED)) return { recorded: false, skipped: 'disabled' }
+  const pepper = options.pepper ?? env.EMAIL_HASH_PEPPER
+  if (pepper.length < EMAIL_HASH_PEPPER_MIN_LENGTH) return { recorded: false, skipped: 'pepper_not_configured' }
+
+  let plan: BackfillPlan
+  try {
+    const row = { email: input.email ?? null, customerId: input.customerId, rawPayload: input.rawPayload, capturedAt: input.capturedAt }
+    plan = buildBackfillEvents(
+      input.kind === 'order'
+        ? { orders: [{ ...row, nuvemshopOrderId: input.externalId }], checkouts: [] }
+        : { orders: [], checkouts: [{ ...row, nuvemshopCheckoutId: input.externalId }] },
+      pepper,
+    )
+  } catch {
+    return { recorded: false, skipped: 'error' }
+  }
+
+  if (plan.events.length === 0) {
+    if (plan.skipped.noEmail > 0) return { recorded: false, skipped: 'no_email' }
+    if (plan.skipped.invalidEmail > 0) return { recorded: false, skipped: 'invalid_email' }
+    return { recorded: false, skipped: 'no_signal' }
+  }
+
+  await tx.emailConsentEvent.createMany({ data: plan.events, skipDuplicates: true })
+  await recomputeStates(tx, [...new Set(plan.events.map((event) => event.emailHash))])
+  return { recorded: true, status: plan.events[0].status }
+}
+
 export interface EmailConsentLookup {
   state: EmailConsentState
   reason: string | null

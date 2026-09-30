@@ -9,6 +9,8 @@ import { runProcessCustomerInitiatedRecovery } from '../jobs/processCustomerInit
 import { runSyncBoletoExpiring } from '../jobs/syncBoletoExpiring'
 import { withJobTelemetry } from '../services/jobTelemetry'
 import { runBackfillInboxContacts } from '../jobs/backfillInboxContacts'
+import { runBackfillEmailConsent } from '../jobs/backfillEmailConsent'
+import { env } from '../config/env'
 import { runBackfillInboxTemplatePreviews } from '../jobs/backfillInboxTemplatePreviews'
 import { runBackfillInboxSentMessages } from '../jobs/backfillInboxSentMessages'
 import { runBackfillImportedApiSends } from '../jobs/backfillImportedApiSends'
@@ -185,6 +187,33 @@ router.post('/sync-boleto-expiring', async (_req: Request, res: Response) => {
 // Responde (na janela de 24h) a quem tocou em "Continuar minha compra pelo WhatsApp". Fail-closed por flag.
 router.post('/process-customer-recovery', async (_req: Request, res: Response) => {
   res.json(await runProcessCustomerInitiatedRecovery())
+})
+
+// POST /jobs/backfill-email-consent-incremental
+// Backfill incremental do livro-razão de e-mail a partir de pedidos/checkouts já persistidos.
+// DRY-RUN por padrão (só agregados, sem PII). Escrita exige dryRun:false EXPLÍCITO e a flag
+// EMAIL_CONSENT_CONTINUOUS_INGESTION_ENABLED=true (dois gates independentes).
+const DEFAULT_EMAIL_BACKFILL_SINCE = '2026-09-24T00:00:00.000Z'
+router.post('/backfill-email-consent-incremental', async (req: Request, res: Response) => {
+  const since = new Date(req.body?.since ?? DEFAULT_EMAIL_BACKFILL_SINCE)
+  if (Number.isNaN(since.getTime()) || since.getTime() > Date.now()) {
+    res.status(400).json({ error: 'invalid_since' })
+    return
+  }
+  const dryRun = req.body?.dryRun !== false
+  if (!dryRun && !env.EMAIL_CONSENT_CONTINUOUS_INGESTION_ENABLED) {
+    res.status(409).json({ error: 'EMAIL_CONSENT_WRITE_NOT_ENABLED' })
+    return
+  }
+  const result = await runBackfillEmailConsent({ dryRun, since })
+  res.json({
+    mode: result.mode,
+    incremental: result.incremental,
+    byState: result.preview.byState,
+    eventsBySource: result.preview.eventsBySource,
+    skipped: result.preview.skipped,
+    write: result.write,
+  })
 })
 
 // POST /jobs/process-email-campaigns
