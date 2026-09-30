@@ -5,6 +5,8 @@ import {
 } from '../jobs/syncAbandonedCheckouts'
 import { runProcessMessages, MAX_CANARY_MESSAGE_IDS } from '../jobs/processMessages'
 import { runProcessMessagesDryRun, MAX_DRY_RUN_MESSAGE_IDS } from '../jobs/processMessagesDryRun'
+import { runSyncBoletoExpiring } from '../jobs/syncBoletoExpiring'
+import { withJobTelemetry } from '../services/jobTelemetry'
 import { runBackfillInboxContacts } from '../jobs/backfillInboxContacts'
 import { runBackfillInboxTemplatePreviews } from '../jobs/backfillInboxTemplatePreviews'
 import { runBackfillInboxSentMessages } from '../jobs/backfillInboxSentMessages'
@@ -118,7 +120,7 @@ router.post('/abandoned-checkouts-preview/:checkoutId', async (req: Request, res
 
 // POST /jobs/sync-abandoned-checkouts
 router.post('/sync-abandoned-checkouts', async (_req: Request, res: Response) => {
-  const result = await runSyncAbandonedCheckouts()
+  const result = await withJobTelemetry('sync_abandoned_checkouts', () => runSyncAbandonedCheckouts())
   res.json({
     found: result.found,
     eligible: result.scheduled,
@@ -155,11 +157,12 @@ router.post('/sync-abandoned-checkouts/:checkoutId', async (req: Request, res: R
 // POST /jobs/process-messages
 router.post('/process-messages', async (req: Request, res: Response) => {
   const raw = req.body?.messageIds
-  if (raw === undefined) return res.json(await runProcessMessages())
+  if (raw === undefined) return res.json(await withJobTelemetry('process_messages', () => runProcessMessages()))
   const valid = Array.isArray(raw) && raw.length >= 1 && raw.length <= MAX_CANARY_MESSAGE_IDS && raw.every((id: unknown) => typeof id === 'string' && id.length > 0 && id.length <= 64)
   if (!valid) return res.status(400).json({ error: `messageIds deve ser uma lista de 1 a ${MAX_CANARY_MESSAGE_IDS} ids`, code: 'MESSAGE_IDS_INVALID' })
-  res.json(await runProcessMessages({ messageIds: raw as string[] }))
+  res.json(await withJobTelemetry('process_messages', () => runProcessMessages({ messageIds: raw as string[] })))
 })
+
 
 // POST /jobs/process-messages-dry-run
 // Simulação SOMENTE LEITURA da fila: nunca envia, nunca reivindica, nunca altera mensagem.
@@ -169,6 +172,11 @@ router.post('/process-messages-dry-run', async (req: Request, res: Response) => 
   const valid = Array.isArray(raw) && raw.length >= 1 && raw.length <= MAX_DRY_RUN_MESSAGE_IDS && raw.every((id: unknown) => typeof id === 'string' && id.length > 0 && id.length <= 64)
   if (!valid) return res.status(400).json({ error: `messageIds deve ser uma lista de 1 a ${MAX_DRY_RUN_MESSAGE_IDS} ids`, code: 'MESSAGE_IDS_INVALID' })
   res.json(await runProcessMessagesDryRun({ messageIds: raw as string[] }))
+})
+
+// POST /jobs/sync-boleto-expiring
+router.post('/sync-boleto-expiring', async (_req: Request, res: Response) => {
+  res.json(await withJobTelemetry('sync_boleto_expiring', () => runSyncBoletoExpiring()))
 })
 
 // POST /jobs/process-email-campaigns

@@ -91,6 +91,32 @@ export async function reserveEmailSend(input: ReserveEmailSendInput): Promise<Em
   })
 }
 
+// Reserva idempotente COM cap atômico por campanha. O advisory lock transacional serializa
+// todas as reservas da mesma campanha (mesmo entre instâncias/workers): dentro do lock,
+// "conta + cria" deixa de ser TOCTOU. Reserva já existente devolve a mesma linha (não
+// consome cap de novo). Devolve null quando o cap já foi atingido — nada é criado.
+// O cap conta RESERVAS (toda tentativa), inclusive FAILED/QUEUED.
+export async function reserveEmailSendWithinCap(
+  input: ReserveEmailSendInput,
+  maxTotal: number,
+): Promise<EmailSendReservation | null> {
+  const sendKey = buildSendKey(input)
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`email_send_cap:${input.campaignKey}`}))`
+    const existing = await tx.emailSend.findUnique({ where: { sendKey }, select: { id: true, status: true } })
+    if (existing !== null) return { sendId: existing.id, sendKey, status: existing.status, created: false }
+    const total = await tx.emailSend.count({ where: { campaignKey: input.campaignKey } })
+    if (total >= maxTotal) return null
+    await tx.emailSend.createMany({
+      data: [{ sendKey, emailHash: input.emailHash, campaignKey: input.campaignKey }],
+      skipDuplicates: true,
+    })
+    const row = await tx.emailSend.findUnique({ where: { sendKey }, select: { id: true, status: true } })
+    if (row === null) throw new InvalidTrackingInputError('Reserva de envio não encontrada após a criação.')
+    return { sendId: row.id, sendKey, status: row.status, created: true }
+  })
+}
+
 // Claim atômico QUEUED -> SENDING: só UM chamador ganha. Quem perde (duplo clique,
 // retry, worker concorrente, tentativa já enviada) recebe EmailSendNotClaimableError
 // e NÃO envia. Confere também que a tentativa pertence a este destinatário.

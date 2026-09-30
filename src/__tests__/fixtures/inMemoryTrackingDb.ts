@@ -62,6 +62,7 @@ class InMemoryTrackingDb {
   sends: SendRow[] = []
   events: EventRow[] = []
   private seq = 0
+  private locks = new Map<string, Promise<void>>()
 
   private readonly ownTx = {
     emailSend: {
@@ -162,13 +163,26 @@ class InMemoryTrackingDb {
     emailSend: this.ownTx.emailSend,
     emailEventLog: this.ownTx.emailEventLog,
     $transaction: async <T>(fn: (client: typeof this.ownTx & Parameters<Parameters<typeof emailDb.prisma.$transaction>[0]>[0]) => Promise<T>): Promise<T> => {
+      const releases: Array<() => void> = []
+      const advisoryLock = async (...args: unknown[]): Promise<number> => {
+        // simula pg_advisory_xact_lock: 1 dono por chave até o fim da transação
+        const key = JSON.stringify(args.slice(1))
+        const prev = this.locks.get(key) ?? Promise.resolve()
+        let release!: () => void
+        this.locks.set(key, new Promise<void>((r) => { release = r }))
+        releases.push(release)
+        await prev
+        return 0
+      }
       const snapshot = { sends: this.sends.map((s) => ({ ...s })), events: this.events.map((e) => ({ ...e })) }
       try {
-        return await emailDb.prisma.$transaction((theirTx) => fn({ ...theirTx, ...this.ownTx }))
+        return await emailDb.prisma.$transaction((theirTx) => fn({ ...theirTx, ...this.ownTx, $executeRaw: advisoryLock } as never))
       } catch (error) {
         this.sends = snapshot.sends
         this.events = snapshot.events
         throw error
+      } finally {
+        for (const r of releases) r()
       }
     },
   }
@@ -178,6 +192,7 @@ class InMemoryTrackingDb {
     this.sends = []
     this.events = []
     this.seq = 0
+    this.locks.clear()
   }
 }
 
