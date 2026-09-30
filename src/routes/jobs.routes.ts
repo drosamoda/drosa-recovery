@@ -5,6 +5,7 @@ import {
 } from '../jobs/syncAbandonedCheckouts'
 import { runProcessMessages, MAX_CANARY_MESSAGE_IDS } from '../jobs/processMessages'
 import { runProcessMessagesDryRun, MAX_DRY_RUN_MESSAGE_IDS } from '../jobs/processMessagesDryRun'
+import { runProcessCustomerInitiatedRecovery } from '../jobs/processCustomerInitiatedRecovery'
 import { runSyncBoletoExpiring } from '../jobs/syncBoletoExpiring'
 import { withJobTelemetry } from '../services/jobTelemetry'
 import { runBackfillInboxContacts } from '../jobs/backfillInboxContacts'
@@ -177,6 +178,13 @@ router.post('/process-messages-dry-run', async (req: Request, res: Response) => 
 // POST /jobs/sync-boleto-expiring
 router.post('/sync-boleto-expiring', async (_req: Request, res: Response) => {
   res.json(await withJobTelemetry('sync_boleto_expiring', () => runSyncBoletoExpiring()))
+})
+
+
+// POST /jobs/process-customer-recovery
+// Responde (na janela de 24h) a quem tocou em "Continuar minha compra pelo WhatsApp". Fail-closed por flag.
+router.post('/process-customer-recovery', async (_req: Request, res: Response) => {
+  res.json(await runProcessCustomerInitiatedRecovery())
 })
 
 // POST /jobs/process-email-campaigns

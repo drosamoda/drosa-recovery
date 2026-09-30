@@ -4,6 +4,7 @@ import { webhookEventService } from '../services/webhookEventService'
 import { messageService } from '../services/messageService'
 import { customerService } from '../services/customerService'
 import { inboxService } from '../services/inboxService'
+import { registerRecoveryIntents } from '../services/customerInitiatedRecovery'
 import { normalizePhoneBrazil } from '../helpers/phoneService'
 import { MessageStatus } from '@prisma/client'
 import { env } from '../config/env'
@@ -78,6 +79,9 @@ async function processMetaWebhook(payload: unknown, eventId: string): Promise<vo
   } catch (err) {
     logger.error('[webhook/meta] falha ao salvar mensagens na inbox', err)
   }
+
+  // Só registra a intenção (nunca envia aqui). Não lança e não afeta o restante do processamento.
+  await registerRecoveryIntents(payload)
 
   const body = payload as Record<string, unknown>
   const entries = (body?.entry as unknown[]) ?? []
