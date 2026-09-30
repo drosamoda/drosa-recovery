@@ -49,7 +49,7 @@ describe('HealthPage', () => {
     renderWithProviders(<HealthPage />)
     const card = (await screen.findByText('Jobs automáticos')).closest('article') as HTMLElement
     expect(within(card).getByText('Em dia')).toBeInTheDocument()
-    expect(within(card).queryByText(/nunca rodou|atrasado/)).not.toBeInTheDocument()
+    expect(within(card).queryByText(/nunca executado|atrasado/)).not.toBeInTheDocument()
   })
 
   it('jobs: um job atrasado ou que nunca rodou acende atenção, independente do cron interno', async () => {
@@ -66,7 +66,7 @@ describe('HealthPage', () => {
     const card = (await screen.findByText('Jobs automáticos')).closest('article') as HTMLElement
     expect(within(card).getByText('Com pendência')).toBeInTheDocument()
     expect(within(card).getByText(/Envio de mensagens atrasado/)).toBeInTheDocument()
-    expect(within(card).getByText(/Carrinho abandonado nunca rodou/)).toBeInTheDocument()
+    expect(within(card).getByText(/Carrinho abandonado nunca executado/)).toBeInTheDocument()
   })
 
   it('jobs: fresh porém última execução falhou NÃO é "Em dia" e mostra só a categoria fechada', async () => {
@@ -83,7 +83,21 @@ describe('HealthPage', () => {
     const card = (await screen.findByText('Jobs automáticos')).closest('article') as HTMLElement
     expect(within(card).queryByText('Em dia')).not.toBeInTheDocument()
     expect(within(card).getByText('Com pendência')).toBeInTheDocument()
-    expect(within(card).getByText(/Envio de mensagens última execução falhou \(banco inacessível\)/)).toBeInTheDocument()
+    expect(within(card).getByText(/Envio de mensagens falhou recentemente \(banco inacessível\)/)).toBeInTheDocument()
+  })
+
+  it('jobs: stale + failed → "falhou e está atrasado"', async () => {
+    const both: HealthResponse = {
+      ...health,
+      jobFreshness: [
+        { jobKey: 'process_messages', timing: 'stale', lastResult: 'failed', healthy: false, lastStartedAt: '2026-09-23T02:57:00Z', ageMinutes: 7500, thresholdMinutes: 3, errorCategory: 'upstream_timeout' },
+        ...freshJobs.slice(1),
+      ],
+    }
+    mockedApiGet.mockResolvedValue(both)
+    renderWithProviders(<HealthPage />)
+    const card = (await screen.findByText('Jobs automáticos')).closest('article') as HTMLElement
+    expect(within(card).getByText(/Envio de mensagens falhou e está atrasado \(tempo esgotado\)/)).toBeInTheDocument()
   })
 
   it('jobs: telemetria indisponível (null) nunca é apresentada como "Em dia"', async () => {

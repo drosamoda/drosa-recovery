@@ -78,16 +78,16 @@ function jobsCard(jobFreshness: JobFreshnessEntry[] | null): HealthCardProps {
   }
   const label = (j: JobFreshnessEntry) => JOB_LABELS[j.jobKey] ?? j.jobKey
   const reason = (j: JobFreshnessEntry) => {
-    if (j.timing === 'never_run') return 'nunca rodou'
+    if (j.timing === 'never_run') return 'nunca executado'
     if (j.lastResult === 'failed') {
-      const cat = j.errorCategory ? JOB_ERROR_LABELS[j.errorCategory] ?? j.errorCategory : null
-      return cat ? `última execução falhou (${cat})` : 'última execução falhou'
+      const cat = j.errorCategory ? ` (${JOB_ERROR_LABELS[j.errorCategory] ?? j.errorCategory})` : ''
+      return (j.timing === 'stale' ? 'falhou e está atrasado' : 'falhou recentemente') + cat
     }
     return 'atrasado'
   }
   const attention = jobFreshness.filter((j) => !j.healthy)
   const evidence = jobFreshness
-    .map((j) => `${label(j)}: ${j.timing === 'never_run' ? 'nunca rodou' : `há ${j.ageMinutes} min`}`)
+    .map((j) => `${label(j)}: ${j.timing === 'never_run' ? 'nunca executado' : `há ${j.ageMinutes} min`}`)
     .join(' · ') || 'Nenhum job monitorado'
   return {
     title: 'Jobs automáticos',
