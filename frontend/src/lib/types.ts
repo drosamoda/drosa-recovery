@@ -356,11 +356,30 @@ export interface WebhookEvidence {
   error: string | null
 }
 
+export type JobTiming = 'fresh' | 'stale' | 'never_run'
+export type JobLastResult = 'completed' | 'failed' | 'running' | null
+
+// Shape de src/services/automationJobRunService.ts (computeJobFreshness). Duas
+// dimensões independentes: timing (a última execução veio a tempo?) e lastResult
+// (como terminou?). Só os 3 jobs transacionais têm limiar.
+export interface JobFreshnessEntry {
+  jobKey: string
+  timing: JobTiming
+  lastResult: JobLastResult
+  healthy: boolean
+  lastStartedAt: string | null
+  ageMinutes: number | null
+  thresholdMinutes: number
+  errorCategory: string | null
+}
+
 export interface HealthResponse {
   meta: { configured: boolean; latestEvidence: WebhookEvidence | null }
   nuvemshop: { configured: boolean; latestEvidence: WebhookEvidence | null }
   recoveryEngine: { pending: number; processing: number; failed: number; unknown: number; oldestPending: string | null }
   inboxMirror: { failed: number; latestSuccess: string | null }
+  // null = telemetria indisponível (tabela ainda não migrada ou banco falhou)
+  jobFreshness: JobFreshnessEntry[] | null
   runtime: Record<string, boolean | null | undefined>
 }
 
@@ -405,6 +424,8 @@ export interface EmailSegment {
   audienceCount: number
   withValidEmailCount: number
   sendEligibleCount: number | null
+  // Opt-in confirmado no ledger (e-mails válidos ≠ elegíveis por consentimento). null = ledger indisponível.
+  consentOptInCount?: number | null
   blockedCount: number
   eligibilityStatus: string
   dataQuality: { level: string; notes: string[] }

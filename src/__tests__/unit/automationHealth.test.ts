@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { env } from '../../config/env'
 
 const mocks = vi.hoisted(() => ({
+  jobRunFindFirst: vi.fn(),
   messageCount: vi.fn(),
   ruleFindMany: vi.fn(),
   templateFindMany: vi.fn(),
@@ -12,6 +13,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../../config/prisma', () => ({
   prisma: {
+    automationJobRun: { findFirst: mocks.jobRunFindFirst },
     messageLog: { count: mocks.messageCount },
     automationRule: { findMany: mocks.ruleFindMany },
     whatsappTemplate: { findMany: mocks.templateFindMany },
@@ -45,6 +47,16 @@ const original = {
   nuvemshopStoreId: env.NUVEMSHOP_STORE_ID,
 }
 
+function setRuns(rows: Array<Record<string, unknown>>): void {
+  mocks.jobRunFindFirst.mockImplementation((args: { where: { jobKey: string } }) =>
+    Promise.resolve(rows.find((r) => r.jobKey === args.where.jobKey) ?? null),
+  )
+}
+
+function run(jobKey: string, startedAt: string, status = 'completed', errorCategory: string | null = null): Record<string, unknown> {
+  return { jobKey, status, startedAt: new Date(startedAt), finishedAt: new Date(startedAt), durationMs: 100, summary: {}, errorCategory }
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.messageCount.mockResolvedValue(0)
@@ -53,9 +65,11 @@ beforeEach(() => {
   mocks.consentCount.mockResolvedValue(0)
   mocks.suppressionCount.mockResolvedValue(0)
   mocks.verifyMetaTemplateContract.mockResolvedValue(null)
+  setRuns([])
 })
 
 afterEach(() => {
+  vi.useRealTimers()
   env.AUTOMATION_SEND_ENABLED = original.automationSendEnabled
   env.WHATSAPP_DRY_RUN = original.whatsappDryRun
   env.INBOX_SEND_DRY_RUN = original.inboxSendDryRun
@@ -285,5 +299,69 @@ describe('automationHealth send safety', () => {
       expect.objectContaining({ code: 'active_rule_without_active_template' }),
       expect.objectContaining({ code: 'expired_processing_claims' }),
     ]))
+  })
+})
+
+describe('automationHealth job freshness', () => {
+  it('never_run quando não existe nenhuma execução', async () => {
+    const health = await automationHealth()
+    expect(health.jobFreshness).toEqual(expect.arrayContaining([
+      expect.objectContaining({ jobKey: 'process_messages', timing: 'never_run', lastResult: null, healthy: false }),
+      expect.objectContaining({ jobKey: 'sync_abandoned_checkouts', timing: 'never_run', healthy: false }),
+      expect.objectContaining({ jobKey: 'sync_boleto_expiring', timing: 'never_run', healthy: false }),
+    ]))
+  })
+
+  it('fresh + completed dentro do limiar = healthy', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-28T12:00:00Z'))
+    setRuns([run('process_messages', '2026-09-28T11:58:30Z')])
+    const health = await automationHealth()
+    expect(health.jobFreshness).toEqual(expect.arrayContaining([
+      expect.objectContaining({ jobKey: 'process_messages', timing: 'fresh', lastResult: 'completed', healthy: true }),
+    ]))
+  })
+
+  it('stale quando a última execução passou do limiar', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-28T12:00:00Z'))
+    setRuns([run('sync_boleto_expiring', '2026-09-28T09:00:00Z')]) // 180 min, limiar 120
+    const health = await automationHealth()
+    expect(health.jobFreshness).toEqual(expect.arrayContaining([
+      expect.objectContaining({ jobKey: 'sync_boleto_expiring', timing: 'stale', healthy: false }),
+    ]))
+  })
+
+  it('fresh porém última execução failed NÃO é healthy e expõe só a categoria fechada', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-28T12:00:00Z'))
+    setRuns([run('process_messages', '2026-09-28T11:59:00Z', 'failed', 'database_unreachable')])
+    const health = await automationHealth()
+    expect(health.jobFreshness).toEqual(expect.arrayContaining([
+      expect.objectContaining({ jobKey: 'process_messages', timing: 'fresh', lastResult: 'failed', healthy: false, errorCategory: 'database_unreachable' }),
+    ]))
+  })
+
+  it('tabela ausente / consulta falha: jobFreshness null, sem derrubar o health', async () => {
+    mocks.jobRunFindFirst.mockRejectedValue(Object.assign(new Error('relation "automation_job_runs" does not exist'), { code: 'P2021' }))
+    const health = await automationHealth()
+    expect(health.databaseReachable).toBe(true)
+    expect(health.jobFreshness).toBeNull()
+    expect(JSON.stringify(health)).not.toMatch(/does not exist/)
+  })
+
+  it('ENABLE_INTERNAL_CRON=false sozinho não é incidente quando os jobs externos estão em dia', async () => {
+    env.ENABLE_INTERNAL_CRON = false
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-28T12:00:00Z'))
+    setRuns([
+      run('process_messages', '2026-09-28T11:59:00Z'),
+      run('sync_abandoned_checkouts', '2026-09-28T11:30:00Z'),
+      run('sync_boleto_expiring', '2026-09-28T11:00:00Z'),
+    ])
+    const health = await automationHealth()
+    expect(health.cronEnabled).toBe(false)
+    expect(health.jobFreshness?.every((e) => e.healthy)).toBe(true)
+    expect(health.readinessIssues.some((issue) => issue.code.includes('cron'))).toBe(false)
   })
 })

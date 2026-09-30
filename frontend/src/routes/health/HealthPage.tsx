@@ -17,7 +17,7 @@ import { HealthCard, type HealthCardProps } from '../../components/data/HealthCa
 import { Notice } from '../../components/feedback/Notice'
 import { apiGet } from '../../lib/api'
 import { formatDateTime } from '../../lib/labels'
-import type { AuditEvent, AuditResponse, HealthResponse, WebhookEvidence } from '../../lib/types'
+import type { AuditEvent, AuditResponse, HealthResponse, JobFreshnessEntry, WebhookEvidence } from '../../lib/types'
 
 const TABS = [
   { key: 'overview', label: 'Visão geral', icon: LayoutGrid },
@@ -46,6 +46,57 @@ export function HealthPage() {
       {tab === 'audit' && <AuditTab />}
     </div>
   )
+}
+
+// Rótulo por chave de job; chave sem rótulo usa o próprio jobKey (nunca falha calada).
+const JOB_LABELS: Record<string, string> = {
+  process_messages: 'Envio de mensagens',
+  sync_abandoned_checkouts: 'Carrinho abandonado',
+  sync_boleto_expiring: 'Boleto vencendo',
+}
+const JOB_ERROR_LABELS: Record<string, string> = {
+  database_unreachable: 'banco inacessível',
+  upstream_timeout: 'tempo esgotado',
+  upstream_rate_limited: 'limite de requisições',
+  validation_error: 'requisição inválida',
+  unexpected_error: 'erro inesperado',
+}
+
+// Por job, duas perguntas separadas: veio a tempo (timing) e terminou bem (lastResult).
+// "Em dia" exige as duas. Independente de runtime.cron: ENABLE_INTERNAL_CRON=false
+// sozinho nunca acende este alerta — só a evidência real das execuções.
+function jobsCard(jobFreshness: JobFreshnessEntry[] | null): HealthCardProps {
+  if (jobFreshness === null) {
+    return {
+      title: 'Jobs automáticos',
+      state: { label: 'Telemetria indisponível', tone: 'warning' },
+      evidence: 'Sem registro de execuções (tabela ainda não disponível ou banco inacessível).',
+      problem: 'Não é possível afirmar que os jobs estão em dia.',
+      impact: 'Sem telemetria, um job parado não aparece aqui.',
+      action: 'Verificar a migration de telemetria e o Cloud Scheduler.',
+    }
+  }
+  const label = (j: JobFreshnessEntry) => JOB_LABELS[j.jobKey] ?? j.jobKey
+  const reason = (j: JobFreshnessEntry) => {
+    if (j.timing === 'never_run') return 'nunca executado'
+    if (j.lastResult === 'failed') {
+      const cat = j.errorCategory ? ` (${JOB_ERROR_LABELS[j.errorCategory] ?? j.errorCategory})` : ''
+      return (j.timing === 'stale' ? 'falhou e está atrasado' : 'falhou recentemente') + cat
+    }
+    return 'atrasado'
+  }
+  const attention = jobFreshness.filter((j) => !j.healthy)
+  const evidence = jobFreshness
+    .map((j) => `${label(j)}: ${j.timing === 'never_run' ? 'nunca executado' : `há ${j.ageMinutes} min`}`)
+    .join(' · ') || 'Nenhum job monitorado'
+  return {
+    title: 'Jobs automáticos',
+    state: attention.length > 0 ? { label: 'Com pendência', tone: 'warning' } : { label: 'Em dia', tone: 'success' },
+    evidence,
+    problem: attention.length > 0 ? attention.map((j) => `${label(j)} ${reason(j)}`).join(', ') : null,
+    impact: 'Sem o job rodando em dia e sem falha, pedidos, carrinhos ou boletos podem não avisar o cliente a tempo.',
+    action: attention.length > 0 ? 'Conferir o Cloud Scheduler e os logs do job.' : 'Nenhuma.',
+  }
 }
 
 function webhookCard(title: string, configured: boolean, ev: WebhookEvidence | null, impact: string): HealthCardProps {
@@ -144,6 +195,7 @@ function OverviewTab() {
         const engineProblem = [h.recoveryEngine.failed && `${h.recoveryEngine.failed} falhas`, h.recoveryEngine.unknown && `${h.recoveryEngine.unknown} em estado desconhecido`].filter(Boolean).join(', ')
         const cards: HealthCardProps[] = [
           webhookCard('Meta (WhatsApp)', h.meta.configured, h.meta.latestEvidence, 'Status de entrega/leitura e mensagens recebidas podem atrasar.'),
+          jobsCard(h.jobFreshness),
           webhookCard('Nuvemshop', h.nuvemshop.configured, h.nuvemshop.latestEvidence, 'Pedidos e carrinhos novos podem não entrar no Recovery.'),
           {
             title: 'Motor de Recovery',

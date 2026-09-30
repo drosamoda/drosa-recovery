@@ -74,11 +74,11 @@ function stripNinthDigit(phone: string): string | null {
 // Revalidação antes do envio
 // -----------------------------------------------------------------------
 
-type ValidationResult =
+export type ValidationResult =
   | { ok: true; params: SendParams }
   | { ok: false; reason: string }
 
-type SendParams = {
+export type SendParams = {
   to: string
   templateName: string
   languageCode: string
@@ -89,11 +89,11 @@ type SendParams = {
   renderedPreview?: string
 }
 
-function isRemarketingMessage(msg: MessageLog): boolean {
+export function isRemarketingMessage(msg: MessageLog): boolean {
   return msg.source?.startsWith('remarketing') ?? false
 }
 
-function disabledFlowReason(msg: MessageLog): string | null {
+export function disabledFlowReason(msg: MessageLog): string | null {
   if (msg.entityType === EntityType.abandoned_checkout && !env.ABANDONED_CART_ENABLED) {
     return 'abandoned_cart_disabled'
   }
@@ -115,11 +115,11 @@ const RECOVERABLE_CONTRACT_REASONS = new Set([
   'unsupported_template_components',
 ])
 
-function isRecoverableRevalidationReason(reason: string): boolean {
+export function isRecoverableRevalidationReason(reason: string): boolean {
   return RECOVERABLE_REVALIDATION_REASONS.has(reason)
 }
 
-function isRecoverableContractReason(reason: string): boolean {
+export function isRecoverableContractReason(reason: string): boolean {
   return RECOVERABLE_CONTRACT_REASONS.has(reason)
 }
 
@@ -180,7 +180,9 @@ function buildAutomationMessagePayload(sendParams: SendParams) {
   }
 }
 
-async function revalidate(msg: MessageLog): Promise<ValidationResult> {
+// readOnly (dry-run da fila): pula só a checagem de claim (passo 6), que só faz sentido
+// para uma mensagem realmente reivindicada. Todas as demais regras são idênticas.
+export async function revalidate(msg: MessageLog, options: { readOnly?: boolean } = {}): Promise<ValidationResult> {
   // 1. Telefone presente
   if (!msg.normalizedPhone) {
     return { ok: false, reason: 'invalid_phone' }
@@ -241,12 +243,14 @@ async function revalidate(msg: MessageLog): Promise<ValidationResult> {
   }
 
   // 6. Status ainda é processing (garante que outro worker não pegou)
-  const current = await prisma.messageLog.findUnique({
-    where: { id: msg.id },
-    select: { status: true, claimOwner: true },
-  })
-  if (current?.status !== MessageStatus.processing || current.claimOwner !== msg.claimOwner) {
-    return { ok: false, reason: 'duplicate_message' }
+  if (!options.readOnly) {
+    const current = await prisma.messageLog.findUnique({
+      where: { id: msg.id },
+      select: { status: true, claimOwner: true },
+    })
+    if (current?.status !== MessageStatus.processing || current.claimOwner !== msg.claimOwner) {
+      return { ok: false, reason: 'duplicate_message' }
+    }
   }
 
   // ----------------------------------------------------------------

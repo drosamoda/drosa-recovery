@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '../../../lib/__tests__/test-utils'
 import { HealthPage } from '../HealthPage'
 import { apiGet, ApiError } from '../../../lib/api'
-import type { AuditEvent, AuditResponse, HealthResponse } from '../../../lib/types'
+import type { AuditEvent, AuditResponse, HealthResponse, JobFreshnessEntry } from '../../../lib/types'
 
 vi.mock('../../../lib/api', async () => {
   const actual = await vi.importActual<typeof import('../../../lib/api')>('../../../lib/api')
@@ -11,11 +11,18 @@ vi.mock('../../../lib/api', async () => {
 })
 const mockedApiGet = vi.mocked(apiGet)
 
+const freshJobs: JobFreshnessEntry[] = [
+  { jobKey: 'process_messages', timing: 'fresh', lastResult: 'completed', healthy: true, lastStartedAt: '2026-09-28T11:59:00Z', ageMinutes: 1, thresholdMinutes: 3, errorCategory: null },
+  { jobKey: 'sync_abandoned_checkouts', timing: 'fresh', lastResult: 'completed', healthy: true, lastStartedAt: '2026-09-28T11:40:00Z', ageMinutes: 20, thresholdMinutes: 45, errorCategory: null },
+  { jobKey: 'sync_boleto_expiring', timing: 'fresh', lastResult: 'completed', healthy: true, lastStartedAt: '2026-09-28T11:00:00Z', ageMinutes: 60, thresholdMinutes: 120, errorCategory: null },
+]
+
 const health: HealthResponse = {
   meta: { configured: true, latestEvidence: { createdAt: '2026-09-27T12:57:00Z', processed: true, hmacValid: true, error: null } },
   nuvemshop: { configured: true, latestEvidence: { createdAt: '2026-09-27T13:00:00Z', processed: false, hmacValid: true, error: 'order not found' } },
   recoveryEngine: { pending: 0, processing: 0, failed: 3, unknown: 0, oldestPending: null },
   inboxMirror: { failed: 0, latestSuccess: null },
+  jobFreshness: freshJobs,
   runtime: { cron: false, automationSend: true, remarketing: undefined },
 }
 function ev(over: Partial<AuditEvent>): AuditEvent {
@@ -35,6 +42,70 @@ describe('HealthPage', () => {
     expect(screen.getByText('Envio automático habilitado')).toBeInTheDocument()
     expect(screen.getByText('Remarketing: estado desconhecido')).toBeInTheDocument()
     expect(screen.getByText('Cron desabilitado').className).toContain('status-neutral')
+  })
+
+  it('jobs: em dia quando fresh, mesmo com cron interno desligado (não é incidente sozinho)', async () => {
+    mockedApiGet.mockResolvedValue(health)
+    renderWithProviders(<HealthPage />)
+    const card = (await screen.findByText('Jobs automáticos')).closest('article') as HTMLElement
+    expect(within(card).getByText('Em dia')).toBeInTheDocument()
+    expect(within(card).queryByText(/nunca executado|atrasado/)).not.toBeInTheDocument()
+  })
+
+  it('jobs: um job atrasado ou que nunca rodou acende atenção, independente do cron interno', async () => {
+    const stale: HealthResponse = {
+      ...health,
+      jobFreshness: [
+        { jobKey: 'process_messages', timing: 'stale', lastResult: 'completed', healthy: false, lastStartedAt: '2026-09-23T02:57:00Z', ageMinutes: 7500, thresholdMinutes: 3, errorCategory: null },
+        { jobKey: 'sync_abandoned_checkouts', timing: 'never_run', lastResult: null, healthy: false, lastStartedAt: null, ageMinutes: null, thresholdMinutes: 45, errorCategory: null },
+        { jobKey: 'sync_boleto_expiring', timing: 'fresh', lastResult: 'completed', healthy: true, lastStartedAt: '2026-09-28T11:00:00Z', ageMinutes: 60, thresholdMinutes: 120, errorCategory: null },
+      ],
+    }
+    mockedApiGet.mockResolvedValue(stale)
+    renderWithProviders(<HealthPage />)
+    const card = (await screen.findByText('Jobs automáticos')).closest('article') as HTMLElement
+    expect(within(card).getByText('Com pendência')).toBeInTheDocument()
+    expect(within(card).getByText(/Envio de mensagens atrasado/)).toBeInTheDocument()
+    expect(within(card).getByText(/Carrinho abandonado nunca executado/)).toBeInTheDocument()
+  })
+
+  it('jobs: fresh porém última execução falhou NÃO é "Em dia" e mostra só a categoria fechada', async () => {
+    const failed: HealthResponse = {
+      ...health,
+      jobFreshness: [
+        { jobKey: 'process_messages', timing: 'fresh', lastResult: 'failed', healthy: false, lastStartedAt: '2026-09-28T11:59:00Z', ageMinutes: 1, thresholdMinutes: 3, errorCategory: 'database_unreachable' },
+        { jobKey: 'sync_abandoned_checkouts', timing: 'fresh', lastResult: 'completed', healthy: true, lastStartedAt: '2026-09-28T11:40:00Z', ageMinutes: 20, thresholdMinutes: 45, errorCategory: null },
+        { jobKey: 'sync_boleto_expiring', timing: 'fresh', lastResult: 'completed', healthy: true, lastStartedAt: '2026-09-28T11:00:00Z', ageMinutes: 60, thresholdMinutes: 120, errorCategory: null },
+      ],
+    }
+    mockedApiGet.mockResolvedValue(failed)
+    renderWithProviders(<HealthPage />)
+    const card = (await screen.findByText('Jobs automáticos')).closest('article') as HTMLElement
+    expect(within(card).queryByText('Em dia')).not.toBeInTheDocument()
+    expect(within(card).getByText('Com pendência')).toBeInTheDocument()
+    expect(within(card).getByText(/Envio de mensagens falhou recentemente \(banco inacessível\)/)).toBeInTheDocument()
+  })
+
+  it('jobs: stale + failed → "falhou e está atrasado"', async () => {
+    const both: HealthResponse = {
+      ...health,
+      jobFreshness: [
+        { jobKey: 'process_messages', timing: 'stale', lastResult: 'failed', healthy: false, lastStartedAt: '2026-09-23T02:57:00Z', ageMinutes: 7500, thresholdMinutes: 3, errorCategory: 'upstream_timeout' },
+        ...freshJobs.slice(1),
+      ],
+    }
+    mockedApiGet.mockResolvedValue(both)
+    renderWithProviders(<HealthPage />)
+    const card = (await screen.findByText('Jobs automáticos')).closest('article') as HTMLElement
+    expect(within(card).getByText(/Envio de mensagens falhou e está atrasado \(tempo esgotado\)/)).toBeInTheDocument()
+  })
+
+  it('jobs: telemetria indisponível (null) nunca é apresentada como "Em dia"', async () => {
+    mockedApiGet.mockResolvedValue({ ...health, jobFreshness: null })
+    renderWithProviders(<HealthPage />)
+    const card = (await screen.findByText('Jobs automáticos')).closest('article') as HTMLElement
+    expect(within(card).getByText('Telemetria indisponível')).toBeInTheDocument()
+    expect(within(card).queryByText('Em dia')).not.toBeInTheDocument()
   })
 
   it('card por integração com estado, evidência, problema, impacto e ação', async () => {
