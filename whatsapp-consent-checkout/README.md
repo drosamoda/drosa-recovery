@@ -15,8 +15,17 @@ infere consentimento pelo silêncio do cliente.
    - "Quero receber atualizações sobre meu pedido da D'Rosa Moda pelo WhatsApp."
    - "Quero receber ofertas, novidades e lembretes de carrinho da D'Rosa Moda pelo WhatsApp."
 2. Guarda cada decisão de forma independente em `asyncSessionStorage`.
-3. Na página de sucesso, grava somente as decisões explícitas em
-   `order.extra`, preservando metadata de terceiros.
+3. **Ao marcar/desmarcar** cada checkbox (antes de o pedido ser concluído), despacha
+   `order:add:extra` com somente as decisões explícitas. A página de sucesso é tarde demais:
+   o pedido já foi criado e o webhook `order/created` já saiu com `extra={}` (comprovado no
+   pedido #4459). `order:add:extra` **substitui** o objeto inteiro, então o envio parte sempre de
+   `state.order.extra` atual, preservando metadata de terceiros (auditoria de 60 dias: 0 pedidos
+   com chaves estrangeiras em `extra`).
+4. Deduplicação por **estado da decisão** (não "um envio por instância"): mudar a decisão gera novo
+   envio; repetir a mesma não reenvia. Recarregar o mesmo checkout restaura e re-materializa.
+5. O id do carrinho é guardado junto da decisão; outro carrinho nunca herda a escolha anterior. No
+   sucesso, um fallback envia a última decisão e limpa a sessão.
+6. Silêncio nunca vira `revoked`: escopo não tocado não é enviado (backend trata como UNKNOWN).
 
 ### Marcador transactional
 
