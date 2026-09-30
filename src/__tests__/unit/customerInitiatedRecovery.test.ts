@@ -217,6 +217,12 @@ describe('job de processamento', () => {
     expect(JSON.stringify(mocks.logUpdate.mock.calls)).not.toMatch(/hunter2|token=secret/)
   })
 
+  it('sem consentimento de marketing NÃO bloqueia a resposta de atendimento (cliente iniciou a conversa)', async () => {
+    // nenhum mock de consentimento existe neste arquivo: se o job consultasse consentimento, quebraria
+    const r = await runProcessCustomerInitiatedRecovery()
+    expect(r.sent).toBe(1)
+  })
+
   it('nunca grava consentimento de marketing (a conversa não é opt-in)', async () => {
     await runProcessCustomerInitiatedRecovery()
     expect(mocks.customerFindFirst).toHaveBeenCalled() // só lê opt-out; não há nenhuma escrita em consentimento mockada

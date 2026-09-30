@@ -53,6 +53,9 @@ async function processOne(msg: { id: string; entityId: string; normalizedPhone: 
     prisma.customer.findFirst({ where: { normalizedPhone: msg.normalizedPhone }, select: { optOut: true } }),
     prisma.suppression.findUnique({ where: { normalizedPhone: msg.normalizedPhone }, select: { id: true } }),
   ])
+  // Semântica: optOut/suppression = a pessoa pediu para NÃO ser contatada (palavra-chave inbound tipo
+  // "parar") — sempre respeitado. Ausência de consentimento de MARKETING não bloqueia: a cliente iniciou
+  // a conversa e recebe atendimento contextual dentro da janela de 24h. Consentimento não é consultado aqui.
   if (customer?.optOut || suppression) return { kind: 'skipped', reason: 'opt_out' }
 
   if (!isWithinWhatsappCustomerCareWindow(conversation.lastInboundAt, now)) {
