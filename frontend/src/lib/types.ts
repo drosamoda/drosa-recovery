@@ -424,6 +424,8 @@ export interface EmailSegment {
   audienceCount: number
   withValidEmailCount: number
   sendEligibleCount: number | null
+  // Opt-in confirmado no ledger (e-mails válidos ≠ elegíveis por consentimento). null = ledger indisponível.
+  consentOptInCount?: number | null
   blockedCount: number
   eligibilityStatus: string
   dataQuality: { level: string; notes: string[] }

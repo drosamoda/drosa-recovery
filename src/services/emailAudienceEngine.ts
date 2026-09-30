@@ -95,6 +95,9 @@ export interface EmailIdentityRow {
   undatedPaidOrders: number
   recentAbandonedCart: boolean
   whatsappOptOut: boolean
+  // Opt-in confirmado no ledger (email_marketing_consents = OPT_IN). Só é preenchido pela
+  // leitura com ledger; ausente = não avaliado. NÃO é elegibilidade de envio.
+  consentOptIn?: boolean
 }
 
 export interface EmailBaseQuality {
@@ -121,6 +124,10 @@ export interface EmailSegmentSummary {
   withValidEmailCount: number | null
   // SEMPRE null enquanto EMAIL_MARKETING_CONSENT_SOURCE = NOT_CONFIGURED.
   sendEligibleCount: number | null
+  // Com opt-in confirmado no ledger e não suprimidos. null = ledger indisponível/não avaliado.
+  // Distinto de withValidEmailCount (bruto) e de sendEligibleCount (que exige também gate por
+  // destinatário, cooldown e consentimento ao vivo — nunca inferido aqui).
+  consentOptInCount: number | null
   // Excluídos por motivo COMPROVADO (e-mail inválido). Não inclui "sem
   // consentimento verificado" — isso é elegibilidade não validada, não bloqueio.
   blockedCount: number | null
@@ -155,6 +162,7 @@ export interface EmailAudienceSnapshot {
   generatedAt: string
   consentSource: 'NOT_CONFIGURED' | 'CONFIGURED'
   suppression: EmailSuppressionFilterInfo
+  consent: EmailConsentFilterInfo
   sendEligibility: 'NOT_READY' | 'READY'
   cooldownStatus: typeof EMAIL_COOLDOWN_STATUS
   base: EmailBaseQuality & { emailKnown: number; emailValid: number; emailInvalid: number; buyers: number; buyersWithUndatedOrders: number }
@@ -278,7 +286,10 @@ function emptyTrackBreakdown(): Record<EmailTrack, number> {
   return { CART_RECOVERY: 0, POST_PURCHASE: 0, SECOND_PURCHASE: 0, REPEAT_ACTIVE: 0, VIP_RELATIONSHIP: 0, REACTIVATION: 0, FIRST_PURCHASE: 0, GENERAL: 0 }
 }
 
-interface Accumulator { audience: number; valid: number; whatsappOptOut: number; timingUncertain: number; tracks: Record<EmailTrack, number> }
+export interface EmailConsentFilterInfo { status: 'APPLIED' | 'UNAVAILABLE' }
+const CONSENT_NOT_EVALUATED: EmailConsentFilterInfo = { status: 'UNAVAILABLE' }
+
+interface Accumulator { optIn: number; audience: number; valid: number; whatsappOptOut: number; timingUncertain: number; tracks: Record<EmailTrack, number> }
 
 // ── Snapshot puro: linhas por identidade → resumo de segmentos ────────────────────────────────
 
@@ -293,9 +304,10 @@ export function buildEmailAudienceSnapshot(
   quality: EmailBaseQuality,
   now: Date,
   suppression: EmailSuppressionFilterInfo = SUPPRESSION_NOT_EVALUATED,
+  consent: EmailConsentFilterInfo = CONSENT_NOT_EVALUATED,
 ): EmailAudienceSnapshot {
   const acc = new Map<EmailSegmentKey, Accumulator>()
-  for (const key of EMAIL_SEGMENT_KEYS) acc.set(key, { audience: 0, valid: 0, whatsappOptOut: 0, timingUncertain: 0, tracks: emptyTrackBreakdown() })
+  for (const key of EMAIL_SEGMENT_KEYS) acc.set(key, { optIn: 0, audience: 0, valid: 0, whatsappOptOut: 0, timingUncertain: 0, tracks: emptyTrackBreakdown() })
 
   let emailValid = 0
   let buyers = 0
@@ -318,6 +330,7 @@ export function buildEmailAudienceSnapshot(
       const a = acc.get(key) as Accumulator
       a.audience++
       if (row.validEmail) a.valid++
+      if (row.validEmail && row.consentOptIn === true) a.optIn++
       if (row.whatsappOptOut) a.whatsappOptOut++
       if (row.paidOrderCount > 0 && row.undatedPaidOrders > 0) a.timingUncertain++
       a.tracks[track]++
@@ -333,7 +346,7 @@ export function buildEmailAudienceSnapshot(
     if (NEEDS_DATA_SEGMENTS.has(key)) {
       return {
         segmentKey: key, name: meta.name, description: meta.description, objective: meta.objective, status: 'NEEDS_DATA' as const,
-        audienceCount: null, withValidEmailCount: null, sendEligibleCount: null, blockedCount: null,
+        audienceCount: null, withValidEmailCount: null, sendEligibleCount: null, consentOptInCount: null, blockedCount: null,
         eligibilityStatus: 'NEEDS_DATA' as const,
         dataQuality: { level: 'NEEDS_DATA' as const, notes: [meta.missingData ?? 'Dados necessários ainda não são coletados.'] },
         lastPurchaseRange: meta.lastPurchaseRange, priority: meta.priority, recommendedCooldownDays: meta.recommendedCooldownDays,
@@ -357,6 +370,7 @@ export function buildEmailAudienceSnapshot(
       // passa a existir quando a regra de elegibilidade for implementada junto
       // dela — não é inferido aqui.
       sendEligibleCount: null,
+      consentOptInCount: consent.status === 'APPLIED' ? a.optIn : null,
       blockedCount: invalidEmail,
       eligibilityStatus: consentConfigured ? 'ELIGIBLE_VERIFIED' as const : 'EMAIL_CONSENT_SOURCE_NOT_CONFIGURED' as const,
       dataQuality: { level: notes.length ? 'PARTIAL' as const : 'OK' as const, notes },
@@ -369,6 +383,7 @@ export function buildEmailAudienceSnapshot(
     generatedAt: now.toISOString(),
     consentSource: EMAIL_MARKETING_CONSENT_SOURCE,
     suppression: { ...suppression },
+    consent: { ...consent },
     sendEligibility: consentConfigured ? 'READY' : 'NOT_READY',
     cooldownStatus: EMAIL_COOLDOWN_STATUS,
     base: { ...quality, emailKnown: rows.length, emailValid, emailInvalid: rows.length - emailValid, buyers, buyersWithUndatedOrders },
@@ -512,6 +527,8 @@ export interface SuppressionFilterDeps {
   // Todos os hashes suprimidos numa consulta só (a lista é ordens de grandeza menor
   // que a base; reavaliar com paginação se passar de ~100 mil linhas).
   loadSuppressedHashes: () => Promise<Set<string>>
+  // Hashes com OPT_IN no ledger. Opcional: sem ele a leitura é a de sempre (sem contagem de consentimento).
+  loadOptInHashes?: () => Promise<Set<string>>
   queryRows: (now: Date) => Promise<EmailIdentityRow[]>
   queryRowsWithEmail: (now: Date) => Promise<EmailIdentityRowWithEmail[]>
   // null = e-mail inválido (nunca foi suprimido, pois só e-mail válido gera hash).
@@ -522,6 +539,10 @@ const defaultSuppressionDeps: SuppressionFilterDeps = {
   pepperConfigured: () => env.EMAIL_HASH_PEPPER.length >= EMAIL_HASH_PEPPER_MIN_LENGTH,
   loadSuppressedHashes: async () => {
     const found = await prisma.emailSuppression.findMany({ select: { emailHash: true } })
+    return new Set(found.map(row => row.emailHash))
+  },
+  loadOptInHashes: async () => {
+    const found = await prisma.emailMarketingConsent.findMany({ where: { status: 'OPT_IN' }, select: { emailHash: true } })
     return new Set(found.map(row => row.emailHash))
   },
   queryRows: queryEmailIdentityRows,
@@ -539,6 +560,7 @@ const defaultSuppressionDeps: SuppressionFilterDeps = {
 export interface IdentityRowsResult {
   rows: EmailIdentityRow[]
   suppression: EmailSuppressionFilterInfo
+  consent: EmailConsentFilterInfo
 }
 
 function unavailable(reason: EmailSuppressionFilterReason): EmailSuppressionFilterInfo {
@@ -554,7 +576,7 @@ export async function loadEmailIdentityRowsExcludingSuppressed(
   deps: SuppressionFilterDeps = defaultSuppressionDeps,
 ): Promise<IdentityRowsResult> {
   if (!deps.pepperConfigured()) {
-    return { rows: await deps.queryRows(now), suppression: unavailable('PEPPER_NOT_CONFIGURED') }
+    return { rows: await deps.queryRows(now), suppression: unavailable('PEPPER_NOT_CONFIGURED'), consent: CONSENT_NOT_EVALUATED }
   }
 
   let suppressed: Set<string>
@@ -563,12 +585,23 @@ export async function loadEmailIdentityRowsExcludingSuppressed(
   } catch {
     // Tabela ainda não migrada, banco sem permissão ou falha de rede: só o filtro
     // degrada. A causa não vai adiante de propósito (pode carregar detalhe do banco).
-    return { rows: await deps.queryRows(now), suppression: unavailable('LOOKUP_FAILED') }
+    return { rows: await deps.queryRows(now), suppression: unavailable('LOOKUP_FAILED'), consent: CONSENT_NOT_EVALUATED }
   }
 
-  // Lista vazia: nada a excluir, então o e-mail nem precisa sair do banco.
-  if (suppressed.size === 0) {
-    return { rows: await deps.queryRows(now), suppression: { status: 'APPLIED', excludedCount: 0, reason: null } }
+  // Ledger de consentimento (opcional): só marca cada linha; falha degrada só a contagem.
+  let optIn: Set<string> | null = null
+  if (deps.loadOptInHashes) {
+    try {
+      optIn = await deps.loadOptInHashes()
+    } catch {
+      optIn = null
+    }
+  }
+  const consent: EmailConsentFilterInfo = optIn ? { status: 'APPLIED' } : CONSENT_NOT_EVALUATED
+
+  // Nada a excluir e nada a marcar: o e-mail nem precisa sair do banco.
+  if (suppressed.size === 0 && optIn === null) {
+    return { rows: await deps.queryRows(now), suppression: { status: 'APPLIED', excludedCount: 0, reason: null }, consent }
   }
 
   const identities = await deps.queryRowsWithEmail(now)
@@ -578,13 +611,13 @@ export async function loadEmailIdentityRowsExcludingSuppressed(
     for (const identity of identities) {
       const hash = deps.hash(identity.email)
       if (hash !== null && suppressed.has(hash)) excluded++
-      else kept.push(identity)
+      else kept.push(optIn ? { ...identity, consentOptIn: hash !== null && optIn.has(hash) } : identity)
     }
   } catch {
     // Falha ao calcular o hash no meio do lote: não usa um filtro pela metade.
-    return { rows: withoutEmail(identities), suppression: unavailable('LOOKUP_FAILED') }
+    return { rows: withoutEmail(identities.map(({ ...r }) => { delete r.consentOptIn; return r })), suppression: unavailable('LOOKUP_FAILED'), consent: CONSENT_NOT_EVALUATED }
   }
-  return { rows: withoutEmail(kept), suppression: { status: 'APPLIED', excludedCount: excluded, reason: null } }
+  return { rows: withoutEmail(kept), suppression: { status: 'APPLIED', excludedCount: excluded, reason: null }, consent }
 }
 
 export interface EmailSegmentRecipient {
@@ -646,9 +679,9 @@ export async function getEmailAudienceSnapshot(options: { now?: Date; force?: bo
   const run = (async () => {
     const now = options.now ?? new Date()
     // Sequencial de propósito (não Promise.all): connection_limit=2 no Preview.
-    const { rows, suppression } = await loadEmailIdentityRowsExcludingSuppressed(now)
+    const { rows, suppression, consent } = await loadEmailIdentityRowsExcludingSuppressed(now)
     const quality = await queryEmailBaseQuality()
-    return buildEmailAudienceSnapshot(rows, quality, now, suppression)
+    return buildEmailAudienceSnapshot(rows, quality, now, suppression, consent)
   })()
   if (!useCache) return run
   inflight = run
