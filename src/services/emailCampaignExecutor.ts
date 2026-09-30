@@ -14,7 +14,7 @@ import { getEmailProviderAdapter } from './emailProviderFactory'
 import { hashEmail } from './emailConsentService'
 import { refreshEmailConsentFromNuvemshop } from './emailLiveConsentService'
 import {
-  reserveEmailSend,
+  reserveEmailSendWithinCap,
   type EmailSendReservation,
 } from './emailTrackingService'
 import {
@@ -44,7 +44,8 @@ export interface EmailCampaignExecutorDeps {
   refreshRecipientConsent: (email: string) => Promise<boolean>
   evaluateRecipient: (email: string) => Promise<EmailRecipientGateResult>
   hashRecipient: (email: string) => string
-  reserveSend: (input: { emailHash: string; campaignKey: string; wave?: string }) => Promise<EmailSendReservation>
+  // null = cap do piloto atingido (decisão atômica no banco); nada foi reservado.
+  reserveSend: (input: { emailHash: string; campaignKey: string; wave?: string }, maxTotal: number) => Promise<EmailSendReservation | null>
   dispatch: (message: OutboundEmail) => Promise<EmailSendResult>
   issueHeaders: (email: string, options: { sendId: string }) => Record<string, string>
   resolveCtaUrl: (recipient: ExecutorRecipient, segmentKey: EmailSegmentKey) => Promise<string | null>
@@ -217,7 +218,7 @@ function defaultDeps(adapter: EmailProviderAdapter): EmailCampaignExecutorDeps {
     refreshRecipientConsent: async (email) => (await refreshEmailConsentFromNuvemshop(email)).ok,
     evaluateRecipient: (email) => evaluateEmailRecipientGate(email),
     hashRecipient: (email) => hashEmail(email),
-    reserveSend: (input) => reserveEmailSend(input),
+    reserveSend: (input, maxTotal) => reserveEmailSendWithinCap(input, maxTotal),
     dispatch: (message) => sendEmailThroughGate(adapter, message),
     issueHeaders: (email, options) => issueUnsubscribeHeaders(email, options),
     resolveCtaUrl: defaultResolveCtaUrl,
@@ -325,7 +326,14 @@ export async function processEmailCampaignDraft(
       emailHash: deps.hashRecipient(recipient.email),
       campaignKey,
       wave: '1',
-    })
+    }, options.maxTotalSends)
+
+    if (reservation === null) {
+      // Outro worker (ou execução anterior) já consumiu o cap: para sem enviar.
+      state.hasMore = true
+      state.pilotCapReached = true
+      break
+    }
 
     if (reservation.status !== 'QUEUED') {
       state.alreadyProcessed++

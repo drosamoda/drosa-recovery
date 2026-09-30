@@ -35,8 +35,9 @@ function statefulDeps(opts: { recipients: number; failEvery?: number; gate?: (em
     refreshRecipientConsent: vi.fn().mockResolvedValue(true),
     evaluateRecipient: vi.fn(async (email: string) => opts.gate?.(email) ?? allowed),
     hashRecipient: vi.fn((email: string) => email),
-    reserveSend: vi.fn(async ({ emailHash }: { emailHash: string }): Promise<EmailSendReservation> => {
+    reserveSend: vi.fn(async ({ emailHash }: { emailHash: string }, maxTotal: number): Promise<EmailSendReservation | null> => {
       if (reservations.has(emailHash)) return { sendId: `s_${emailHash}`, sendKey: emailHash, status: 'SENT', created: false }
+      if (reservations.size >= maxTotal) return null
       reservations.add(emailHash)
       return { sendId: `s_${emailHash}`, sendKey: emailHash, status: 'QUEUED', created: true }
     }),
