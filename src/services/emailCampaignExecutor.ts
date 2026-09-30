@@ -292,9 +292,11 @@ export async function processEmailCampaignDraft(
   let processedThisRun = 0
 
   for (const recipient of recipients) {
-    if (processedThisRun >= options.batchSize || alreadySentTotal + state.sent >= options.maxTotalSends) {
+    // O cap conta RESERVAS (toda tentativa de envio), não só sucessos: uma falha no
+    // provedor também expõe o destinatário e nunca pode deixar o piloto passar do limite.
+    if (processedThisRun >= options.batchSize || alreadySentTotal + processedThisRun >= options.maxTotalSends) {
       state.hasMore = true
-      state.pilotCapReached = alreadySentTotal + state.sent >= options.maxTotalSends
+      state.pilotCapReached = alreadySentTotal + processedThisRun >= options.maxTotalSends
       break
     }
 
